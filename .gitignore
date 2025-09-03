@@ -1,1 +1,7 @@
 /target
+log/
+log/*
+log/**
+test/
+test/*
+test/**
