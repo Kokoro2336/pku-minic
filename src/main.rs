@@ -12,7 +12,7 @@ mod koopa_ir;
 mod util;
 use crate::ast::CompUnit;
 use crate::koopa_ir::{ast2koopa_ir, Program};
-use crate::util::redirect_stderr;
+use crate::util::{redirect_stderr, get_abs_path};
 
 // 引用 lalrpop 生成的解析器
 // 因为我们刚刚创建了 sysy.lalrpop, 所以模块名是 sysy
@@ -35,18 +35,36 @@ struct Cli {
 }
 
 fn main() -> Result<()> {
-  let cli = Cli::parse();
+  // preprocess argv so single-dash long-style `-koopa` becomes `--koopa`
+  let args = std::env::args_os().enumerate().map(|(i, a)| {
+    if i == 0 { return a; }
+    if let Some(s) = a.to_str() {
+      if s.starts_with('-') && !s.starts_with("--") && &s[1..] == "koopa" {
+        return std::ffi::OsString::from(format!("--{}", &s[1..]));
+      }
+    }
+    a
+  }).collect::<Vec<_>>();
+
+  let cli = Cli::parse_from(args);
+
   let input = cli.input;
   let output = cli.output;
-
-  let log_path = Path::new("..").join("log").join(("sys_compiler".to_string() + &Local::now().format("%Y-%m-%d-%-H-%-M-%-S").to_string() + ".log"));
-  redirect_stderr(log_path.to_str().unwrap())?;
 
   // 读取输入文件
   let input = read_to_string(input)?;
 
   // 调用 lalrpop 生成的 parser 解析输入文件
-  let ast: CompUnit = sysy::CompUnitParser::new().parse(&input).unwrap();
+  let result = sysy::CompUnitParser::new().parse(&input);
+  let ast: CompUnit;
+  match result {
+    Ok(ast_result) => {
+      ast = ast_result;
+    }
+    Err(e) => {
+      panic!("Error during parsing: {:?}", e);
+    }
+  }
 
   let koopa_ir: Option<Program> = if cli.koopa {
     // generate Koopa IR

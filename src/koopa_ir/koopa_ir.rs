@@ -33,9 +33,9 @@ impl std::fmt::Debug for Program {
                 func.name,
                 func.get_params_str(),
                 func.func_type
-            );
-            writeln!(f, "{:#?}", func.basic_block);
-            writeln!(f, "}}");
+            )?;
+            writeln!(f, "{:#?}", func.basic_block)?;
+            writeln!(f, "}}")?;
         }
         Ok(())
     }
@@ -111,15 +111,15 @@ impl BasicBlock {
         // only process return stmt temporarily
         let return_val: i32 = stmt.return_val;
         self.inst_list
-            .push(Inst::new("return".to_string(), vec![return_val]));
+            .push(Inst::new("ret".to_string(), vec![return_val]));
     }
 }
 
 impl std::fmt::Debug for BasicBlock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "%entry: ");
+        writeln!(f, "%entry: ")?;
         for inst in &self.inst_list {
-            writeln!(f, "    {}", inst);
+            writeln!(f, "    {}", inst)?;
         }
         Ok(())
     }
