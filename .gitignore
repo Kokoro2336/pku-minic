@@ -5,3 +5,6 @@ log/**
 test/
 test/*
 test/**
+.vscode/
+.vscode/*
+.vscode/**
