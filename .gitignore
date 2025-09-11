@@ -8,3 +8,4 @@ test/**
 .vscode/
 .vscode/*
 .vscode/**
+.bash_history
