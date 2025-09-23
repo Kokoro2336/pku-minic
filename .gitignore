@@ -5,7 +5,11 @@ log/**
 test/
 test/*
 test/**
+testcases/
+testcases/*
+testcases/**
 .vscode/
 .vscode/*
 .vscode/**
 .bash_history
+gdb_log.txt

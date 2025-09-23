@@ -1,4 +1,6 @@
 use crate::ast::*;
+use crate::ast::Block;
+use crate::config::ValueType;
 // lalrpop 里的约定
 grammar;
 
@@ -18,21 +20,21 @@ pub CompUnit: CompUnit = <func_def: FuncDef> => CompUnit { <> };
 
 // 同上, 不解释
 FuncDef: FuncDef = {
-  <func_type: FuncType> <ident: Ident> "(" ")" <block: Block> => {
+  <func_type: ValueType> <ident: Ident> "(" ")" <block: Block> => {
     // construct FuncDef struct, using shorthand <> to pass all named fields
     FuncDef { <> }
   }
-}
-
-FuncType: FuncType = <func_type: "int"> => FuncType { 
-  func_type: func_type.to_string()
 };
 
-Block: Block = "{" <stmt: Stmt> "}" => Block { <> };
+ValueType: ValueType = <func_type: "int"> => {
+  ValueType::from_str(&func_type)
+};
+
+Block: Block = "{" <stmt: Stmt> "}" => Block { stmt };
 
 Stmt: Stmt = {
   "return" <return_val: Number> ";" => Stmt { <> }
-}
+};
 
 Number: i32 = <num: IntConst> => <>;
 
@@ -48,4 +50,4 @@ IntConst: i32 = {
   r"[1-9][0-9]*" => i32::from_str_radix(<>, 10).unwrap(),
   r"0[0-7]*" => i32::from_str_radix(<>, 8).unwrap(),
   r"0[xX][0-9a-fA-F]+" => i32::from_str_radix(&<>[2..], 16).unwrap(),
-}
+};

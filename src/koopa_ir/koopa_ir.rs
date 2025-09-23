@@ -1,9 +1,14 @@
 use crate::ast::*;
-use crate::config::KOOPA_TYPE_MAP;
+use crate::config::ValueType;
+use crate::koopa_ir::config::KoopaOpCode;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::{Rc, Weak};
 
+#[derive(Clone)]
 pub struct Program {
-    pub global_vals: Vec<GlobalVal>,
-    pub funcs: Vec<Func>,
+    pub global_vals: Vec<KoopaGlobalVal>,
+    pub funcs: Vec<Rc<RefCell<Func>>>,
 }
 
 impl Program {
@@ -14,41 +19,63 @@ impl Program {
         }
     }
 
-    pub fn push_global_val(&mut self, global_val: GlobalVal) {
+    pub fn push_global_val(&mut self, global_val: KoopaGlobalVal) {
         self.global_vals.push(global_val);
     }
 
-    pub fn push_func(&mut self, func: Func) {
+    pub fn push_func(&mut self, func: Rc<RefCell<Func>>) {
         self.funcs.push(func);
     }
 }
 
 // customize formatting for Program
-impl std::fmt::Debug for Program {
+impl std::fmt::Display for Program {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for func in &self.funcs {
-            writeln!(
-                f,
-                "fun @{}({}): {} {{",
-                func.name,
-                func.get_params_str(),
-                func.func_type
-            )?;
-            writeln!(f, "{:#?}", func.basic_block)?;
-            writeln!(f, "}}")?;
+            writeln!(f, "{}", func.borrow())?;
         }
         Ok(())
     }
 }
 
-pub struct GlobalVal {
+pub struct DataFlowGraph {
+    next_inst_id: InstId,
+    pub inst_map: HashMap<InstId, InstData>,
+}
+
+impl DataFlowGraph {
+    pub fn new() -> Self {
+        Self {
+            next_inst_id: 0,
+            inst_map: HashMap::new(),
+        }
+    }
+
+    pub fn insert_inst(&mut self, inst: InstData) -> InstId {
+        let inst_id = self.next_inst_id;
+        self.inst_map.insert(inst_id, inst);
+        self.next_inst_id += 1;
+        inst_id
+    }
+
+    pub fn get_inst(&self, inst_id: &InstId) -> Option<&InstData> {
+        self.inst_map.get(inst_id)
+    }
+
+    fn get_next_inst_id(&self) -> InstId {
+        self.next_inst_id
+    }
+}
+
+#[derive(Clone)]
+pub struct KoopaGlobalVal {
     pub name: String,
-    pub val_type: String,
+    pub val_type: ValueType,
     pub val: i32,
 }
 
-impl GlobalVal {
-    pub fn new(name: String, val_type: String, val: i32) -> Self {
+impl KoopaGlobalVal {
+    pub fn new(name: String, val_type: ValueType, val: i32) -> Self {
         Self {
             name,
             val_type,
@@ -57,30 +84,44 @@ impl GlobalVal {
     }
 }
 
+#[derive(Clone)]
 pub struct Func {
     pub name: String,
-    pub func_type: FuncType,
+    pub func_type: ValueType,
     pub params: Vec<Param>,
-    pub basic_block: BasicBlock,
+    pub dfg: Rc<RefCell<DataFlowGraph>>,
+    pub basic_blocks: Vec<Rc<BasicBlock>>,
+}
+
+impl std::fmt::Display for Func {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "fun @{}({}): {} {{",
+            self.name,
+            self.get_params_str(),
+            self.func_type
+        )?;
+        for block in &self.basic_blocks {
+            writeln!(f, "{}", block)?;
+        }
+        writeln!(f, "}}")
+    }
 }
 
 impl Func {
-    pub fn new(
-        name: String,
-        func_type: FuncType,
-        params: Vec<Param>,
-        basic_block: BasicBlock,
-    ) -> Self {
+    pub fn new(name: String, func_type: ValueType, params: Vec<Param>) -> Self {
         Self {
             name,
             func_type,
             params,
-            basic_block,
+            dfg: Rc::new(RefCell::new(DataFlowGraph::new())),
+            basic_blocks: vec![],
         }
     }
 
     pub fn push_basic_block(&mut self, block: BasicBlock) {
-        self.basic_block = block;
+        self.basic_blocks.push(Rc::new(block));
     }
 
     pub fn get_params_str(&self) -> String {
@@ -92,52 +133,96 @@ impl Func {
     }
 }
 
+#[derive(Clone)]
 pub struct Param {
     pub name: String,
-    pub param_type: String,
+    pub param_type: ValueType,
 }
 
 #[derive(Clone)]
 pub struct BasicBlock {
-    pub inst_list: Vec<Inst>,
+    pub inst_list: Vec<InstId>,
+    func: Weak<RefCell<Func>>,
 }
 
 impl BasicBlock {
-    pub fn new() -> Self {
-        Self { inst_list: vec![] }
+    pub fn new(func: &Rc<RefCell<Func>>) -> Self {
+        Self {
+            inst_list: vec![],
+            func: Rc::downgrade(func),
+        }
     }
 
     pub fn push_stmt(&mut self, stmt: Stmt) {
         // only process return stmt temporarily
         let return_val: i32 = stmt.return_val;
-        self.inst_list
-            .push(Inst::new("ret".to_string(), vec![return_val]));
+        let func_rc = self.func.upgrade().unwrap();
+        let func_rc_immut = func_rc.borrow();
+        let mut dfg = func_rc_immut.dfg.as_ref().borrow_mut();
+        let inst_id = dfg.insert_inst(InstData::new(
+            "ret".to_string(),
+            vec![Operand::Const(return_val)],
+        ));
+        self.inst_list.push(inst_id);
+    }
+
+    pub fn get_inst(&self, inst_id: &InstId) -> Option<InstData> {
+        let func_rc = self.func.upgrade().unwrap();
+        let func_rc_immut = func_rc.borrow();
+        let dfg = func_rc_immut.dfg.as_ref().borrow();
+        dfg.get_inst(inst_id).cloned()
     }
 }
 
-impl std::fmt::Debug for BasicBlock {
+impl std::fmt::Display for BasicBlock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "%entry: ")?;
         for inst in &self.inst_list {
-            writeln!(f, "    {}", inst)?;
+            let inst_data = self.get_inst(inst).unwrap();
+            writeln!(f, "  {}", inst_data)?;
         }
         Ok(())
     }
 }
 
+/// instruction id for DFG
+pub type InstId = u32;
+
 #[derive(Clone)]
-pub struct Inst {
-    pub opcode: String,
-    pub operands: Vec<i32>,
+pub enum Operand {
+    InstId(InstId), // maybe the operand refers to another instruction's result
+    Const(i32),     // maybe the operand is a constant value
 }
 
-impl Inst {
-    pub fn new(opcode: String, operands: Vec<i32>) -> Self {
-        Self { opcode, operands }
+impl Operand {
+    pub fn to_string(&self) -> String {
+        match self {
+            Operand::InstId(id) => format!("%{}", id),
+            Operand::Const(c) => format!("{}", c),
+        }
     }
 }
 
-impl std::fmt::Display for Inst {
+#[derive(Clone)]
+pub struct InstData {
+    pub opcode: KoopaOpCode,
+    pub operands: Vec<Operand>,
+    pub users: Vec<InstId>, // instructions that use this instruction's result
+}
+
+impl InstData {
+    pub fn new(opcode: String, operands: Vec<Operand>) -> Self {
+        // TODO: find the users of the inst
+
+        Self {
+            opcode: KoopaOpCode::get_opcode(&opcode),
+            operands,
+            users: vec![],
+        }
+    }
+}
+
+impl std::fmt::Display for InstData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let operands_str = self
             .operands
@@ -155,21 +240,25 @@ pub fn ast2koopa_ir(ast: &CompUnit) -> Result<Program, Box<dyn std::error::Error
 
     // get func type and ident
     let func_def = &ast.func_def;
-    let func_type = KOOPA_TYPE_MAP
-        .get(func_def.func_type.func_type.as_str())
-        .unwrap();
+    let func_type = &func_def.func_type;
     let func_name = func_def.ident.clone();
+
+    let func = Rc::new(RefCell::new(Func::new(
+        func_name,
+        func_type.clone(),
+        vec![],
+    )));
 
     // processing block
     let block = &func_def.block;
-    let mut basic_block = BasicBlock::new();
+    let mut basic_block = BasicBlock::new(&Rc::clone(&func));
     basic_block.push_stmt(block.stmt.clone());
 
-    let mut func = Func::new(func_name, FuncType::new(func_type.clone()), vec![], basic_block.clone());
-    func.push_basic_block(basic_block);
+    let mut func_mut = func.borrow_mut();
+    func_mut.push_basic_block(basic_block);
 
     // construct Program and return
     let mut program = Program::new();
-    program.push_func(func);
+    program.push_func(Rc::clone(&func));
     Ok(program)
 }
