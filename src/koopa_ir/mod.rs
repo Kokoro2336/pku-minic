@@ -3,3 +3,4 @@
  */
 pub mod koopa_ir;
 pub mod config;
+pub mod stmt_parser;

@@ -1,6 +1,7 @@
 use crate::ast::*;
 use crate::ast::Block;
 use crate::config::ValueType;
+
 // lalrpop 里的约定
 grammar;
 
@@ -26,26 +27,131 @@ FuncDef: FuncDef = {
   }
 };
 
-ValueType: ValueType = <func_type: "int"> => {
-  ValueType::from_str(&func_type)
+ValueType: ValueType = {
+  "int" => ValueType::INT,
+  "void" => ValueType::VOID,
 };
 
 Block: Block = "{" <stmt: Stmt> "}" => Block { stmt };
 
 Stmt: Stmt = {
-  "return" <return_val: Number> ";" => Stmt { <> }
+  "return" <exp: Exp> ";" => Stmt { exp: Some(exp) }
+};
+
+// The priority of MulExp is higher than AddExp, so we should parse AddExp first, 
+// which makes MulExp processed before AddExp in stmt_parser.
+Exp: Exp = { 
+  <lor_exp: LOrExp> => Exp::LOrExp { lor_exp: Box::new(lor_exp) },
+};
+
+// the match items in the block must follow the priority strictly
+LOrExp: LOrExp = {
+  <lor_exp: LOrExp> <lor_op: LOrOp> <land_exp: LAndExp> => LOrExp::LOrExp { 
+    lor_exp: Box::new(lor_exp), 
+    lor_op, 
+    land_exp: Box::new(land_exp) 
+  },
+  <land_exp: LAndExp> => LOrExp::LAndExp { land_exp: Box::new(land_exp) },
+};
+
+LAndExp: LAndExp = {
+  <land_exp: LAndExp> <land_op: LAndOp> <eq_exp: EqExp> => LAndExp::LAndExp { 
+    land_exp: Box::new(land_exp), 
+    land_op, 
+    eq_exp: Box::new(eq_exp) 
+  },
+  <eq_exp: EqExp> => LAndExp::EqExp { eq_exp: Box::new(eq_exp) },
+};
+
+EqExp: EqExp = {
+  <eq_exp: EqExp> <eq_op: EqOp> <rel_exp: RelExp> => EqExp::EqExp { 
+    eq_exp: Box::new(eq_exp), 
+    eq_op, 
+    rel_exp: Box::new(rel_exp) 
+  },
+  <rel_exp: RelExp> => EqExp::RelExp { rel_exp: Box::new(rel_exp) },
+};
+
+RelExp: RelExp = {
+  <rel_exp: RelExp> <rel_op: RelOp> <add_exp: AddExp> => RelExp::RelExp { 
+    rel_exp: Box::new(rel_exp), 
+    rel_op, 
+    add_exp: Box::new(add_exp) 
+  },
+  <add_exp: AddExp> => RelExp::AddExp { add_exp: Box::new(add_exp) },
+};
+
+UnaryExp: UnaryExp = {
+  <unary_op: UnaryOp> <unary_exp: UnaryExp> => UnaryExp::UnaryExp { unary_op: unary_op, unary_exp: Box::new(unary_exp) },
+  <primary_exp: PrimaryExp> => UnaryExp::PrimaryExp { exp: Box::new(primary_exp) },
+};
+
+AddExp: AddExp = {
+  <add_exp: AddExp> <add_op: AddOp> <mul_exp: MulExp> => AddExp::AddExp { 
+    add_exp: Box::new(add_exp), 
+    add_op, 
+    mul_exp: Box::new(mul_exp) 
+  },
+  <mul_exp: MulExp> => AddExp::MulExp { mul_exp: Box::new(mul_exp) },
+};
+
+MulExp: MulExp = {
+  <mul_exp: MulExp> <mul_op: MulOp> <unary_exp: UnaryExp> => MulExp::MulExp { 
+    mul_exp: Box::new(mul_exp), 
+    mul_op, 
+    unary_exp: Box::new(unary_exp) 
+  },
+  <unary_exp: UnaryExp> => MulExp::UnaryExp { unary_exp: Box::new(unary_exp) },
+};
+
+PrimaryExp: PrimaryExp = {
+  "(" <exp: Exp> ")" => PrimaryExp::Exp { exp: Box::new(exp) },
+  <num: Number> => PrimaryExp::Number { value: num },
+};
+
+LOrOp: LOrOp = {
+  "||" => LOrOp::Or,
+};
+
+LAndOp: LAndOp = {
+  "&&" => LAndOp::And,
+};
+
+EqOp: EqOp = {
+  "==" => EqOp::Eq,
+  "!=" => EqOp::Ne,
+};
+
+RelOp: RelOp = {
+  "<" => RelOp::Lt,
+  "<=" => RelOp::Le,
+  ">" => RelOp::Gt,
+  ">=" => RelOp::Ge,
+};
+
+UnaryOp: UnaryOp = {
+  r"\+" => UnaryOp::Plus,
+  r"-" => UnaryOp::Minus,
+  r"!" => UnaryOp::Not,
+};
+
+MulOp: MulOp = {
+  r"\*" => MulOp::Mul,
+  r"/" => MulOp::Div,
+  r"%" => MulOp::Mod,
+};
+
+AddOp: AddOp = {
+  r"\+" => AddOp::Add,
+  r"-" => AddOp::Sub,
 };
 
 Number: i32 = <num: IntConst> => <>;
 
-// 如果匹配到标识符, 就返回这个字符串
-// 一对尖括号在此处指代的是正则表达式匹配到的字符串 (&str)
-// 关于尖括号到底代表什么, 请 RTFM
 Ident: String = <s: r"[_a-zA-Z][_a-zA-Z0-9]*"> => {
   s.to_string()
 };
 
-// 对整数字面量的处理方式: 把匹配到的字符串按对应进制转换成数字
 IntConst: i32 = {
   r"[1-9][0-9]*" => i32::from_str_radix(<>, 10).unwrap(),
   r"0[0-7]*" => i32::from_str_radix(<>, 8).unwrap(),

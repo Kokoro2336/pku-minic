@@ -1,6 +1,8 @@
+use crate::asm::config::RVRegCode;
 use crate::ast::*;
 use crate::config::ValueType;
 use crate::koopa_ir::config::KoopaOpCode;
+use crate::koopa_ir::stmt_parser::{parse_exp, ParseResult};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
@@ -60,6 +62,22 @@ impl DataFlowGraph {
 
     pub fn get_inst(&self, inst_id: &InstId) -> Option<&InstData> {
         self.inst_map.get(inst_id)
+    }
+
+    pub fn set_reg_none(&mut self, inst_id: InstId) {
+        if let Some(inst) = self.inst_map.get_mut(&inst_id) {
+            inst.reg_used = None;
+        } else {
+            panic!("Instruction not found for inst_id {:?}", inst_id);
+        }
+    }
+
+    pub fn set_reg(&mut self, inst_id: &InstId, reg: Option<RVRegCode>)  {
+        if let Some(inst) = self.inst_map.get_mut(&*inst_id) {
+            inst.reg_used = reg;
+        } else {
+            panic!("Instruction not found for inst_id {:?}", inst_id);
+        }
     }
 
     fn get_next_inst_id(&self) -> InstId {
@@ -154,32 +172,49 @@ impl BasicBlock {
     }
 
     pub fn push_stmt(&mut self, stmt: Stmt) {
-        // only process return stmt temporarily
-        let return_val: i32 = stmt.return_val;
         let func_rc = self.func.upgrade().unwrap();
         let func_rc_immut = func_rc.borrow();
         let mut dfg = func_rc_immut.dfg.as_ref().borrow_mut();
-        let inst_id = dfg.insert_inst(InstData::new(
-            "ret".to_string(),
-            vec![Operand::Const(return_val)],
-        ));
-        self.inst_list.push(inst_id);
-    }
+        let inst_list = &mut self.inst_list;
 
-    pub fn get_inst(&self, inst_id: &InstId) -> Option<InstData> {
-        let func_rc = self.func.upgrade().unwrap();
-        let func_rc_immut = func_rc.borrow();
-        let dfg = func_rc_immut.dfg.as_ref().borrow();
-        dfg.get_inst(inst_id).cloned()
+        let parse_result = parse_exp(inst_list, &mut dfg, stmt.exp.as_ref().unwrap());
+        match parse_result {
+            ParseResult::InstId(prev_id) => {
+                let inst_id = dfg.insert_inst(InstData::new(
+                    KoopaOpCode::RET,
+                    vec![Operand::InstId(prev_id)],
+                ));
+                inst_list.push(InstId::from(inst_id));
+            }
+            ParseResult::Const(number) => {
+                let inst_id = dfg.insert_inst(InstData::new(
+                    KoopaOpCode::RET,
+                    vec![Operand::Const(number)],
+                ));
+                inst_list.push(inst_id);
+            }
+        }
     }
 }
 
 impl std::fmt::Display for BasicBlock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "%entry: ")?;
+
+        let func_rc = self.func.upgrade().unwrap();
+        let func_rc_immut = func_rc.borrow();
+        let dfg = func_rc_immut.dfg.as_ref().borrow();
         for inst in &self.inst_list {
-            let inst_data = self.get_inst(inst).unwrap();
-            writeln!(f, "  {}", inst_data)?;
+            let inst_data = dfg.get_inst(inst).unwrap();
+            match inst_data.opcode {
+                KoopaOpCode::RET => {
+                    writeln!(f, "  ret {}", inst_data.operands[0].to_string())?;
+                    continue;
+                }
+                _ => {
+                    writeln!(f, "  %{} = {}", inst, inst_data)?;
+                }
+            }
         }
         Ok(())
     }
@@ -195,6 +230,13 @@ pub enum Operand {
 }
 
 impl Operand {
+    pub fn from_parse_result(parse_result: ParseResult) -> Self {
+        match parse_result {
+            ParseResult::InstId(id) => Operand::InstId(id),
+            ParseResult::Const(c) => Operand::Const(c),
+        }
+    }
+
     pub fn to_string(&self) -> String {
         match self {
             Operand::InstId(id) => format!("%{}", id),
@@ -207,17 +249,19 @@ impl Operand {
 pub struct InstData {
     pub opcode: KoopaOpCode,
     pub operands: Vec<Operand>,
-    pub users: Vec<InstId>, // instructions that use this instruction's result
+    pub inst_used: Vec<InstId>, // instructions used by this instruction in sequence
+    pub reg_used: Option<RVRegCode>, // reg used by this instruction(excluding the source regs)
 }
 
 impl InstData {
-    pub fn new(opcode: String, operands: Vec<Operand>) -> Self {
+    pub fn new(opcode: KoopaOpCode, operands: Vec<Operand>) -> Self {
         // TODO: find the users of the inst
 
         Self {
-            opcode: KoopaOpCode::get_opcode(&opcode),
+            opcode,
             operands,
-            users: vec![],
+            inst_used: vec![],
+            reg_used: None,
         }
     }
 }

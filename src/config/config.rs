@@ -6,14 +6,6 @@ pub enum ValueType {
 }
 
 impl ValueType {
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "int" => ValueType::INT,
-            "void" => ValueType::VOID,
-            _ => unreachable!(),
-        }
-    }
-
     pub fn as_str(&self) -> &'static str {
         match self {
             ValueType::INT => "int",
