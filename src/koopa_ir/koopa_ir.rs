@@ -2,7 +2,10 @@ use crate::asm::config::RVRegCode;
 use crate::ast::*;
 use crate::config::ValueType;
 use crate::koopa_ir::config::KoopaOpCode;
-use crate::koopa_ir::stmt_parser::{parse_exp, ParseResult};
+use crate::ast::exp::{ParseResult, Expression};
+use crate::ast::decl::{Decl, Declaration};
+use crate::ast::stmt::{Stmt, Statement};
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
@@ -72,7 +75,7 @@ impl DataFlowGraph {
         }
     }
 
-    pub fn set_reg(&mut self, inst_id: &InstId, reg: Option<RVRegCode>)  {
+    pub fn set_reg(&mut self, inst_id: &InstId, reg: Option<RVRegCode>) {
         if let Some(inst) = self.inst_map.get_mut(&*inst_id) {
             inst.reg_used = reg;
         } else {
@@ -171,29 +174,21 @@ impl BasicBlock {
         }
     }
 
-    pub fn push_stmt(&mut self, stmt: Stmt) {
+    pub fn push_item(&mut self, item: BlockItem) {
         let func_rc = self.func.upgrade().unwrap();
         let func_rc_immut = func_rc.borrow();
         let mut dfg = func_rc_immut.dfg.as_ref().borrow_mut();
         let inst_list = &mut self.inst_list;
 
-        let parse_result = parse_exp(inst_list, &mut dfg, stmt.exp.as_ref().unwrap());
-        match parse_result {
-            ParseResult::InstId(prev_id) => {
-                let inst_id = dfg.insert_inst(InstData::new(
-                    KoopaOpCode::RET,
-                    vec![Operand::InstId(prev_id)],
-                ));
-                inst_list.push(InstId::from(inst_id));
+        match item {
+            BlockItem::Decl { decl } => {
+                decl.parse(inst_list, &mut dfg);
             }
-            ParseResult::Const(number) => {
-                let inst_id = dfg.insert_inst(InstData::new(
-                    KoopaOpCode::RET,
-                    vec![Operand::Const(number)],
-                ));
-                inst_list.push(inst_id);
+
+            BlockItem::Stmt { stmt } => {
+                stmt.parse(inst_list, &mut dfg);
             }
-        }
+        };
     }
 }
 
@@ -234,6 +229,8 @@ impl Operand {
         match parse_result {
             ParseResult::InstId(id) => Operand::InstId(id),
             ParseResult::Const(c) => Operand::Const(c),
+            // ?
+            ParseResult::None => None
         }
     }
 
@@ -296,7 +293,9 @@ pub fn ast2koopa_ir(ast: &CompUnit) -> Result<Program, Box<dyn std::error::Error
     // processing block
     let block = &func_def.block;
     let mut basic_block = BasicBlock::new(&Rc::clone(&func));
-    basic_block.push_stmt(block.stmt.clone());
+    for item in &block.block_items {
+        basic_block.push_item(block.stmt.clone());
+    }
 
     let mut func_mut = func.borrow_mut();
     func_mut.push_basic_block(basic_block);

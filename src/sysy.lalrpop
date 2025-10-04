@@ -1,6 +1,6 @@
 use crate::ast::*;
 use crate::ast::Block;
-use crate::config::ValueType;
+use crate::config::BType;
 
 // lalrpop 里的约定
 grammar;
@@ -21,21 +21,77 @@ pub CompUnit: CompUnit = <func_def: FuncDef> => CompUnit { <> };
 
 // 同上, 不解释
 FuncDef: FuncDef = {
-  <func_type: ValueType> <ident: Ident> "(" ")" <block: Block> => {
+  <func_type: BType> <ident: Ident> "(" ")" <block: Block> => {
     // construct FuncDef struct, using shorthand <> to pass all named fields
     FuncDef { <> }
   }
 };
 
-ValueType: ValueType = {
-  "int" => ValueType::INT,
-  "void" => ValueType::VOID,
+BType: BType = {
+  "int" => BType::INT,
+  "void" => BType::VOID,
 };
 
-Block: Block = "{" <stmt: Stmt> "}" => Block { stmt };
+Block: Block = "{" <block_items: (BlockItem)*> "}" => Block { block_items };
+
+BlockItem: BlockItem = {
+  <stmt: Stmt> => BlockItem::Stmt { stmt },
+  <decl: Decl> => BlockItem::Decl { decl },
+};
 
 Stmt: Stmt = {
-  "return" <exp: Exp> ";" => Stmt { exp: Some(exp) }
+  <l_val: LVal> "=" <exp: Exp> ";" => Stmt::RegularStmt { l_val, exp },
+  "return" <exp: Exp> ";" => Stmt::ReturnStmt { exp }
+};
+
+LVal: LVal = {
+  <ident: Ident> => LVal { ident },
+};
+
+Decl: Decl = {
+  <const_decl: ConstDecl> => Decl::ConstDecl { const_decl },
+  <var_decl: VarDecl> => Decl::VarDecl { var_decl },
+}
+
+ConstDecl: ConstDecl = {
+  "const" <b_type: BType> <const_def: ConstDef> <other_const_defs: ("," <other_const_def: ConstDef>)*> ";" => {
+    let mut const_defs = vec![const_def];
+    for (_, def) in other_const_defs {
+      const_defs.push(def);
+    }
+    ConstDecl { b_type, const_defs }
+  }
+}
+
+ConstDef: ConstDef = {
+  <ident: Ident> "=" <const_init_val: ConstInitVal> => ConstDef { <> }
+};
+
+ConstInitVal: ConstInitVal = {
+  <const_exp: ConstExp> => ConstInitVal::ConstExp { const_exp }
+};
+
+ConstExp: ConstExp = {
+  <exp: Exp> => ConstExp { exp: Box::new(exp) }
+}
+
+VarDecl: VarDecl = {
+  <b_type: BType> <var_def: VarDef> <other_var_defs: ("," <other_var_def: VarDef>)*> ";" => {
+    let mut var_defs = vec![var_def];
+    for (_, def) in other_var_defs {
+      var_defs.push(def);
+    }
+    VarDecl { b_type, var_defs }
+  }
+}
+
+VarDef: VarDef = {
+  <ident: Ident> "=" <init_val: InitVal> => VarDef { ident, init_val: Some(init_val) },
+  <ident: Ident> => VarDef { ident, init_val: None },
+};
+
+InitVal: InitVal = {
+  <exp: Exp> => InitVal::Exp { exp: Box::new(exp) }
 };
 
 // The priority of MulExp is higher than AddExp, so we should parse AddExp first, 
@@ -106,6 +162,7 @@ MulExp: MulExp = {
 
 PrimaryExp: PrimaryExp = {
   "(" <exp: Exp> ")" => PrimaryExp::Exp { exp: Box::new(exp) },
+  <l_val: LVal> => PrimaryExp::LVal { l_val },
   <num: Number> => PrimaryExp::Number { value: num },
 };
 
