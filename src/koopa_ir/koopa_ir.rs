@@ -1,12 +1,10 @@
-use crate::asm::config::RVRegCode;
-use crate::ast::*;
-use crate::config::ValueType;
+use crate::asm::config::{RVRegCode, RVREG_ALLOCATOR};
+use crate::ast::{ast::*, exp::*, stmt::*};
+use crate::config::config::BType;
 use crate::koopa_ir::config::KoopaOpCode;
-use crate::ast::exp::{ParseResult, Expression};
-use crate::ast::decl::{Decl, Declaration};
-use crate::ast::stmt::{Stmt, Statement};
 
 use std::cell::RefCell;
+use std::cell::RefMut;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
@@ -67,9 +65,14 @@ impl DataFlowGraph {
         self.inst_map.get(inst_id)
     }
 
-    pub fn set_reg_none(&mut self, inst_id: InstId) {
+    pub fn free_reg_used(&mut self, inst_id: InstId) {
         if let Some(inst) = self.inst_map.get_mut(&inst_id) {
-            inst.reg_used = None;
+            RVREG_ALLOCATOR
+                .lock()
+                .unwrap()
+                .free_reg(inst.reg_used.unwrap());
+
+            inst.free_reg_used();
         } else {
             panic!("Instruction not found for inst_id {:?}", inst_id);
         }
@@ -77,7 +80,38 @@ impl DataFlowGraph {
 
     pub fn set_reg(&mut self, inst_id: &InstId, reg: Option<RVRegCode>) {
         if let Some(inst) = self.inst_map.get_mut(&*inst_id) {
-            inst.reg_used = reg;
+            inst.set_reg(reg.unwrap());
+            // concerning that InstData doesn't contain its inst_id, we have to occupy the reg on DFG layer
+            RVREG_ALLOCATOR
+                .lock()
+                .unwrap()
+                .occupy_reg(reg.unwrap(), *inst_id);
+        } else {
+            panic!("Instruction not found for inst_id {:?}", inst_id);
+        }
+    }
+
+    pub fn add_user(&mut self, inst_id: &InstId, user_inst_id: InstId) {
+        if let Some(inst) = self.inst_map.get_mut(&*inst_id) {
+            inst.add_user(user_inst_id);
+        } else {
+            panic!("Instruction not found for inst_id {:?}", inst_id);
+        }
+    }
+
+    pub fn remove_user(&mut self, inst_id: &InstId, user_inst_id: InstId) {
+        if let Some(inst) = self.inst_map.get_mut(inst_id) {
+            inst.remove_user(user_inst_id);
+
+            // if no users, free the register
+            if inst.users.is_empty() {
+                RVREG_ALLOCATOR
+                    .lock()
+                    .unwrap()
+                    .free_reg(inst.reg_used.unwrap());
+
+                inst.free_reg_used();
+            }
         } else {
             panic!("Instruction not found for inst_id {:?}", inst_id);
         }
@@ -91,12 +125,12 @@ impl DataFlowGraph {
 #[derive(Clone)]
 pub struct KoopaGlobalVal {
     pub name: String,
-    pub val_type: ValueType,
+    pub val_type: BType,
     pub val: i32,
 }
 
 impl KoopaGlobalVal {
-    pub fn new(name: String, val_type: ValueType, val: i32) -> Self {
+    pub fn new(name: String, val_type: BType, val: i32) -> Self {
         Self {
             name,
             val_type,
@@ -108,7 +142,7 @@ impl KoopaGlobalVal {
 #[derive(Clone)]
 pub struct Func {
     pub name: String,
-    pub func_type: ValueType,
+    pub func_type: BType,
     pub params: Vec<Param>,
     pub dfg: Rc<RefCell<DataFlowGraph>>,
     pub basic_blocks: Vec<Rc<BasicBlock>>,
@@ -131,7 +165,7 @@ impl std::fmt::Display for Func {
 }
 
 impl Func {
-    pub fn new(name: String, func_type: ValueType, params: Vec<Param>) -> Self {
+    pub fn new(name: String, func_type: BType, params: Vec<Param>) -> Self {
         Self {
             name,
             func_type,
@@ -157,7 +191,7 @@ impl Func {
 #[derive(Clone)]
 pub struct Param {
     pub name: String,
-    pub param_type: ValueType,
+    pub param_type: BType,
 }
 
 #[derive(Clone)]
@@ -174,7 +208,7 @@ impl BasicBlock {
         }
     }
 
-    pub fn push_item(&mut self, item: BlockItem) {
+    pub fn push_item(&mut self, item: &BlockItem) {
         let func_rc = self.func.upgrade().unwrap();
         let func_rc_immut = func_rc.borrow();
         let mut dfg = func_rc_immut.dfg.as_ref().borrow_mut();
@@ -230,7 +264,9 @@ impl Operand {
             ParseResult::InstId(id) => Operand::InstId(id),
             ParseResult::Const(c) => Operand::Const(c),
             // ?
-            ParseResult::None => None
+            ParseResult::None => {
+                panic!("Cannot convert ParseResult::None to Operand")
+            }
         }
     }
 
@@ -246,7 +282,7 @@ impl Operand {
 pub struct InstData {
     pub opcode: KoopaOpCode,
     pub operands: Vec<Operand>,
-    pub inst_used: Vec<InstId>, // instructions used by this instruction in sequence
+    pub users: Vec<InstId>, // instructions use this instruction's result
     pub reg_used: Option<RVRegCode>, // reg used by this instruction(excluding the source regs)
 }
 
@@ -257,9 +293,27 @@ impl InstData {
         Self {
             opcode,
             operands,
-            inst_used: vec![],
+            users: vec![],
             reg_used: None,
         }
+    }
+
+    pub fn add_user(&mut self, user_inst_id: InstId) {
+        self.users.push(user_inst_id);
+    }
+
+    pub fn remove_user(&mut self, user_inst_id: InstId) {
+        if let Some(pos) = self.users.iter().position(|&id| id == user_inst_id) {
+            self.users.swap_remove(pos);
+        }
+    }
+
+    pub fn free_reg_used(&mut self) {
+        self.reg_used = None;
+    }
+
+    pub fn set_reg(&mut self, reg: RVRegCode) {
+        self.reg_used = Some(reg);
     }
 }
 
@@ -271,6 +325,7 @@ impl std::fmt::Display for InstData {
             .map(|op| op.to_string())
             .collect::<Vec<_>>()
             .join(", ");
+
         write!(f, "{} {}", self.opcode, operands_str)
     }
 }
@@ -294,7 +349,7 @@ pub fn ast2koopa_ir(ast: &CompUnit) -> Result<Program, Box<dyn std::error::Error
     let block = &func_def.block;
     let mut basic_block = BasicBlock::new(&Rc::clone(&func));
     for item in &block.block_items {
-        basic_block.push_item(block.stmt.clone());
+        basic_block.push_item(item);
     }
 
     let mut func_mut = func.borrow_mut();
@@ -304,4 +359,22 @@ pub fn ast2koopa_ir(ast: &CompUnit) -> Result<Program, Box<dyn std::error::Error
     let mut program = Program::new();
     program.push_func(Rc::clone(&func));
     Ok(program)
+}
+
+pub fn insert_into_dfg_and_list(
+    inst_list: &mut Vec<InstId>,
+    dfg: &mut RefMut<'_, DataFlowGraph>,
+    inst_data: InstData,
+) -> ParseResult {
+    let inst_id = dfg.insert_inst(inst_data.clone());
+
+    // add this inst as a user to all its operand instructions
+    for operand in &inst_data.operands {
+        if let Operand::InstId(op_id) = operand {
+            dfg.add_user(op_id, inst_id);
+        }
+    }
+
+    inst_list.push(inst_id);
+    ParseResult::InstId(inst_id)
 }

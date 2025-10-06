@@ -1,15 +1,15 @@
 /// type of value
 #[derive(Debug, Clone)]
 pub enum BType {
-    Int(i32),
+    Int,
     Void,
 }
 
 impl BType {
     pub fn as_str(&self) -> &'static str {
         match self {
-            BType::INT => "int",
-            BType::VOID => "void",
+            BType::Int => "int",
+            BType::Void => "void",
         }
     }
 }
@@ -17,8 +17,8 @@ impl BType {
 impl std::fmt::Display for BType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BType::INT => write!(f, "i32"),
-            BType::VOID => write!(f, "void"),
+            BType::Int => write!(f, "i32"),
+            BType::Void => write!(f, "void"),
         }
     }
 }

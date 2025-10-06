@@ -1,4 +1,4 @@
-use crate::config::BType;
+use crate::config::config::BType;
 use crate::ast::decl::Decl;
 use crate::ast::stmt::Stmt;
 

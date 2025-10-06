@@ -11,5 +11,8 @@ testcases/**
 .vscode/
 .vscode/*
 .vscode/**
+.idea/
+.idea/*
+.idea/**
 .bash_history
 gdb_log.txt

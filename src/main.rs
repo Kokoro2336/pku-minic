@@ -10,7 +10,7 @@ mod config;
 mod koopa_ir;
 mod util;
 use crate::asm::asm::Asm;
-use crate::ast::CompUnit;
+use crate::ast::ast::CompUnit;
 use crate::koopa_ir::koopa_ir::{ast2koopa_ir, Program};
 
 // 引用 lalrpop 生成的解析器

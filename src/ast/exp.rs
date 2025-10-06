@@ -2,11 +2,11 @@ use crate::ast::ast::LVal;
 use crate::ast::decl::{GLOBAL_CONST_TABLE, GLOBAL_VAR_TABLE};
 use crate::ast::op::*;
 use crate::koopa_ir::config::KoopaOpCode;
-use crate::koopa_ir::koopa_ir::{DataFlowGraph, InstData, InstId};
+use crate::koopa_ir::koopa_ir::{insert_into_dfg_and_list, DataFlowGraph, InstData, InstId};
 
 use std::cell::RefMut;
-use std::collections::HashMap;
 
+#[derive(Debug, Clone)]
 pub enum ParseResult {
     InstId(InstId),
     Const(i32),
@@ -37,16 +37,6 @@ pub trait Expression {
     ) -> ParseResult;
 
     fn parse_const_exp(&self) -> ParseResult;
-}
-
-pub trait Expression {
-    pub fn parse_var_exp(
-        &self,
-        inst_list: &mut Vec<InstId>,
-        dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> ParseResult;
-
-    pub fn parse_const_exp(&self) -> i32;
 }
 
 #[derive(Debug, Clone)]
@@ -95,6 +85,7 @@ impl Expression for LOrExp {
             LOrExp::LAndExp { land_exp } => {
                 return land_exp.parse_var_exp(inst_list, dfg);
             }
+
             LOrExp::LOrExp {
                 lor_exp,
                 lor_op,
@@ -107,16 +98,17 @@ impl Expression for LOrExp {
                     LOrOp::Or => KoopaOpCode::OR,
                 };
 
-                let inst_id = dfg.insert_inst(InstData::new(
-                    koopa_op,
-                    vec![
-                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
-                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
-                    ],
-                ));
-
-                inst_list.push(InstId::from(inst_id));
-                ParseResult::InstId(inst_id)
+                insert_into_dfg_and_list(
+                    inst_list,
+                    dfg,
+                    InstData::new(
+                        koopa_op,
+                        vec![
+                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
+                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
+                        ],
+                    ),
+                )
             }
         }
     }
@@ -128,10 +120,27 @@ impl Expression for LOrExp {
             }
             LOrExp::LOrExp {
                 lor_exp,
-                lor_op: _,
+                lor_op,
                 land_exp,
             } => {
-                panic!("A const expression couldn't be a logical OR expression");
+                let left = lor_exp.parse_const_exp();
+                let right = land_exp.parse_const_exp();
+
+                match (left, right) {
+                    (ParseResult::Const(l), ParseResult::Const(r)) => {
+                        let res = match lor_op {
+                            LOrOp::Or => {
+                                if l != 0 || r != 0 {
+                                    1
+                                } else {
+                                    0
+                                }
+                            }
+                        };
+                        ParseResult::Const(res)
+                    }
+                    _ => panic!("Non-constant in const expression"),
+                }
             }
         }
     }
@@ -171,16 +180,17 @@ impl Expression for LAndExp {
                     LAndOp::And => KoopaOpCode::AND,
                 };
 
-                let inst_id = dfg.insert_inst(InstData::new(
-                    koopa_op,
-                    vec![
-                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
-                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
-                    ],
-                ));
-
-                inst_list.push(InstId::from(inst_id));
-                ParseResult::InstId(inst_id)
+                insert_into_dfg_and_list(
+                    inst_list,
+                    dfg,
+                    InstData::new(
+                        koopa_op,
+                        vec![
+                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
+                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
+                        ],
+                    ),
+                )
             }
         }
     }
@@ -195,7 +205,14 @@ impl Expression for LAndExp {
                 land_op: _,
                 eq_exp,
             } => {
-                panic!("A const expression couldn't be a logical AND expression");
+                let left = land_exp.parse_const_exp();
+                let right = eq_exp.parse_const_exp();
+                match (left, right) {
+                    (ParseResult::Const(l), ParseResult::Const(r)) => {
+                        ParseResult::Const(if l != 0 && r != 0 { 1 } else { 0 })
+                    }
+                    _ => panic!("Non-constant in const expression"),
+                }
             }
         }
     }
@@ -236,16 +253,17 @@ impl Expression for EqExp {
                     EqOp::Ne => KoopaOpCode::NE,
                 };
 
-                let inst_id = dfg.insert_inst(InstData::new(
-                    koopa_op,
-                    vec![
-                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
-                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
-                    ],
-                ));
-
-                inst_list.push(InstId::from(inst_id));
-                ParseResult::InstId(inst_id)
+                insert_into_dfg_and_list(
+                    inst_list,
+                    dfg,
+                    InstData::new(
+                        koopa_op,
+                        vec![
+                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
+                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
+                        ],
+                    ),
+                )
             }
         }
     }
@@ -257,10 +275,21 @@ impl Expression for EqExp {
             }
             EqExp::EqExp {
                 eq_exp,
-                eq_op: _,
+                eq_op,
                 rel_exp,
             } => {
-                panic!("A const expression couldn't be an equality expression");
+                let left = eq_exp.parse_const_exp();
+                let right = rel_exp.parse_const_exp();
+                match (left, right) {
+                    (ParseResult::Const(l), ParseResult::Const(r)) => {
+                        let res = match eq_op {
+                            EqOp::Eq => l == r,
+                            EqOp::Ne => l != r,
+                        };
+                        ParseResult::Const(if res { 1 } else { 0 })
+                    }
+                    _ => panic!("Non-constant in const expression"),
+                }
             }
         }
     }
@@ -303,16 +332,17 @@ impl Expression for RelExp {
                     RelOp::Ge => KoopaOpCode::GE,
                 };
 
-                let inst_id = dfg.insert_inst(InstData::new(
-                    koopa_op,
-                    vec![
-                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
-                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
-                    ],
-                ));
-
-                inst_list.push(InstId::from(inst_id));
-                ParseResult::InstId(inst_id)
+                insert_into_dfg_and_list(
+                    inst_list,
+                    dfg,
+                    InstData::new(
+                        koopa_op,
+                        vec![
+                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
+                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
+                        ],
+                    ),
+                )
             }
         }
     }
@@ -324,10 +354,23 @@ impl Expression for RelExp {
             }
             RelExp::RelExp {
                 rel_exp,
-                rel_op: _,
+                rel_op,
                 add_exp,
             } => {
-                panic!("A const expression couldn't be a relational expression");
+                let left = rel_exp.parse_const_exp();
+                let right = add_exp.parse_const_exp();
+                match (left, right) {
+                    (ParseResult::Const(l), ParseResult::Const(r)) => {
+                        let res = match rel_op {
+                            RelOp::Lt => l < r,
+                            RelOp::Gt => l > r,
+                            RelOp::Le => l <= r,
+                            RelOp::Ge => l >= r,
+                        };
+                        ParseResult::Const(if res { 1 } else { 0 })
+                    }
+                    _ => panic!("Non-constant in const expression"),
+                }
             }
         }
     }
@@ -365,8 +408,10 @@ impl Expression for UnaryExp {
 
                 match unary_op {
                     UnaryOp::Plus => parse_result,
-                    UnaryOp::Minus | UnaryOp::Not => {
-                        let inst_id = dfg.insert_inst(InstData::new(
+                    UnaryOp::Minus | UnaryOp::Not => insert_into_dfg_and_list(
+                        inst_list,
+                        dfg,
+                        InstData::new(
                             match unary_op {
                                 UnaryOp::Minus => KoopaOpCode::SUB,
                                 UnaryOp::Not => KoopaOpCode::EQ,
@@ -376,10 +421,8 @@ impl Expression for UnaryExp {
                                 crate::koopa_ir::koopa_ir::Operand::Const(0),
                                 crate::koopa_ir::koopa_ir::Operand::from_parse_result(parse_result),
                             ],
-                        ));
-                        inst_list.push(InstId::from(inst_id));
-                        ParseResult::InstId(inst_id)
-                    }
+                        ),
+                    ),
                 }
             }
         }
@@ -444,16 +487,17 @@ impl Expression for MulExp {
                     MulOp::Mod => KoopaOpCode::MOD,
                 };
 
-                let inst_id = dfg.insert_inst(InstData::new(
-                    koopa_op,
-                    vec![
-                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
-                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
-                    ],
-                ));
-
-                inst_list.push(InstId::from(inst_id));
-                ParseResult::InstId(inst_id)
+                insert_into_dfg_and_list(
+                    inst_list,
+                    dfg,
+                    InstData::new(
+                        koopa_op,
+                        vec![
+                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
+                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
+                        ],
+                    ),
+                )
             }
         }
     }
@@ -521,16 +565,17 @@ impl Expression for AddExp {
                     AddOp::Sub => KoopaOpCode::SUB,
                 };
 
-                let inst_id = dfg.insert_inst(InstData::new(
-                    koopa_op,
-                    vec![
-                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
-                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
-                    ],
-                ));
-
-                inst_list.push(InstId::from(inst_id));
-                ParseResult::InstId(inst_id)
+                insert_into_dfg_and_list(
+                    inst_list,
+                    dfg,
+                    InstData::new(
+                        koopa_op,
+                        vec![
+                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
+                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
+                        ],
+                    ),
+                )
             }
         }
     }
@@ -581,13 +626,23 @@ impl Expression for PrimaryExp {
 
             PrimaryExp::LVal { l_val } => {
                 if GLOBAL_VAR_TABLE.lock().unwrap().contains_key(&l_val.ident) {
-                    GLOBAL_VAR_TABLE.lock().unwrap().get(&l_val.ident)
+                    GLOBAL_VAR_TABLE
+                        .lock()
+                        .unwrap()
+                        .get(&l_val.ident)
+                        .unwrap()
+                        .clone()
                 } else if GLOBAL_CONST_TABLE
                     .lock()
                     .unwrap()
                     .contains_key(&l_val.ident)
                 {
-                    GLOBAL_CONST_TABLE.lock().unwrap().get(&l_val.ident)
+                    GLOBAL_CONST_TABLE
+                        .lock()
+                        .unwrap()
+                        .get(&l_val.ident)
+                        .unwrap()
+                        .clone()
                 } else {
                     panic!("LVal not found in var table, maybe the ident is not defined");
                 }
@@ -601,16 +656,17 @@ impl Expression for PrimaryExp {
             PrimaryExp::Exp { exp } => exp.parse_const_exp(),
 
             PrimaryExp::LVal { l_val } => {
-                if (GLOBAL_CONST_TABLE
+                if GLOBAL_CONST_TABLE
                     .lock()
                     .unwrap()
-                    .contains_key(&l_val.ident))
+                    .contains_key(&l_val.ident)
                 {
                     GLOBAL_CONST_TABLE
                         .lock()
                         .unwrap()
                         .get(&l_val.ident)
                         .unwrap()
+                        .clone()
                 } else {
                     panic!("LVal not found in const table, maybe the ident is for a variable or not defined");
                 }

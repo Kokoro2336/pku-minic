@@ -107,6 +107,31 @@ pub enum RVRegCode {
     T6 = 31, // temporaries
 }
 
+#[derive(Debug)]
+pub enum RegAllocType {
+    Temp(RVRegCode),    // reg temporarily allocated, often for asms transformed from the same IR.
+    Perm(RVRegCode),    // reg permanently allocated, often for the reg eventually used by the whole IR.
+}
+
+impl RegAllocType {
+    pub fn get_reg(&self) -> RVRegCode {
+        match self {
+            RegAllocType::Temp(reg) => *reg,
+            RegAllocType::Perm(reg) => *reg,
+        }
+    }
+
+    pub fn free_temp(&self) {
+        match self {
+            RegAllocType::Temp(reg) => {
+                RVREG_ALLOCATOR.lock().unwrap().free_reg(*reg);
+            }
+
+            RegAllocType::Perm(_) => {}
+        }
+    }
+}
+
 pub struct RVRegAllocator {
     pub map: [u32; 32], // each item means the inst id that occupies this register.
 }
@@ -157,6 +182,15 @@ impl RVRegAllocator {
     pub fn from_idx(idx: usize) -> RVRegCode {
         assert!(idx < 32);
         unsafe { std::mem::transmute::<u8, RVRegCode>(idx as u8) }
+    }
+
+    pub fn find_and_occupy_temp_reg(&mut self, inst_id: u32) -> Option<RegAllocType> {
+        if let Some(reg) = self.find_free_temp_reg() {
+            self.occupy_reg(reg, inst_id);
+            Some(RegAllocType::Temp(reg))
+        } else {
+            None
+        }
     }
 }
 

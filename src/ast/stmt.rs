@@ -1,8 +1,10 @@
 use crate::ast::ast::LVal;
 use crate::ast::exp::{Exp, ParseResult, Expression};
-use crate::ast::decl::{GLOBAL_CONST_TABLE, GLOBAL_VAR_TABLE};
-use crate::koopa_ir::koopa_ir::{DataFlowGraph, InstId, InstData, Operand};
+use crate::ast::decl::{GLOBAL_VAR_TABLE};
+use crate::koopa_ir::koopa_ir::{DataFlowGraph, InstId, InstData, Operand, insert_into_dfg_and_list};
 use crate::koopa_ir::config::KoopaOpCode;
+
+use std::cell::RefMut;
 
 pub trait Statement {
     fn parse(&self, inst_list: &mut Vec<InstId>, dfg: &mut RefMut<DataFlowGraph>);
@@ -29,16 +31,15 @@ impl Statement for Stmt {
             Stmt::ReturnStmt { exp } => {
                 let result = exp.parse_var_exp(inst_list, dfg);
 
-                let inst_id = dfg.push_inst(InstData::new(
+                insert_into_dfg_and_list(inst_list, dfg,
+                    InstData::new(
                     KoopaOpCode::RET,
                     vec![match result {
                         ParseResult::InstId(id) => Operand::InstId(id),
                         ParseResult::Const(value) => Operand::Const(value),
                         ParseResult::None => panic!("Return expression resulted in None"),
-                    }],
-                ));
-
-                inst_list.push(inst_id);
+                    }]),
+                );
             }
         }
     }

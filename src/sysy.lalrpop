@@ -1,6 +1,5 @@
-use crate::ast::*;
-use crate::ast::Block;
-use crate::config::BType;
+use crate::ast::{ast::*, decl::*, exp::*, stmt::*, op::*};
+use crate::config::config::BType;
 
 // lalrpop 里的约定
 grammar;
@@ -28,8 +27,8 @@ FuncDef: FuncDef = {
 };
 
 BType: BType = {
-  "int" => BType::INT,
-  "void" => BType::VOID,
+  "int" => BType::Int,
+  "void" => BType::Void,
 };
 
 Block: Block = "{" <block_items: (BlockItem)*> "}" => Block { block_items };
@@ -54,7 +53,7 @@ Decl: Decl = {
 }
 
 ConstDecl: ConstDecl = {
-  "const" <b_type: BType> <const_def: ConstDef> <other_const_defs: ("," <other_const_def: ConstDef>)*> ";" => {
+  "const" <b_type: BType> <const_def: ConstDef> <other_const_defs: ("," ConstDef)*> ";" => {
     let mut const_defs = vec![const_def];
     for (_, def) in other_const_defs {
       const_defs.push(def);
@@ -68,7 +67,7 @@ ConstDef: ConstDef = {
 };
 
 ConstInitVal: ConstInitVal = {
-  <const_exp: ConstExp> => ConstInitVal::ConstExp { const_exp }
+  <const_exp: ConstExp> => ConstInitVal { const_exp }
 };
 
 ConstExp: ConstExp = {
@@ -76,7 +75,7 @@ ConstExp: ConstExp = {
 }
 
 VarDecl: VarDecl = {
-  <b_type: BType> <var_def: VarDef> <other_var_defs: ("," <other_var_def: VarDef>)*> ";" => {
+  <b_type: BType> <var_def: VarDef> <other_var_defs: ("," VarDef)*> ";" => {
     let mut var_defs = vec![var_def];
     for (_, def) in other_var_defs {
       var_defs.push(def);
@@ -91,7 +90,7 @@ VarDef: VarDef = {
 };
 
 InitVal: InitVal = {
-  <exp: Exp> => InitVal::Exp { exp: Box::new(exp) }
+  <exp: Exp> => InitVal { exp: Box::new(exp) }
 };
 
 // The priority of MulExp is higher than AddExp, so we should parse AddExp first, 

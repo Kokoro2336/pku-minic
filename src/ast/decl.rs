@@ -1,11 +1,11 @@
-use crate::ast::exp::Exp;
-use crate::ast::exp::Expression;
-use crate::ast::exp::ParseResult;
+use crate::ast::exp::{Exp, Expression, ParseResult};
 use crate::config::config::BType;
+use crate::koopa_ir::koopa_ir::{DataFlowGraph, InstId};
 
 use lazy_static::lazy_static;
-use std::sync::Mutex;
 use std::collections::HashMap;
+use std::sync::Mutex;
+use std::cell::RefMut;
 
 lazy_static! {
     pub static ref GLOBAL_CONST_TABLE: Mutex<HashMap<String, ParseResult>> =
@@ -21,11 +21,7 @@ pub enum Decl {
 }
 
 impl Decl {
-    pub fn parse(
-        &self,
-        inst_list: &mut Vec<InstId>,
-        dfg: &mut RefMut<'_, DataFlowGraph>,
-    ){
+    pub fn parse(&self, inst_list: &mut Vec<InstId>, dfg: &mut RefMut<'_, DataFlowGraph>) {
         match self {
             Decl::ConstDecl { const_decl } => {
                 const_decl.parse();
@@ -112,7 +108,7 @@ impl VarDecl {
         &self,
         inst_list: &mut Vec<InstId>,
         dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> ParseResult {
+    ) {
         for var_def in &self.var_defs {
             let result = var_def.parse(inst_list, dfg);
             GLOBAL_VAR_TABLE
@@ -137,7 +133,7 @@ impl VarDeclaration for VarDef {
     ) -> ParseResult {
         match &self.init_val {
             Some(init_val) => init_val.parse(inst_list, dfg),
-            None => ParseResult::None
+            None => ParseResult::None,
         }
     }
 }

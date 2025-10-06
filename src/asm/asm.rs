@@ -1,7 +1,7 @@
-use crate::asm::config::RVREG_ALLOCATOR;
-use crate::asm::config::{RVOpCode, RVRegCode};
+use crate::asm::config::{RVOpCode, RVRegCode, RVREG_ALLOCATOR, RegAllocType, RVRegAllocator};
 use crate::koopa_ir::config::KoopaOpCode;
 use crate::koopa_ir::koopa_ir::{DataFlowGraph, Func, InstData, InstId, Operand, Program};
+
 use std::cell::{Ref, RefMut};
 
 pub struct Asm {
@@ -179,80 +179,73 @@ impl AsmInst {
 
         let reg_used = match inst_data.opcode {
             KoopaOpCode::EQ | KoopaOpCode::NE => {
-                let rs1 = Self::process_op(dfg, &mut v, inst, inst_data.operands.get(0).unwrap());
-                let rs2 = Self::process_op(dfg, &mut v, inst, inst_data.operands.get(1).unwrap());
+                let rs1 = process_op(dfg, &mut v, inst, inst_data.operands.get(0).unwrap());
+                let rs2 = process_op(dfg, &mut v, inst, inst_data.operands.get(1).unwrap());
 
-                let rd1 = RVREG_ALLOCATOR.lock().unwrap().find_and_occupy_reg(*inst);
+                let rd1 = RVREG_ALLOCATOR.lock().unwrap().find_and_occupy_temp_reg(*inst).unwrap();
                 v.push(AsmInst {
                     opcode: RVOpCode::XOR, // for now we just use xor to represent eq
-                    rd: rd1,
-                    rs1: Some(rs1),
-                    rs2: Some(rs2),
+                    rd: Some(rd1.get_reg()),
+                    rs1: Some(rs1.get_reg()),
+                    rs2: Some(rs2.get_reg()),
                     imm: None,
                 });
 
-                let rd2 = RVREG_ALLOCATOR.lock().unwrap().find_and_occupy_reg(*inst);
+                let rd2 = RVREG_ALLOCATOR.lock().unwrap().find_and_occupy_temp_reg(*inst).unwrap();
                 v.push(AsmInst {
                     opcode: match inst_data.opcode {
                         KoopaOpCode::EQ => RVOpCode::SEQZ, // set if equal to zero
                         KoopaOpCode::NE => RVOpCode::SNEZ, // set if not equal to zero
                         _ => unreachable!(),
                     },
-                    rd: rd2,
-                    rs1: rd1,
+                    rd: Some(rd2.get_reg()),
+                    rs1: Some(rd1.get_reg()),
                     rs2: None,
                     imm: None,
                 });
 
-                RVREG_ALLOCATOR.lock().unwrap().free_reg(rs1);
-                RVREG_ALLOCATOR.lock().unwrap().free_reg(rs2);
-                RVREG_ALLOCATOR.lock().unwrap().free_reg(rd1.unwrap()); // free the temporary register
-                RVREG_ALLOCATOR.lock().unwrap().free_reg(rd2.unwrap()); // free the temporary register
-                rd2
+                rs1.free_temp(); rs2.free_temp(); rd1.free_temp(); rd2.free_temp();
+                Some(rd2.get_reg())
             }
 
             KoopaOpCode::AND
             | KoopaOpCode::OR => {
-                let rs1 = Self::process_op(dfg, &mut v, inst, inst_data.operands.get(0).unwrap());
-                let rs2 = Self::process_op(dfg, &mut v, inst, inst_data.operands.get(1).unwrap());
+                let rs1 = process_op(dfg, &mut v, inst, inst_data.operands.get(0).unwrap());
+                let rs2 = process_op(dfg, &mut v, inst, inst_data.operands.get(1).unwrap());
 
-                let rd1 = RVREG_ALLOCATOR.lock().unwrap().find_and_occupy_reg(*inst);
+                let rd1 = RVREG_ALLOCATOR.lock().unwrap().find_and_occupy_temp_reg(*inst).unwrap();
                 v.push(AsmInst {
                     opcode: RVOpCode::SNEZ,
-                    rd: rd1,
-                    rs1: Some(rs1),
+                    rd: Some(rd1.get_reg()),
+                    rs1: Some(rs1.get_reg()),
                     rs2: None,
                     imm: None,
                 });
 
-                let rd2 = RVREG_ALLOCATOR.lock().unwrap().find_and_occupy_reg(*inst);
+                let rd2 = RVREG_ALLOCATOR.lock().unwrap().find_and_occupy_temp_reg(*inst).unwrap();
                 v.push(AsmInst {
                     opcode: RVOpCode::SNEZ,
-                    rd: rd2,
-                    rs1: Some(rs2),
+                    rd: Some(rd2.get_reg()),
+                    rs1: Some(rs2.get_reg()),
                     rs2: None,
                     imm: None,
                 });
 
-                let rd = RVREG_ALLOCATOR.lock().unwrap().find_and_occupy_reg(*inst);
+                let rd = RVREG_ALLOCATOR.lock().unwrap().find_and_occupy_temp_reg(*inst).unwrap();
                 v.push(AsmInst {
                     opcode: match inst_data.opcode {
                         KoopaOpCode::AND => RVOpCode::AND,
                         KoopaOpCode::OR => RVOpCode::OR,
                         _ => unreachable!(),
                     },
-                    rd,
-                    rs1: rd1,
-                    rs2: rd2,
+                    rd: Some(rd.get_reg()),
+                    rs1: Some(rd1.get_reg()),
+                    rs2: Some(rd2.get_reg()),
                     imm: None,
                 });
 
-                RVREG_ALLOCATOR.lock().unwrap().free_reg(rs1);
-                RVREG_ALLOCATOR.lock().unwrap().free_reg(rs2);
-                RVREG_ALLOCATOR.lock().unwrap().free_reg(rd1.unwrap()); // free the temporary register
-                RVREG_ALLOCATOR.lock().unwrap().free_reg(rd2.unwrap()); // free the temporary
-                RVREG_ALLOCATOR.lock().unwrap().free_reg(rd.unwrap()); // free the temporary
-                rd
+                rs1.free_temp(); rs2.free_temp(); rd1.free_temp(); rd2.free_temp(); rd.free_temp();
+                Some(rd.get_reg())
             }
 
             KoopaOpCode::ADD
@@ -273,8 +266,8 @@ impl AsmInst {
             | KoopaOpCode::SAR
             | KoopaOpCode::SHL
             | KoopaOpCode::SHR => {
-                let rs1 = Self::process_op(dfg, &mut v, inst, inst_data.operands.get(0).unwrap());
-                let rs2 = Self::process_op(dfg, &mut v, inst, inst_data.operands.get(1).unwrap());
+                let rs1 = process_op(dfg, &mut v, inst, inst_data.operands.get(0).unwrap());
+                let rs2 = process_op(dfg, &mut v, inst, inst_data.operands.get(1).unwrap());
 
                 let rv_opcode = match inst_data.opcode {
                     KoopaOpCode::ADD => RVOpCode::ADD,
@@ -296,29 +289,27 @@ impl AsmInst {
                     _ => unreachable!(),
                 };
 
-                let rd = RVREG_ALLOCATOR.lock().unwrap().find_and_occupy_reg(*inst);
+                let rd = RVREG_ALLOCATOR.lock().unwrap().find_and_occupy_temp_reg(*inst).unwrap();
                 v.push(AsmInst {
                     opcode: rv_opcode,
-                    rd,
-                    rs1: Some(rs1),
-                    rs2: Some(rs2),
+                    rd: Some(rd.get_reg()),
+                    rs1: Some(rs1.get_reg()),
+                    rs2: Some(rs2.get_reg()),
                     imm: None,
                 });
 
-                RVREG_ALLOCATOR.lock().unwrap().free_reg(rs1);
-                RVREG_ALLOCATOR.lock().unwrap().free_reg(rs2);
-                RVREG_ALLOCATOR.lock().unwrap().free_reg(rd.unwrap()); // free the temporary register
-                rd
+                rs1.free_temp(); rs2.free_temp(); rd.free_temp();
+                Some(rd.get_reg())
             }
 
             KoopaOpCode::RET => {
                 // if we need to load imm at return point, we must use a0 anyway.
-                let op_reg = Self::process_op(dfg, &mut v, inst, inst_data.operands.get(0).unwrap());
+                let op_reg = process_op(dfg, &mut v, inst, inst_data.operands.get(0).unwrap());
 
                 v.push(AsmInst {
                     opcode: RVOpCode::MV,
                     rd: Some(RVRegCode::A0),    // fixed to a0
-                    rs1: Some(op_reg), // the imm must be loaded into t0
+                    rs1: Some(op_reg.get_reg()), // the imm must be loaded into t0
                     rs2: None,
                     imm: None,
                 });
@@ -331,59 +322,58 @@ impl AsmInst {
                     imm: None,
                 });
 
-                RVREG_ALLOCATOR.lock().unwrap().free_reg(op_reg);
+                op_reg.free_temp();
                 None
             }
         };
 
         if let Some(reg) = reg_used {
             dfg.set_reg(inst, Some(reg));
-            RVREG_ALLOCATOR.lock().unwrap().occupy_reg(reg, *inst); // we use 0 as a dummy inst id for
         }
         v
     }
+}
 
-    fn process_op(
-        dfg: &mut RefMut<'_, DataFlowGraph>,
-        v: &mut Vec<AsmInst>,
-        inst_id: &u32,
-        operand: &Operand,
-    ) -> RVRegCode {
-        match operand {
-            Operand::Const(val) => {
-                if *val == 0 {
-                    return RVRegCode::ZERO;
-                }
-
-                // find a free temp reg
-                if let Some(free_reg) = RVREG_ALLOCATOR.lock().unwrap().find_and_occupy_reg(*inst_id) {
-                    // load imm into the free reg
-                    let asm_inst = AsmInst {
-                        opcode: RVOpCode::LI,
-                        rd: Some(free_reg),
-                        rs1: None,
-                        rs2: None,
-                        imm: Some(*val),
-                    };
-                    v.push(asm_inst);
-                    free_reg
-                } else {
-                    unimplemented!()
-                }
+fn process_op(
+    dfg: &mut RefMut<'_, DataFlowGraph>,
+    v: &mut Vec<AsmInst>,
+    current_inst_id: &u32,
+    operand: &Operand,
+) -> RegAllocType {
+    match operand {
+        Operand::Const(val) => {
+            if *val == 0 {
+                return RegAllocType::Temp(RVRegCode::ZERO);
             }
 
-            Operand::InstId(inst_id) => {
-                let reg_used = {
-                    let inst = dfg.get_inst(inst_id).unwrap();
-                    inst.reg_used.unwrap()
+            // find a free temp reg
+            if let Some(free_reg) = RVREG_ALLOCATOR.lock().unwrap().find_and_occupy_reg(*current_inst_id) {
+                // load imm into the free reg
+                let asm_inst = AsmInst {
+                    opcode: RVOpCode::LI,
+                    rd: Some(free_reg),
+                    rs1: None,
+                    rs2: None,
+                    imm: Some(*val),
                 };
 
-                // TODO: maybe we would check if reg_used would still be used by the original inst in the future
-                dfg.set_reg_none(*inst_id);
-
-                RVREG_ALLOCATOR.lock().unwrap().free_reg(reg_used);
-                reg_used
+                v.push(asm_inst);
+                RegAllocType::Temp(free_reg)
+            } else {
+                unimplemented!()
             }
+        }
+
+        Operand::InstId(inst_id) => {
+            let reg_used = {
+                let inst = dfg.get_inst(inst_id).unwrap();
+                inst.reg_used.unwrap()
+            };
+
+            // TODO: maybe we would check if reg_used would still be used by the original inst in the future
+            dfg.remove_user(inst_id, *current_inst_id);
+
+            RegAllocType::Perm(reg_used)
         }
     }
 }
