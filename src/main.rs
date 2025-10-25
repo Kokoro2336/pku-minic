@@ -11,7 +11,7 @@ mod koopa_ir;
 mod util;
 use crate::asm::asm::Asm;
 use crate::ast::ast::CompUnit;
-use crate::koopa_ir::koopa_ir::{ast2koopa_ir, Program};
+use crate::koopa_ir::koopa_ir::{Program};
 
 // 引用 lalrpop 生成的解析器
 // 因为我们刚刚创建了 sysy.lalrpop, 所以模块名是 sysy
@@ -66,19 +66,18 @@ fn main() -> Result<()> {
 
     // 调用 lalrpop 生成的 parser 解析输入文件
     let result = sysy::CompUnitParser::new().parse(&input);
-    let ast: CompUnit;
-    match result {
+    let ast = match result {
         Ok(ast_result) => {
-            ast = ast_result;
+            ast_result
         }
         Err(e) => {
             panic!("Error during parsing: {:?}", e);
         }
-    }
+    };
 
     let koopa_ir: Option<Program> = if cli.koopa || cli.riscv {
         // generate Koopa IR
-        Some(ast2koopa_ir(&ast).unwrap_or_else(|e| {
+        Some(ast.parse().unwrap_or_else(|e| {
             eprintln!("Error during AST to Koopa IR transformation: {:?}", e);
             Program::new()
         }))

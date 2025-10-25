@@ -1,5 +1,7 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
+use std::ops::Deref;
+use std::sync::Mutex;
 
 lazy_static! {
     // mapping type of SysY to type of Koopa IR.
@@ -8,6 +10,9 @@ lazy_static! {
         m.insert("int".to_string(), "i32".to_string());
         m
     };
+
+    // initialize pointer id allocator
+    pub static ref PTR_ID_ALLOCATOR: PointerIdAllocator = PointerIdAllocator::new();
 }
 
 #[derive(Debug, Clone)]
@@ -16,6 +21,7 @@ pub enum KoopaOpCode {
     ADD, SUB, MUL, DIV, MOD,    // arithmetic
     AND, OR, XOR,               // bitwise
     SHL, SHR, SAR,              // bitwise shift
+    STORE, LOAD, ALLOC,                // store, load & ALLOC
     RET,
 }
 
@@ -39,12 +45,46 @@ impl std::fmt::Display for KoopaOpCode {
             KoopaOpCode::SHL => write!(f, "shl"),
             KoopaOpCode::SHR => write!(f, "shr"),
             KoopaOpCode::SAR => write!(f, "sar"),
+            KoopaOpCode::STORE => write!(f, "store"),
+            KoopaOpCode::LOAD => write!(f, "load"),
+            KoopaOpCode::ALLOC => write!(f, "alloc"),
             KoopaOpCode::RET => write!(f, "ret"),
         }
     }
 }
 
 impl KoopaOpCode {
+    pub fn has_return_value(&self) -> bool {
+        match self {
+            // These opcodes produce a return value
+            KoopaOpCode::NE
+            | KoopaOpCode::EQ
+            | KoopaOpCode::GT
+            | KoopaOpCode::LT
+            | KoopaOpCode::GE
+            | KoopaOpCode::LE
+            | KoopaOpCode::ADD
+            | KoopaOpCode::SUB
+            | KoopaOpCode::MUL
+            | KoopaOpCode::DIV
+            | KoopaOpCode::MOD
+            | KoopaOpCode::AND
+            | KoopaOpCode::OR
+            | KoopaOpCode::XOR
+            | KoopaOpCode::SHL
+            | KoopaOpCode::SHR
+            | KoopaOpCode::SAR => true,
+
+            // These opcodes do not produce a return value
+            KoopaOpCode::STORE
+            | KoopaOpCode::RET => false,
+
+            // LOAD produces a return value (e.g., the loaded value)
+            KoopaOpCode::LOAD 
+            | KoopaOpCode::ALLOC => true,
+        }
+    }
+
     pub fn get_opcode(s: &str) -> Self {
         match s {
             "ne" => KoopaOpCode::NE,
@@ -64,8 +104,29 @@ impl KoopaOpCode {
             "shl" => KoopaOpCode::SHL,
             "shr" => KoopaOpCode::SHR,
             "sar" => KoopaOpCode::SAR,
+            "store" => KoopaOpCode::STORE,
+            "load" => KoopaOpCode::LOAD,
+            "alloc" => KoopaOpCode::ALLOC,
             "ret" => KoopaOpCode::RET,
             _ => unreachable!(),
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct PointerIdAllocator {
+    current_id: Mutex<u32>,
+}
+
+impl PointerIdAllocator {
+    pub fn new() -> Self {
+        PointerIdAllocator { current_id: Mutex::new(0) }
+    }
+
+    pub fn alloc(&self) -> u32 {
+        let mut id = self.current_id.lock().unwrap();
+        let current_id = *id;
+        *id += 1;
+        current_id
     }
 }

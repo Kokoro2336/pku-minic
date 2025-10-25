@@ -16,7 +16,11 @@ match {
 
 // 定义 CompUnit, 其返回值类型为 String
 // parser 在解析完成后的行为是返回 FuncDef 的值
-pub CompUnit: CompUnit = <func_def: FuncDef> => CompUnit { <> };
+pub CompUnit: CompUnit = {
+  <func_defs: (FuncDef)*> => {
+    CompUnit { global_decls: vec![], func_defs }
+  }
+}
 
 // 同上, 不解释
 FuncDef: FuncDef = {
@@ -40,6 +44,9 @@ BlockItem: BlockItem = {
 
 Stmt: Stmt = {
   <l_val: LVal> "=" <exp: Exp> ";" => Stmt::RegularStmt { l_val, exp },
+  <block: Block> => Stmt::Block { block: Box::new(block) },
+  <exp: Exp> ";" => Stmt::RawExp { exp: Some(exp) },
+  ";" => Stmt::RawExp { exp: None },
   "return" <exp: Exp> ";" => Stmt::ReturnStmt { exp }
 };
 

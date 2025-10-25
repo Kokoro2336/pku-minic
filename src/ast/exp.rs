@@ -1,30 +1,44 @@
 use crate::ast::ast::LVal;
 use crate::ast::decl::{GLOBAL_CONST_TABLE, GLOBAL_VAR_TABLE};
 use crate::ast::op::*;
+use crate::config::config::BType;
 use crate::koopa_ir::config::KoopaOpCode;
 use crate::koopa_ir::koopa_ir::{insert_into_dfg_and_list, DataFlowGraph, InstData, InstId};
 
 use std::cell::RefMut;
 
 #[derive(Debug, Clone)]
-pub enum ParseResult {
-    InstId(InstId),
-    Const(i32),
+pub enum IRObj {
+    InstId(InstId), // temp variable, display in format "%id"
+    Const(i32),     // constant value, display in literal
+    Pointer { initialized: bool, pointer_id: u32 }, // pointer to a variable in memory, display in format "@pointer_id"
     None,
 }
 
-impl ParseResult {
+impl IRObj {
     pub fn get_value(&self) -> i32 {
         match self {
-            ParseResult::Const(v) => *v,
-            _ => panic!("Not a constant value"),
+            IRObj::Const(v) => *v,
+            _ => panic!("Not a constant value: {:?}", self),
         }
     }
 
     pub fn get_id(&self) -> InstId {
         match self {
-            ParseResult::InstId(id) => *id,
-            _ => panic!("Not an instruction ID"),
+            IRObj::InstId(id) => *id,
+            _ => panic!("Not an instruction ID: {:?}", self),
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        match self {
+            IRObj::InstId(id) => format!("%{}", id),
+            IRObj::Const(c) => format!("{}", c),
+            IRObj::Pointer {
+                initialized: _,
+                pointer_id,
+            } => format!("@{}", pointer_id),
+            IRObj::None => "".to_string(),
         }
     }
 }
@@ -34,9 +48,9 @@ pub trait Expression {
         &self,
         inst_list: &mut Vec<InstId>,
         dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> ParseResult;
+    ) -> IRObj;
 
-    fn parse_const_exp(&self) -> ParseResult;
+    fn parse_const_exp(&self) -> IRObj;
 }
 
 #[derive(Debug, Clone)]
@@ -50,13 +64,13 @@ impl Expression for Exp {
         &self,
         inst_list: &mut Vec<InstId>,
         dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> ParseResult {
+    ) -> IRObj {
         match self {
             Exp::LOrExp { lor_exp } => return lor_exp.parse_var_exp(inst_list, dfg),
         }
     }
 
-    fn parse_const_exp(&self) -> ParseResult {
+    fn parse_const_exp(&self) -> IRObj {
         match self {
             Exp::LOrExp { lor_exp } => return lor_exp.parse_const_exp(),
         }
@@ -80,7 +94,7 @@ impl Expression for LOrExp {
         &self,
         inst_list: &mut Vec<InstId>,
         dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> ParseResult {
+    ) -> IRObj {
         match self {
             LOrExp::LAndExp { land_exp } => {
                 return land_exp.parse_var_exp(inst_list, dfg);
@@ -102,6 +116,8 @@ impl Expression for LOrExp {
                     inst_list,
                     dfg,
                     InstData::new(
+                        BType::Int,
+                        IRObj::InstId(dfg.get_next_inst_id()),
                         koopa_op,
                         vec![
                             crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
@@ -113,7 +129,7 @@ impl Expression for LOrExp {
         }
     }
 
-    fn parse_const_exp(&self) -> ParseResult {
+    fn parse_const_exp(&self) -> IRObj {
         match self {
             LOrExp::LAndExp { land_exp } => {
                 return land_exp.parse_const_exp();
@@ -126,20 +142,23 @@ impl Expression for LOrExp {
                 let left = lor_exp.parse_const_exp();
                 let right = land_exp.parse_const_exp();
 
-                match (left, right) {
-                    (ParseResult::Const(l), ParseResult::Const(r)) => {
+                match (&left, &right) {
+                    (IRObj::Const(l), IRObj::Const(r)) => {
                         let res = match lor_op {
                             LOrOp::Or => {
-                                if l != 0 || r != 0 {
+                                if *l != 0 || *r != 0 {
                                     1
                                 } else {
                                     0
                                 }
                             }
                         };
-                        ParseResult::Const(res)
+                        IRObj::Const(res)
                     }
-                    _ => panic!("Non-constant in const expression"),
+                    _ => panic!(
+                        "Non-constant in const expression: left={:?}, right={:?}",
+                        left, right
+                    ),
                 }
             }
         }
@@ -163,7 +182,7 @@ impl Expression for LAndExp {
         &self,
         inst_list: &mut Vec<InstId>,
         dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> ParseResult {
+    ) -> IRObj {
         match self {
             LAndExp::EqExp { eq_exp } => {
                 return eq_exp.parse_var_exp(inst_list, dfg);
@@ -184,6 +203,8 @@ impl Expression for LAndExp {
                     inst_list,
                     dfg,
                     InstData::new(
+                        BType::Int,
+                        IRObj::InstId(dfg.get_next_inst_id()),
                         koopa_op,
                         vec![
                             crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
@@ -195,7 +216,7 @@ impl Expression for LAndExp {
         }
     }
 
-    fn parse_const_exp(&self) -> ParseResult {
+    fn parse_const_exp(&self) -> IRObj {
         match self {
             LAndExp::EqExp { eq_exp } => {
                 return eq_exp.parse_const_exp();
@@ -207,11 +228,14 @@ impl Expression for LAndExp {
             } => {
                 let left = land_exp.parse_const_exp();
                 let right = eq_exp.parse_const_exp();
-                match (left, right) {
-                    (ParseResult::Const(l), ParseResult::Const(r)) => {
-                        ParseResult::Const(if l != 0 && r != 0 { 1 } else { 0 })
+                match (&left, &right) {
+                    (IRObj::Const(l), IRObj::Const(r)) => {
+                        IRObj::Const(if *l != 0 && *r != 0 { 1 } else { 0 })
                     }
-                    _ => panic!("Non-constant in const expression"),
+                    _ => panic!(
+                        "Non-constant in const expression: left={:?}, right={:?}",
+                        left, right
+                    ),
                 }
             }
         }
@@ -235,7 +259,7 @@ impl Expression for EqExp {
         &self,
         inst_list: &mut Vec<InstId>,
         dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> ParseResult {
+    ) -> IRObj {
         match self {
             EqExp::RelExp { rel_exp } => {
                 return rel_exp.parse_var_exp(inst_list, dfg);
@@ -257,6 +281,8 @@ impl Expression for EqExp {
                     inst_list,
                     dfg,
                     InstData::new(
+                        BType::Int,
+                        IRObj::InstId(dfg.get_next_inst_id()),
                         koopa_op,
                         vec![
                             crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
@@ -268,7 +294,7 @@ impl Expression for EqExp {
         }
     }
 
-    fn parse_const_exp(&self) -> ParseResult {
+    fn parse_const_exp(&self) -> IRObj {
         match self {
             EqExp::RelExp { rel_exp } => {
                 return rel_exp.parse_const_exp();
@@ -280,15 +306,18 @@ impl Expression for EqExp {
             } => {
                 let left = eq_exp.parse_const_exp();
                 let right = rel_exp.parse_const_exp();
-                match (left, right) {
-                    (ParseResult::Const(l), ParseResult::Const(r)) => {
+                match (&left, &right) {
+                    (IRObj::Const(l), IRObj::Const(r)) => {
                         let res = match eq_op {
-                            EqOp::Eq => l == r,
-                            EqOp::Ne => l != r,
+                            EqOp::Eq => *l == *r,
+                            EqOp::Ne => *l != *r,
                         };
-                        ParseResult::Const(if res { 1 } else { 0 })
+                        IRObj::Const(if res { 1 } else { 0 })
                     }
-                    _ => panic!("Non-constant in const expression"),
+                    _ => panic!(
+                        "Non-constant in const expression: left={:?}, right={:?}",
+                        left, right
+                    ),
                 }
             }
         }
@@ -312,7 +341,7 @@ impl Expression for RelExp {
         &self,
         inst_list: &mut Vec<InstId>,
         dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> ParseResult {
+    ) -> IRObj {
         match self {
             RelExp::AddExp { add_exp } => {
                 return add_exp.parse_var_exp(inst_list, dfg);
@@ -336,6 +365,8 @@ impl Expression for RelExp {
                     inst_list,
                     dfg,
                     InstData::new(
+                        BType::Int,
+                        IRObj::InstId(dfg.get_next_inst_id()),
                         koopa_op,
                         vec![
                             crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
@@ -347,7 +378,7 @@ impl Expression for RelExp {
         }
     }
 
-    fn parse_const_exp(&self) -> ParseResult {
+    fn parse_const_exp(&self) -> IRObj {
         match self {
             RelExp::AddExp { add_exp } => {
                 return add_exp.parse_const_exp();
@@ -359,17 +390,20 @@ impl Expression for RelExp {
             } => {
                 let left = rel_exp.parse_const_exp();
                 let right = add_exp.parse_const_exp();
-                match (left, right) {
-                    (ParseResult::Const(l), ParseResult::Const(r)) => {
+                match (&left, &right) {
+                    (IRObj::Const(l), IRObj::Const(r)) => {
                         let res = match rel_op {
-                            RelOp::Lt => l < r,
-                            RelOp::Gt => l > r,
-                            RelOp::Le => l <= r,
-                            RelOp::Ge => l >= r,
+                            RelOp::Lt => *l < *r,
+                            RelOp::Gt => *l > *r,
+                            RelOp::Le => *l <= *r,
+                            RelOp::Ge => *l >= *r,
                         };
-                        ParseResult::Const(if res { 1 } else { 0 })
+                        IRObj::Const(if res { 1 } else { 0 })
                     }
-                    _ => panic!("Non-constant in const expression"),
+                    _ => panic!(
+                        "Non-constant in const expression: left={:?}, right={:?}",
+                        left, right
+                    ),
                 }
             }
         }
@@ -392,7 +426,7 @@ impl Expression for UnaryExp {
         &self,
         inst_list: &mut Vec<InstId>,
         dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> ParseResult {
+    ) -> IRObj {
         match self {
             // handle primary expression
             UnaryExp::PrimaryExp { exp } => {
@@ -412,6 +446,8 @@ impl Expression for UnaryExp {
                         inst_list,
                         dfg,
                         InstData::new(
+                            BType::Int,
+                            IRObj::InstId(dfg.get_next_inst_id()),
                             match unary_op {
                                 UnaryOp::Minus => KoopaOpCode::SUB,
                                 UnaryOp::Not => KoopaOpCode::EQ,
@@ -428,7 +464,7 @@ impl Expression for UnaryExp {
         }
     }
 
-    fn parse_const_exp(&self) -> ParseResult {
+    fn parse_const_exp(&self) -> IRObj {
         match self {
             UnaryExp::PrimaryExp { exp } => {
                 return exp.parse_const_exp();
@@ -439,12 +475,12 @@ impl Expression for UnaryExp {
             } => {
                 let inner = unary_exp.parse_const_exp();
                 match inner {
-                    ParseResult::Const(v) => match unary_op {
-                        UnaryOp::Plus => ParseResult::Const(v),
-                        UnaryOp::Minus => ParseResult::Const(-v),
+                    IRObj::Const(v) => match unary_op {
+                        UnaryOp::Plus => IRObj::Const(v),
+                        UnaryOp::Minus => IRObj::Const(-v),
                         UnaryOp::Not => panic!("A const expression couldn't be a NOT expression"),
                     },
-                    _ => panic!("Non-constant in const expression"),
+                    _ => panic!("Non-constant in const expression: {:?}", inner),
                 }
             }
         }
@@ -468,7 +504,7 @@ impl Expression for MulExp {
         &self,
         inst_list: &mut Vec<InstId>,
         dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> ParseResult {
+    ) -> IRObj {
         match self {
             MulExp::UnaryExp { unary_exp } => {
                 return unary_exp.parse_var_exp(inst_list, dfg);
@@ -491,6 +527,8 @@ impl Expression for MulExp {
                     inst_list,
                     dfg,
                     InstData::new(
+                        BType::Int,
+                        IRObj::InstId(dfg.get_next_inst_id()),
                         koopa_op,
                         vec![
                             crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
@@ -502,7 +540,7 @@ impl Expression for MulExp {
         }
     }
 
-    fn parse_const_exp(&self) -> ParseResult {
+    fn parse_const_exp(&self) -> IRObj {
         match self {
             MulExp::UnaryExp { unary_exp } => {
                 return unary_exp.parse_const_exp();
@@ -514,16 +552,19 @@ impl Expression for MulExp {
             } => {
                 let left = mul_exp.parse_const_exp();
                 let right = unary_exp.parse_const_exp();
-                match (left, right) {
-                    (ParseResult::Const(l), ParseResult::Const(r)) => {
+                match (&left, &right) {
+                    (IRObj::Const(l), IRObj::Const(r)) => {
                         let res = match mul_op {
-                            MulOp::Mul => l * r,
-                            MulOp::Div => l / r,
-                            MulOp::Mod => l % r,
+                            MulOp::Mul => *l * *r,
+                            MulOp::Div => *l / *r,
+                            MulOp::Mod => *l % *r,
                         };
-                        ParseResult::Const(res)
+                        IRObj::Const(res)
                     }
-                    _ => panic!("Non-constant in const expression"),
+                    _ => panic!(
+                        "Non-constant in const expression: left={:?}, right={:?}",
+                        left, right
+                    ),
                 }
             }
         }
@@ -547,7 +588,7 @@ impl Expression for AddExp {
         &self,
         inst_list: &mut Vec<InstId>,
         dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> ParseResult {
+    ) -> IRObj {
         match self {
             AddExp::MulExp { mul_exp } => {
                 return mul_exp.parse_var_exp(inst_list, dfg);
@@ -569,6 +610,8 @@ impl Expression for AddExp {
                     inst_list,
                     dfg,
                     InstData::new(
+                        BType::Int,
+                        IRObj::InstId(dfg.get_next_inst_id()),
                         koopa_op,
                         vec![
                             crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
@@ -580,7 +623,7 @@ impl Expression for AddExp {
         }
     }
 
-    fn parse_const_exp(&self) -> ParseResult {
+    fn parse_const_exp(&self) -> IRObj {
         match self {
             AddExp::MulExp { mul_exp } => {
                 return mul_exp.parse_const_exp();
@@ -592,15 +635,18 @@ impl Expression for AddExp {
             } => {
                 let left = add_exp.parse_const_exp();
                 let right = mul_exp.parse_const_exp();
-                match (left, right) {
-                    (ParseResult::Const(l), ParseResult::Const(r)) => {
+                match (&left, &right) {
+                    (IRObj::Const(l), IRObj::Const(r)) => {
                         let res = match add_op {
-                            AddOp::Add => l + r,
-                            AddOp::Sub => l - r,
+                            AddOp::Add => *l + *r,
+                            AddOp::Sub => *l - *r,
                         };
-                        ParseResult::Const(res)
+                        IRObj::Const(res)
                     }
-                    _ => panic!("Non-constant in const expression"),
+                    _ => panic!(
+                        "Non-constant in const expression: left={:?}, right={:?}",
+                        left, right
+                    ),
                 }
             }
         }
@@ -619,30 +665,39 @@ impl Expression for PrimaryExp {
         &self,
         inst_list: &mut Vec<InstId>,
         dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> ParseResult {
+    ) -> IRObj {
         match self {
-            PrimaryExp::Number { value } => ParseResult::Const(*value),
+            PrimaryExp::Number { value } => IRObj::Const(*value),
             PrimaryExp::Exp { exp } => exp.parse_var_exp(inst_list, dfg),
 
             PrimaryExp::LVal { l_val } => {
-                if GLOBAL_VAR_TABLE.lock().unwrap().contains_key(&l_val.ident) {
-                    GLOBAL_VAR_TABLE
-                        .lock()
-                        .unwrap()
-                        .get(&l_val.ident)
-                        .unwrap()
-                        .clone()
-                } else if GLOBAL_CONST_TABLE
-                    .lock()
-                    .unwrap()
-                    .contains_key(&l_val.ident)
-                {
-                    GLOBAL_CONST_TABLE
-                        .lock()
-                        .unwrap()
-                        .get(&l_val.ident)
-                        .unwrap()
-                        .clone()
+                if let Some(value) = GLOBAL_VAR_TABLE.get(&l_val.ident) {
+                    match value {
+                        IRObj::Pointer {
+                            initialized,
+                            pointer_id,
+                        } => {
+                            if !initialized {
+                                panic!("Variable {} used before initialization", l_val.ident);
+                            }
+
+                            // if it's a variable stored in memory, load first and return inst_id.
+                            insert_into_dfg_and_list(
+                                inst_list,
+                                dfg,
+                                InstData::new(
+                                    BType::Int,
+                                    IRObj::InstId(dfg.get_next_inst_id()),
+                                    KoopaOpCode::LOAD,
+                                    vec![crate::koopa_ir::koopa_ir::Operand::Pointer(pointer_id)],
+                                ),
+                            )
+                        }
+
+                        _ => value,
+                    }
+                } else if let Some(value) = GLOBAL_CONST_TABLE.get(&l_val.ident) {
+                    value
                 } else {
                     panic!("LVal not found in var table, maybe the ident is not defined");
                 }
@@ -650,23 +705,14 @@ impl Expression for PrimaryExp {
         }
     }
 
-    fn parse_const_exp(&self) -> ParseResult {
+    fn parse_const_exp(&self) -> IRObj {
         match self {
-            PrimaryExp::Number { value } => ParseResult::Const(*value),
+            PrimaryExp::Number { value } => IRObj::Const(*value),
             PrimaryExp::Exp { exp } => exp.parse_const_exp(),
 
             PrimaryExp::LVal { l_val } => {
-                if GLOBAL_CONST_TABLE
-                    .lock()
-                    .unwrap()
-                    .contains_key(&l_val.ident)
-                {
-                    GLOBAL_CONST_TABLE
-                        .lock()
-                        .unwrap()
-                        .get(&l_val.ident)
-                        .unwrap()
-                        .clone()
+                if let Some(value) = GLOBAL_CONST_TABLE.get(&l_val.ident) {
+                    value
                 } else {
                     panic!("LVal not found in const table, maybe the ident is for a variable or not defined");
                 }

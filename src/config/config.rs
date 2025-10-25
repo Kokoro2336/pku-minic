@@ -12,6 +12,13 @@ impl BType {
             BType::Void => "void",
         }
     }
+
+    pub fn size_in_bytes(&self) -> u32 {
+        match self {
+            BType::Int => 4,
+            BType::Void => 0,
+        }
+    }
 }
 
 impl std::fmt::Display for BType {

@@ -3,10 +3,12 @@ use crate::ast::{ast::*, exp::*, stmt::*};
 use crate::config::config::BType;
 use crate::koopa_ir::config::KoopaOpCode;
 
+use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::cell::RefMut;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
+use std::sync::Mutex;
 
 #[derive(Clone)]
 pub struct Program {
@@ -61,16 +63,17 @@ impl DataFlowGraph {
         inst_id
     }
 
+    pub fn get_next_inst_id(&self) -> InstId {
+        self.next_inst_id
+    }
+
     pub fn get_inst(&self, inst_id: &InstId) -> Option<&InstData> {
         self.inst_map.get(inst_id)
     }
 
     pub fn free_reg_used(&mut self, inst_id: InstId) {
         if let Some(inst) = self.inst_map.get_mut(&inst_id) {
-            RVREG_ALLOCATOR
-                .lock()
-                .unwrap()
-                .free_reg(inst.reg_used.unwrap());
+            RVREG_ALLOCATOR.free_reg(inst.reg_used.unwrap());
 
             inst.free_reg_used();
         } else {
@@ -82,10 +85,7 @@ impl DataFlowGraph {
         if let Some(inst) = self.inst_map.get_mut(&*inst_id) {
             inst.set_reg(reg.unwrap());
             // concerning that InstData doesn't contain its inst_id, we have to occupy the reg on DFG layer
-            RVREG_ALLOCATOR
-                .lock()
-                .unwrap()
-                .occupy_reg(reg.unwrap(), *inst_id);
+            RVREG_ALLOCATOR.occupy_reg(reg.unwrap(), *inst_id);
         } else {
             panic!("Instruction not found for inst_id {:?}", inst_id);
         }
@@ -105,20 +105,13 @@ impl DataFlowGraph {
 
             // if no users, free the register
             if inst.users.is_empty() {
-                RVREG_ALLOCATOR
-                    .lock()
-                    .unwrap()
-                    .free_reg(inst.reg_used.unwrap());
+                RVREG_ALLOCATOR.free_reg(inst.reg_used.unwrap());
 
                 inst.free_reg_used();
             }
         } else {
             panic!("Instruction not found for inst_id {:?}", inst_id);
         }
-    }
-
-    fn get_next_inst_id(&self) -> InstId {
-        self.next_inst_id
     }
 }
 
@@ -208,7 +201,7 @@ impl BasicBlock {
         }
     }
 
-    pub fn push_item(&mut self, item: &BlockItem) {
+    pub fn parse_item(&mut self, item: &BlockItem) {
         let func_rc = self.func.upgrade().unwrap();
         let func_rc_immut = func_rc.borrow();
         let mut dfg = func_rc_immut.dfg.as_ref().borrow_mut();
@@ -252,20 +245,27 @@ impl std::fmt::Display for BasicBlock {
 /// instruction id for DFG
 pub type InstId = u32;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum Operand {
     InstId(InstId), // maybe the operand refers to another instruction's result
     Const(i32),     // maybe the operand is a constant value
+    BType(BType),   // maybe the operand is a type
+    Pointer(u32),
+    None,
 }
 
 impl Operand {
-    pub fn from_parse_result(parse_result: ParseResult) -> Self {
+    pub fn from_parse_result(parse_result: IRObj) -> Self {
         match parse_result {
-            ParseResult::InstId(id) => Operand::InstId(id),
-            ParseResult::Const(c) => Operand::Const(c),
-            // ?
-            ParseResult::None => {
-                panic!("Cannot convert ParseResult::None to Operand")
+            IRObj::InstId(id) => Operand::InstId(id),
+            IRObj::Const(c) => Operand::Const(c),
+            IRObj::Pointer {
+                initialized: _,
+                pointer_id,
+            } => Operand::Pointer(pointer_id),
+            // None matches to void return
+            IRObj::None => {
+                panic!("Cannot convert IRObj::None to Operand")
             }
         }
     }
@@ -274,12 +274,17 @@ impl Operand {
         match self {
             Operand::InstId(id) => format!("%{}", id),
             Operand::Const(c) => format!("{}", c),
+            Operand::BType(b_type) => format!("{}", b_type),
+            Operand::Pointer(pointer) => format!("@{}", pointer),
+            Operand::None => "".to_string(),
         }
     }
 }
 
 #[derive(Clone)]
 pub struct InstData {
+    pub typ: BType,
+    pub ir_obj: IRObj,
     pub opcode: KoopaOpCode,
     pub operands: Vec<Operand>,
     pub users: Vec<InstId>, // instructions use this instruction's result
@@ -287,10 +292,11 @@ pub struct InstData {
 }
 
 impl InstData {
-    pub fn new(opcode: KoopaOpCode, operands: Vec<Operand>) -> Self {
-        // TODO: find the users of the inst
-
+    // id is either pointer_id or inst_id
+    pub fn new(typ: BType, ir_obj: IRObj, opcode: KoopaOpCode, operands: Vec<Operand>) -> Self {
         Self {
+            typ,
+            ir_obj,
             opcode,
             operands,
             users: vec![],
@@ -330,42 +336,11 @@ impl std::fmt::Display for InstData {
     }
 }
 
-/// func to transform ast to koopa ir.
-pub fn ast2koopa_ir(ast: &CompUnit) -> Result<Program, Box<dyn std::error::Error>> {
-    // TODO: processing global value
-
-    // get func type and ident
-    let func_def = &ast.func_def;
-    let func_type = &func_def.func_type;
-    let func_name = func_def.ident.clone();
-
-    let func = Rc::new(RefCell::new(Func::new(
-        func_name,
-        func_type.clone(),
-        vec![],
-    )));
-
-    // processing block
-    let block = &func_def.block;
-    let mut basic_block = BasicBlock::new(&Rc::clone(&func));
-    for item in &block.block_items {
-        basic_block.push_item(item);
-    }
-
-    let mut func_mut = func.borrow_mut();
-    func_mut.push_basic_block(basic_block);
-
-    // construct Program and return
-    let mut program = Program::new();
-    program.push_func(Rc::clone(&func));
-    Ok(program)
-}
-
 pub fn insert_into_dfg_and_list(
     inst_list: &mut Vec<InstId>,
     dfg: &mut RefMut<'_, DataFlowGraph>,
     inst_data: InstData,
-) -> ParseResult {
+) -> IRObj {
     let inst_id = dfg.insert_inst(inst_data.clone());
 
     // add this inst as a user to all its operand instructions
@@ -376,5 +351,5 @@ pub fn insert_into_dfg_and_list(
     }
 
     inst_list.push(inst_id);
-    ParseResult::InstId(inst_id)
+    IRObj::InstId(inst_id)
 }
