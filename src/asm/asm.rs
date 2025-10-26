@@ -153,8 +153,10 @@ impl AsmBlock {
             });
         }
 
-        // add epilogue
-        asm_block.epilogue();
+        STK_FRM_MANAGER.with(|manager| {
+            let mut manager = manager.borrow_mut();
+            manager.epilogue();
+        });
 
         asm_block
     }
@@ -198,20 +200,6 @@ impl AsmBlock {
         self.insts.extend(asm_insts);
     }
 
-    pub fn epilogue(&mut self) {
-        self.insts.push(AsmInst {
-            opcode: RVOpCode::ADDI,
-            rd: Some(RegAllocType::Temp(RVRegCode::SP)),
-            rs1: Some(RegAllocType::Temp(RVRegCode::SP)),
-            rs2: None,
-            imm: Some(STK_FRM_MANAGER.with(|manager| manager.borrow().get_size() as i32)),
-        });
-
-        STK_FRM_MANAGER.with(|manager| {
-            let mut manager = manager.borrow_mut();
-            manager.epilogue();
-        });
-    }
 }
 
 #[derive(Clone)]
@@ -476,12 +464,13 @@ impl AsmInst {
                 // if we need to load imm at return point, we must use a0 anyway.
                 let op_reg = process_op(&mut v, inst, inst_data.operands.first().unwrap());
 
+                // epilogue here
                 v.push(AsmInst {
-                    opcode: RVOpCode::MV,
-                    rd: Some(RegAllocType::Temp(RVRegCode::A0)),    // fixed to a0
-                    rs1: Some(op_reg.clone()), // the imm must be loaded into t0
+                    opcode: RVOpCode::ADDI,
+                    rd: Some(RegAllocType::Temp(RVRegCode::SP)),
+                    rs1: Some(RegAllocType::Temp(RVRegCode::SP)),
                     rs2: None,
-                    imm: None,
+                    imm: Some(STK_FRM_MANAGER.with(|manager| manager.borrow().get_size() as i32)),
                 });
 
                 v.push(AsmInst {
@@ -513,6 +502,16 @@ fn process_op(
     current_inst_id: &u32,
     operand: &Operand,
 ) -> RegAllocType {
+    let opcode = CONTEXT_STACK.with(|stack| 
+        stack
+        .borrow()
+        .get_current_dfg()
+        .borrow()
+        .get_inst(current_inst_id)
+        .unwrap()
+        .opcode
+        .clone());
+
     match operand {
         Operand::Const(val) => {
             if *val == 0 {
@@ -520,7 +519,10 @@ fn process_op(
             }
 
             // find a free temp reg
-            if let RegAllocType::Temp(temp_reg) = RVREG_ALLOCATOR.with(|allocator| allocator.borrow_mut().find_and_occupy_temp_reg(*current_inst_id)) {
+            if let RegAllocType::Temp(temp_reg) = match opcode {
+                KoopaOpCode::RET => RegAllocType::Temp(RVRegCode::A0), // for return, we must use a0
+                _ => RVREG_ALLOCATOR.with(|allocator| allocator.borrow_mut().find_and_occupy_temp_reg(*current_inst_id))
+            } {
                 // load imm into the free reg
                 let asm_inst = AsmInst {
                     opcode: RVOpCode::LI,
@@ -539,7 +541,11 @@ fn process_op(
 
         Operand::InstId(inst_id) => {
             let mem_with_reg = STK_FRM_MANAGER.with(|manager| manager.borrow().get_named_var_wrapped(Operand::InstId(*inst_id).to_string()));
-            let rs1 = RVREG_ALLOCATOR.with(|allocator| allocator.borrow_mut().find_and_occupy_temp_reg(*inst_id));
+            let rs1 = match opcode {
+                KoopaOpCode::RET => RegAllocType::Temp(RVRegCode::A0), // for return, we must use a0
+                _ => RVREG_ALLOCATOR.with(|allocator| allocator.borrow_mut().find_and_occupy_temp_reg(*inst_id))
+            };
+
             v.push(AsmInst {
                 opcode: RVOpCode::LW,
                 rd: Some(mem_with_reg.clone()), // the rd
