@@ -1,19 +1,17 @@
 use crate::asm::config::{RVRegCode, RVREG_ALLOCATOR};
-use crate::ast::{ast::*, exp::*, stmt::*};
+use crate::ast::exp::*;
 use crate::config::config::BType;
+use crate::config::config::CONTEXT_STACK;
 use crate::koopa_ir::config::KoopaOpCode;
 
-use lazy_static::lazy_static;
 use std::cell::RefCell;
-use std::cell::RefMut;
 use std::collections::HashMap;
-use std::rc::{Rc, Weak};
-use std::sync::Mutex;
+use std::rc::Rc;
 
 #[derive(Clone)]
 pub struct Program {
     pub global_vals: Vec<KoopaGlobalVal>,
-    pub funcs: Vec<Rc<RefCell<Func>>>,
+    pub funcs: Vec<Rc<Func>>,
 }
 
 impl Program {
@@ -28,7 +26,7 @@ impl Program {
         self.global_vals.push(global_val);
     }
 
-    pub fn push_func(&mut self, func: Rc<RefCell<Func>>) {
+    pub fn push_func(&mut self, func: Rc<Func>) {
         self.funcs.push(func);
     }
 }
@@ -37,7 +35,9 @@ impl Program {
 impl std::fmt::Display for Program {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for func in &self.funcs {
-            writeln!(f, "{}", func.borrow())?;
+            CONTEXT_STACK.with(|stack| stack.borrow_mut().enter_func_scope(Rc::clone(func)));
+            writeln!(f, "{}", func)?;
+            CONTEXT_STACK.with(|stack| stack.borrow_mut().exit_scope());
         }
         Ok(())
     }
@@ -73,7 +73,8 @@ impl DataFlowGraph {
 
     pub fn free_reg_used(&mut self, inst_id: InstId) {
         if let Some(inst) = self.inst_map.get_mut(&inst_id) {
-            RVREG_ALLOCATOR.free_reg(inst.reg_used.unwrap());
+            RVREG_ALLOCATOR
+                .with(|allocator| allocator.borrow_mut().free_reg(inst.reg_used.unwrap()));
 
             inst.free_reg_used();
         } else {
@@ -85,7 +86,8 @@ impl DataFlowGraph {
         if let Some(inst) = self.inst_map.get_mut(&*inst_id) {
             inst.set_reg(reg.unwrap());
             // concerning that InstData doesn't contain its inst_id, we have to occupy the reg on DFG layer
-            RVREG_ALLOCATOR.occupy_reg(reg.unwrap(), *inst_id);
+            RVREG_ALLOCATOR
+                .with(|allocator| allocator.borrow_mut().occupy_reg(reg.unwrap(), *inst_id));
         } else {
             panic!("Instruction not found for inst_id {:?}", inst_id);
         }
@@ -100,14 +102,15 @@ impl DataFlowGraph {
     }
 
     pub fn remove_user(&mut self, inst_id: &InstId, user_inst_id: InstId) {
-        if let Some(inst) = self.inst_map.get_mut(inst_id) {
+        if let Some(inst) = self.inst_map.get_mut(&*inst_id) {
             inst.remove_user(user_inst_id);
 
             // if no users, free the register
             if inst.users.is_empty() {
-                RVREG_ALLOCATOR.free_reg(inst.reg_used.unwrap());
-
-                inst.free_reg_used();
+                if let Some(_) = inst.reg_used {
+                    RVREG_ALLOCATOR
+                        .with(|allocator| allocator.borrow_mut().free_reg(inst.reg_used.unwrap()));
+                }
             }
         } else {
             panic!("Instruction not found for inst_id {:?}", inst_id);
@@ -138,7 +141,7 @@ pub struct Func {
     pub func_type: BType,
     pub params: Vec<Param>,
     pub dfg: Rc<RefCell<DataFlowGraph>>,
-    pub basic_blocks: Vec<Rc<BasicBlock>>,
+    pub ir_blocks: Vec<Rc<IRBlock>>,
 }
 
 impl std::fmt::Display for Func {
@@ -150,10 +153,14 @@ impl std::fmt::Display for Func {
             self.get_params_str(),
             self.func_type
         )?;
-        for block in &self.basic_blocks {
+        for block in &self.ir_blocks {
+            CONTEXT_STACK.with(|stack| stack.borrow_mut().enter_block_scope(Rc::clone(block)));
             writeln!(f, "{}", block)?;
+            CONTEXT_STACK.with(|stack| stack.borrow_mut().exit_scope());
         }
-        writeln!(f, "}}")
+
+        writeln!(f, "}}");
+        Ok(())
     }
 }
 
@@ -164,12 +171,12 @@ impl Func {
             func_type,
             params,
             dfg: Rc::new(RefCell::new(DataFlowGraph::new())),
-            basic_blocks: vec![],
+            ir_blocks: vec![],
         }
     }
 
-    pub fn push_basic_block(&mut self, block: BasicBlock) {
-        self.basic_blocks.push(Rc::new(block));
+    pub fn push_ir_block(&mut self, block: Rc<IRBlock>) {
+        self.ir_blocks.push(Rc::clone(&block));
     }
 
     pub fn get_params_str(&self) -> String {
@@ -188,46 +195,27 @@ pub struct Param {
 }
 
 #[derive(Clone)]
-pub struct BasicBlock {
-    pub inst_list: Vec<InstId>,
-    func: Weak<RefCell<Func>>,
+pub struct IRBlock {
+    pub inst_list: Rc<RefCell<Vec<InstId>>>,
 }
 
-impl BasicBlock {
-    pub fn new(func: &Rc<RefCell<Func>>) -> Self {
+impl IRBlock {
+    pub fn new() -> Self {
         Self {
-            inst_list: vec![],
-            func: Rc::downgrade(func),
+            inst_list: Rc::new(RefCell::new(vec![])),
         }
     }
-
-    pub fn parse_item(&mut self, item: &BlockItem) {
-        let func_rc = self.func.upgrade().unwrap();
-        let func_rc_immut = func_rc.borrow();
-        let mut dfg = func_rc_immut.dfg.as_ref().borrow_mut();
-        let inst_list = &mut self.inst_list;
-
-        match item {
-            BlockItem::Decl { decl } => {
-                decl.parse(inst_list, &mut dfg);
-            }
-
-            BlockItem::Stmt { stmt } => {
-                stmt.parse(inst_list, &mut dfg);
-            }
-        };
-    }
 }
 
-impl std::fmt::Display for BasicBlock {
+impl std::fmt::Display for IRBlock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "%entry: ")?;
 
-        let func_rc = self.func.upgrade().unwrap();
-        let func_rc_immut = func_rc.borrow();
-        let dfg = func_rc_immut.dfg.as_ref().borrow();
-        for inst in &self.inst_list {
-            let inst_data = dfg.get_inst(inst).unwrap();
+        let dfg = CONTEXT_STACK.with(|stack| stack.borrow().get_current_dfg());
+        let dfg_borrow = dfg.borrow();
+
+        for inst in &*self.inst_list.borrow() {
+            let inst_data = dfg_borrow.get_inst(inst).unwrap();
             match inst_data.opcode {
                 KoopaOpCode::RET => {
                     writeln!(f, "  ret {}", inst_data.operands[0].to_string())?;
@@ -238,6 +226,7 @@ impl std::fmt::Display for BasicBlock {
                 }
             }
         }
+
         Ok(())
     }
 }
@@ -336,20 +325,21 @@ impl std::fmt::Display for InstData {
     }
 }
 
-pub fn insert_into_dfg_and_list(
-    inst_list: &mut Vec<InstId>,
-    dfg: &mut RefMut<'_, DataFlowGraph>,
-    inst_data: InstData,
-) -> IRObj {
-    let inst_id = dfg.insert_inst(inst_data.clone());
+pub fn insert_instruction(inst_data: InstData) -> IRObj {
+    let dfg = CONTEXT_STACK.with(|stack| stack.borrow().get_current_dfg());
+    let mut dfg_mut = dfg.borrow_mut();
+    let inst_list = CONTEXT_STACK.with(|stack| stack.borrow().get_current_inst_list());
+    let mut inst_list_mut = inst_list.borrow_mut();
+
+    let inst_id = dfg_mut.insert_inst(inst_data.clone());
 
     // add this inst as a user to all its operand instructions
     for operand in &inst_data.operands {
         if let Operand::InstId(op_id) = operand {
-            dfg.add_user(op_id, inst_id);
+            dfg_mut.add_user(op_id, inst_id);
         }
     }
 
-    inst_list.push(inst_id);
+    inst_list_mut.push(inst_id);
     IRObj::InstId(inst_id)
 }

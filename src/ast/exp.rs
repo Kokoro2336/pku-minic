@@ -1,11 +1,10 @@
 use crate::ast::ast::LVal;
-use crate::ast::decl::{GLOBAL_CONST_TABLE, GLOBAL_VAR_TABLE};
 use crate::ast::op::*;
+use crate::config::config::CONTEXT_STACK;
+
 use crate::config::config::BType;
 use crate::koopa_ir::config::KoopaOpCode;
-use crate::koopa_ir::koopa_ir::{insert_into_dfg_and_list, DataFlowGraph, InstData, InstId};
-
-use std::cell::RefMut;
+use crate::koopa_ir::koopa_ir::{insert_instruction, InstData, InstId};
 
 #[derive(Debug, Clone)]
 pub enum IRObj {
@@ -44,11 +43,7 @@ impl IRObj {
 }
 
 pub trait Expression {
-    fn parse_var_exp(
-        &self,
-        inst_list: &mut Vec<InstId>,
-        dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> IRObj;
+    fn parse_var_exp(&self) -> IRObj;
 
     fn parse_const_exp(&self) -> IRObj;
 }
@@ -60,13 +55,9 @@ pub enum Exp {
 
 impl Expression for Exp {
     /// parse_unary_exp
-    fn parse_var_exp(
-        &self,
-        inst_list: &mut Vec<InstId>,
-        dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> IRObj {
+    fn parse_var_exp(&self) -> IRObj {
         match self {
-            Exp::LOrExp { lor_exp } => return lor_exp.parse_var_exp(inst_list, dfg),
+            Exp::LOrExp { lor_exp } => return lor_exp.parse_var_exp(),
         }
     }
 
@@ -90,14 +81,10 @@ pub enum LOrExp {
 }
 
 impl Expression for LOrExp {
-    fn parse_var_exp(
-        &self,
-        inst_list: &mut Vec<InstId>,
-        dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> IRObj {
+    fn parse_var_exp(&self) -> IRObj {
         match self {
             LOrExp::LAndExp { land_exp } => {
-                return land_exp.parse_var_exp(inst_list, dfg);
+                return land_exp.parse_var_exp();
             }
 
             LOrExp::LOrExp {
@@ -105,26 +92,24 @@ impl Expression for LOrExp {
                 lor_op,
                 land_exp,
             } => {
-                let left = lor_exp.parse_var_exp(inst_list, dfg);
-                let right = land_exp.parse_var_exp(inst_list, dfg);
+                let left = lor_exp.parse_var_exp();
+                let right = land_exp.parse_var_exp();
 
                 let koopa_op = match lor_op {
                     LOrOp::Or => KoopaOpCode::OR,
                 };
 
-                insert_into_dfg_and_list(
-                    inst_list,
-                    dfg,
-                    InstData::new(
-                        BType::Int,
-                        IRObj::InstId(dfg.get_next_inst_id()),
-                        koopa_op,
-                        vec![
-                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
-                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
-                        ],
-                    ),
-                )
+                insert_instruction(InstData::new(
+                    BType::Int,
+                    IRObj::InstId(CONTEXT_STACK.with(|stack| {
+                        stack.borrow().get_current_dfg().borrow().get_next_inst_id()
+                    })),
+                    koopa_op,
+                    vec![
+                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
+                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
+                    ],
+                ))
             }
         }
     }
@@ -178,40 +163,34 @@ pub enum LAndExp {
 }
 
 impl Expression for LAndExp {
-    fn parse_var_exp(
-        &self,
-        inst_list: &mut Vec<InstId>,
-        dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> IRObj {
+    fn parse_var_exp(&self) -> IRObj {
         match self {
             LAndExp::EqExp { eq_exp } => {
-                return eq_exp.parse_var_exp(inst_list, dfg);
+                return eq_exp.parse_var_exp();
             }
             LAndExp::LAndExp {
                 land_exp,
                 land_op,
                 eq_exp,
             } => {
-                let left = land_exp.parse_var_exp(inst_list, dfg);
-                let right = eq_exp.parse_var_exp(inst_list, dfg);
+                let left = land_exp.parse_var_exp();
+                let right = eq_exp.parse_var_exp();
 
                 let koopa_op = match land_op {
                     LAndOp::And => KoopaOpCode::AND,
                 };
 
-                insert_into_dfg_and_list(
-                    inst_list,
-                    dfg,
-                    InstData::new(
-                        BType::Int,
-                        IRObj::InstId(dfg.get_next_inst_id()),
-                        koopa_op,
-                        vec![
-                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
-                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
-                        ],
-                    ),
-                )
+                insert_instruction(InstData::new(
+                    BType::Int,
+                    IRObj::InstId(CONTEXT_STACK.with(|stack| {
+                        stack.borrow().get_current_dfg().borrow().get_next_inst_id()
+                    })),
+                    koopa_op,
+                    vec![
+                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
+                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
+                    ],
+                ))
             }
         }
     }
@@ -255,41 +234,35 @@ pub enum EqExp {
 }
 
 impl Expression for EqExp {
-    fn parse_var_exp(
-        &self,
-        inst_list: &mut Vec<InstId>,
-        dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> IRObj {
+    fn parse_var_exp(&self) -> IRObj {
         match self {
             EqExp::RelExp { rel_exp } => {
-                return rel_exp.parse_var_exp(inst_list, dfg);
+                return rel_exp.parse_var_exp();
             }
             EqExp::EqExp {
                 eq_exp,
                 eq_op,
                 rel_exp,
             } => {
-                let left = eq_exp.parse_var_exp(inst_list, dfg);
-                let right = rel_exp.parse_var_exp(inst_list, dfg);
+                let left = eq_exp.parse_var_exp();
+                let right = rel_exp.parse_var_exp();
 
                 let koopa_op = match eq_op {
                     EqOp::Eq => KoopaOpCode::EQ,
                     EqOp::Ne => KoopaOpCode::NE,
                 };
 
-                insert_into_dfg_and_list(
-                    inst_list,
-                    dfg,
-                    InstData::new(
-                        BType::Int,
-                        IRObj::InstId(dfg.get_next_inst_id()),
-                        koopa_op,
-                        vec![
-                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
-                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
-                        ],
-                    ),
-                )
+                insert_instruction(InstData::new(
+                    BType::Int,
+                    IRObj::InstId(CONTEXT_STACK.with(|stack| {
+                        stack.borrow().get_current_dfg().borrow().get_next_inst_id()
+                    })),
+                    koopa_op,
+                    vec![
+                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
+                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
+                    ],
+                ))
             }
         }
     }
@@ -337,22 +310,18 @@ pub enum RelExp {
 }
 
 impl Expression for RelExp {
-    fn parse_var_exp(
-        &self,
-        inst_list: &mut Vec<InstId>,
-        dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> IRObj {
+    fn parse_var_exp(&self) -> IRObj {
         match self {
             RelExp::AddExp { add_exp } => {
-                return add_exp.parse_var_exp(inst_list, dfg);
+                return add_exp.parse_var_exp();
             }
             RelExp::RelExp {
                 rel_exp,
                 rel_op,
                 add_exp,
             } => {
-                let left = rel_exp.parse_var_exp(inst_list, dfg);
-                let right = add_exp.parse_var_exp(inst_list, dfg);
+                let left = rel_exp.parse_var_exp();
+                let right = add_exp.parse_var_exp();
 
                 let koopa_op = match rel_op {
                     RelOp::Lt => KoopaOpCode::LT,
@@ -361,19 +330,17 @@ impl Expression for RelExp {
                     RelOp::Ge => KoopaOpCode::GE,
                 };
 
-                insert_into_dfg_and_list(
-                    inst_list,
-                    dfg,
-                    InstData::new(
-                        BType::Int,
-                        IRObj::InstId(dfg.get_next_inst_id()),
-                        koopa_op,
-                        vec![
-                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
-                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
-                        ],
-                    ),
-                )
+                insert_instruction(InstData::new(
+                    BType::Int,
+                    IRObj::InstId(CONTEXT_STACK.with(|stack| {
+                        stack.borrow().get_current_dfg().borrow().get_next_inst_id()
+                    })),
+                    koopa_op,
+                    vec![
+                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
+                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
+                    ],
+                ))
             }
         }
     }
@@ -422,15 +389,11 @@ pub enum UnaryExp {
 }
 
 impl Expression for UnaryExp {
-    fn parse_var_exp(
-        &self,
-        inst_list: &mut Vec<InstId>,
-        dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> IRObj {
+    fn parse_var_exp(&self) -> IRObj {
         match self {
             // handle primary expression
             UnaryExp::PrimaryExp { exp } => {
-                return exp.parse_var_exp(inst_list, dfg);
+                return exp.parse_var_exp();
             }
 
             // handle unary operation
@@ -438,27 +401,25 @@ impl Expression for UnaryExp {
                 unary_op,
                 unary_exp,
             } => {
-                let parse_result = unary_exp.parse_var_exp(inst_list, dfg);
+                let parse_result = unary_exp.parse_var_exp();
 
                 match unary_op {
                     UnaryOp::Plus => parse_result,
-                    UnaryOp::Minus | UnaryOp::Not => insert_into_dfg_and_list(
-                        inst_list,
-                        dfg,
-                        InstData::new(
-                            BType::Int,
-                            IRObj::InstId(dfg.get_next_inst_id()),
-                            match unary_op {
-                                UnaryOp::Minus => KoopaOpCode::SUB,
-                                UnaryOp::Not => KoopaOpCode::EQ,
-                                _ => unreachable!(),
-                            },
-                            vec![
-                                crate::koopa_ir::koopa_ir::Operand::Const(0),
-                                crate::koopa_ir::koopa_ir::Operand::from_parse_result(parse_result),
-                            ],
-                        ),
-                    ),
+                    UnaryOp::Minus | UnaryOp::Not => insert_instruction(InstData::new(
+                        BType::Int,
+                        IRObj::InstId(CONTEXT_STACK.with(|stack| {
+                            stack.borrow().get_current_dfg().borrow().get_next_inst_id()
+                        })),
+                        match unary_op {
+                            UnaryOp::Minus => KoopaOpCode::SUB,
+                            UnaryOp::Not => KoopaOpCode::EQ,
+                            _ => unreachable!(),
+                        },
+                        vec![
+                            crate::koopa_ir::koopa_ir::Operand::Const(0),
+                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(parse_result),
+                        ],
+                    )),
                 }
             }
         }
@@ -500,22 +461,18 @@ pub enum MulExp {
 }
 
 impl Expression for MulExp {
-    fn parse_var_exp(
-        &self,
-        inst_list: &mut Vec<InstId>,
-        dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> IRObj {
+    fn parse_var_exp(&self) -> IRObj {
         match self {
             MulExp::UnaryExp { unary_exp } => {
-                return unary_exp.parse_var_exp(inst_list, dfg);
+                return unary_exp.parse_var_exp();
             }
             MulExp::MulExp {
                 mul_exp,
                 mul_op,
                 unary_exp,
             } => {
-                let left = mul_exp.parse_var_exp(inst_list, dfg);
-                let right = unary_exp.parse_var_exp(inst_list, dfg);
+                let left = mul_exp.parse_var_exp();
+                let right = unary_exp.parse_var_exp();
 
                 let koopa_op = match mul_op {
                     MulOp::Mul => KoopaOpCode::MUL,
@@ -523,19 +480,17 @@ impl Expression for MulExp {
                     MulOp::Mod => KoopaOpCode::MOD,
                 };
 
-                insert_into_dfg_and_list(
-                    inst_list,
-                    dfg,
-                    InstData::new(
-                        BType::Int,
-                        IRObj::InstId(dfg.get_next_inst_id()),
-                        koopa_op,
-                        vec![
-                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
-                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
-                        ],
-                    ),
-                )
+                insert_instruction(InstData::new(
+                    BType::Int,
+                    IRObj::InstId(CONTEXT_STACK.with(|stack| {
+                        stack.borrow().get_current_dfg().borrow().get_next_inst_id()
+                    })),
+                    koopa_op,
+                    vec![
+                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
+                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
+                    ],
+                ))
             }
         }
     }
@@ -584,41 +539,35 @@ pub enum AddExp {
 }
 
 impl Expression for AddExp {
-    fn parse_var_exp(
-        &self,
-        inst_list: &mut Vec<InstId>,
-        dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> IRObj {
+    fn parse_var_exp(&self) -> IRObj {
         match self {
             AddExp::MulExp { mul_exp } => {
-                return mul_exp.parse_var_exp(inst_list, dfg);
+                return mul_exp.parse_var_exp();
             }
             AddExp::AddExp {
                 add_exp,
                 add_op,
                 mul_exp,
             } => {
-                let left = add_exp.parse_var_exp(inst_list, dfg);
-                let right = mul_exp.parse_var_exp(inst_list, dfg);
+                let left = add_exp.parse_var_exp();
+                let right = mul_exp.parse_var_exp();
 
                 let koopa_op = match add_op {
                     AddOp::Add => KoopaOpCode::ADD,
                     AddOp::Sub => KoopaOpCode::SUB,
                 };
 
-                insert_into_dfg_and_list(
-                    inst_list,
-                    dfg,
-                    InstData::new(
-                        BType::Int,
-                        IRObj::InstId(dfg.get_next_inst_id()),
-                        koopa_op,
-                        vec![
-                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
-                            crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
-                        ],
-                    ),
-                )
+                insert_instruction(InstData::new(
+                    BType::Int,
+                    IRObj::InstId(CONTEXT_STACK.with(|stack| {
+                        stack.borrow().get_current_dfg().borrow().get_next_inst_id()
+                    })),
+                    koopa_op,
+                    vec![
+                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(left),
+                        crate::koopa_ir::koopa_ir::Operand::from_parse_result(right),
+                    ],
+                ))
             }
         }
     }
@@ -661,17 +610,15 @@ pub enum PrimaryExp {
 }
 
 impl Expression for PrimaryExp {
-    fn parse_var_exp(
-        &self,
-        inst_list: &mut Vec<InstId>,
-        dfg: &mut RefMut<'_, DataFlowGraph>,
-    ) -> IRObj {
+    fn parse_var_exp(&self) -> IRObj {
         match self {
             PrimaryExp::Number { value } => IRObj::Const(*value),
-            PrimaryExp::Exp { exp } => exp.parse_var_exp(inst_list, dfg),
+            PrimaryExp::Exp { exp } => exp.parse_var_exp(),
 
             PrimaryExp::LVal { l_val } => {
-                if let Some(value) = GLOBAL_VAR_TABLE.get(&l_val.ident) {
+                if let Some(value) =
+                    CONTEXT_STACK.with(|stack| stack.borrow().get_var(&l_val.ident))
+                {
                     match value {
                         IRObj::Pointer {
                             initialized,
@@ -682,21 +629,21 @@ impl Expression for PrimaryExp {
                             }
 
                             // if it's a variable stored in memory, load first and return inst_id.
-                            insert_into_dfg_and_list(
-                                inst_list,
-                                dfg,
-                                InstData::new(
-                                    BType::Int,
-                                    IRObj::InstId(dfg.get_next_inst_id()),
-                                    KoopaOpCode::LOAD,
-                                    vec![crate::koopa_ir::koopa_ir::Operand::Pointer(pointer_id)],
-                                ),
-                            )
+                            insert_instruction(InstData::new(
+                                BType::Int,
+                                IRObj::InstId(CONTEXT_STACK.with(|stack| {
+                                    stack.borrow().get_current_dfg().borrow().get_next_inst_id()
+                                })),
+                                KoopaOpCode::LOAD,
+                                vec![crate::koopa_ir::koopa_ir::Operand::Pointer(pointer_id)],
+                            ))
                         }
 
                         _ => value,
                     }
-                } else if let Some(value) = GLOBAL_CONST_TABLE.get(&l_val.ident) {
+                } else if let Some(value) =
+                    CONTEXT_STACK.with(|stack| stack.borrow().get_const(&l_val.ident))
+                {
                     value
                 } else {
                     panic!("LVal not found in var table, maybe the ident is not defined");
@@ -711,7 +658,9 @@ impl Expression for PrimaryExp {
             PrimaryExp::Exp { exp } => exp.parse_const_exp(),
 
             PrimaryExp::LVal { l_val } => {
-                if let Some(value) = GLOBAL_CONST_TABLE.get(&l_val.ident) {
+                if let Some(value) =
+                    CONTEXT_STACK.with(|stack| stack.borrow().get_const(&l_val.ident))
+                {
                     value
                 } else {
                     panic!("LVal not found in const table, maybe the ident is for a variable or not defined");

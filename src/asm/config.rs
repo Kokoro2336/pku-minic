@@ -1,14 +1,12 @@
 use crate::config::config::BType;
-use crate::koopa_ir::koopa_ir::{DataFlowGraph, Func, Operand};
-use crate::koopa_ir::config::{KoopaOpCode};
+use crate::koopa_ir::koopa_ir::Func;
 
-use lazy_static::lazy_static;
-use std::cell::Ref;
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Mutex;
 
 const STK_FRM_BASE_LENGTH: u32 = 16; // 16 bytes for minimum
 const RISCV_BITS: u32 = 32;
+const REG_IDLE: u32 = u32::MAX;
 
 #[derive(Clone, Debug)]
 pub enum RVOpCode {
@@ -157,35 +155,31 @@ impl RegAllocType {
 
     /// this function would only free temporary registers.
     pub fn free_temp(&self) {
-        match self {
-            RegAllocType::Temp(reg) => {
-                RVREG_ALLOCATOR.free_reg(*reg);
-            }
-            // var on mem & perm var won't do anything for now
-            _ => {}
+        if let RegAllocType::Temp(reg) = self {
+            RVREG_ALLOCATOR.with(|allocator| allocator.borrow_mut().free_reg(*reg));
         }
     }
 }
 
 pub struct RVRegAllocator {
-    pub map: Mutex<[u32; 32]>, // each item means the inst id that occupies this register.
+    pub map: [u32; 32], // each item means the inst id that occupies this register.
 }
 
 impl RVRegAllocator {
     pub fn new() -> Self {
         Self {
-            map: Mutex::new([std::u32::MAX; 32]),
+            map: [REG_IDLE; 32],
         }
     }
 
     pub fn get_reg_occupation(&self, reg: RVRegCode) -> u32 {
-        self.map.lock().unwrap()[reg as usize]
+        self.map[reg as usize]
     }
 
     /// temp regs: t0-t6, a0-a7
     pub fn find_free_reg(&self) -> Option<RVRegCode> {
-        for (i, &inst_id) in self.map.lock().unwrap().iter().enumerate() {
-            if inst_id == std::u32::MAX
+        for (i, &inst_id) in self.map.iter().enumerate() {
+            if inst_id == REG_IDLE
                 && (i >= RVRegCode::T0 as usize && i <= RVRegCode::T2 as usize
                     || i >= RVRegCode::T3 as usize && i <= RVRegCode::T6 as usize
                     || i >= RVRegCode::A0 as usize && i <= RVRegCode::A7 as usize)
@@ -197,11 +191,11 @@ impl RVRegAllocator {
         None
     }
 
-    pub fn occupy_reg(&self, reg: RVRegCode, inst_id: u32) {
-        self.map.lock().unwrap()[reg as usize] = inst_id;
+    pub fn occupy_reg(&mut self, reg: RVRegCode, inst_id: u32) {
+        self.map[reg as usize] = inst_id;
     }
 
-    pub fn find_and_occupy_temp_reg(&self, inst_id: u32) -> RegAllocType {
+    pub fn find_and_occupy_temp_reg(&mut self, inst_id: u32) -> RegAllocType {
         if let Some(reg) = self.find_free_reg() {
             self.occupy_reg(reg, inst_id);
             RegAllocType::Temp(reg)
@@ -210,7 +204,7 @@ impl RVRegAllocator {
         }
     }
 
-    pub fn find_and_occupy_perm_reg(&self, inst_id: u32) -> RegAllocType {
+    pub fn find_and_occupy_perm_reg(&mut self, inst_id: u32) -> RegAllocType {
         if let Some(reg) = self.find_free_reg() {
             self.occupy_reg(reg, inst_id);
             RegAllocType::Perm(reg)
@@ -219,8 +213,8 @@ impl RVRegAllocator {
         }
     }
 
-    pub fn free_reg(&self, reg: RVRegCode) {
-        self.map.lock().unwrap()[reg as usize] = std::u32::MAX;
+    pub fn free_reg(&mut self, reg: RVRegCode) {
+        self.map[reg as usize] = REG_IDLE;
     }
 
     pub fn from_idx(idx: usize) -> RVRegCode {
@@ -246,17 +240,15 @@ pub struct StackFrame {
 
 #[derive(Debug)]
 pub struct StackFrameManager {
-    frames: Mutex<Vec<StackFrame>>,
+    frames: Vec<StackFrame>,
 }
 
 impl StackFrameManager {
     pub fn new() -> Self {
-        Self {
-            frames: Mutex::new(vec![]),
-        }
+        Self { frames: vec![] }
     }
 
-    pub fn prologue(&self, func: &Ref<'_, Func>) {
+    pub fn prologue(&mut self, func: &Func) {
         // iterate inst_map, calculate stack frame size. as koopa ir is in SSA form,
         // each inst is only assigned once, so we can simply sum up the size of all as long as the inst have return value.
         let dfg = func.dfg.borrow();
@@ -270,13 +262,13 @@ impl StackFrameManager {
         let size =
             ((origin_size + (STK_FRM_BASE_LENGTH - 1)) / STK_FRM_BASE_LENGTH) * STK_FRM_BASE_LENGTH;
 
-        let (sp_offset, fp_offset) = if let Some(stack_frame) = self.frames.lock().unwrap().last() {
+        let (sp_offset, fp_offset) = if let Some(stack_frame) = self.frames.last() {
             (stack_frame.sp_offset + size, stack_frame.sp_offset)
         } else {
             (0, 0)
         };
 
-        self.frames.lock().unwrap().push(StackFrame {
+        self.frames.push(StackFrame {
             sp_offset,
             fp_offset,
             size,
@@ -286,41 +278,28 @@ impl StackFrameManager {
     }
 
     pub fn get_sp_offset(&self) -> u32 {
-        self.frames
-            .lock()
-            .unwrap()
-            .last()
-            .map_or(0, |frame| frame.sp_offset)
+        self.frames.last().map_or(0, |frame| frame.sp_offset)
     }
 
     pub fn get_fp_offset(&self) -> u32 {
-        self.frames
-            .lock()
-            .unwrap()
-            .last()
-            .map_or(0, |frame| frame.fp_offset)
+        self.frames.last().map_or(0, |frame| frame.fp_offset)
     }
 
     pub fn get_size(&self) -> u32 {
-        self.frames
-            .lock()
-            .unwrap()
-            .last()
-            .map_or(0, |frame| frame.size)
+        self.frames.last().map_or(0, |frame| frame.size)
     }
 
-    pub fn epilogue(&self) {
-        self.frames.lock().unwrap().pop();
+    pub fn epilogue(&mut self) {
+        self.frames.pop();
     }
 
     pub fn is_callee(&self) -> bool {
-        self.frames.lock().unwrap().len() > 1
+        self.frames.len() > 1
     }
 
     // @return (offset, size)
-    pub fn alloc_var(&self, name: String, typ: BType) -> (u32, u32) {
-        let mut frames = self.frames.lock().unwrap();
-        let frame = frames.last_mut().unwrap();
+    pub fn alloc_var(&mut self, name: String, typ: BType) -> (u32, u32) {
+        let frame = self.frames.last_mut().unwrap();
 
         let offset = frame.cur_offset;
         let size = match typ {
@@ -335,7 +314,7 @@ impl StackFrameManager {
     }
 
     /// this would return RegAllocType with eventual offset in stack frame
-    pub fn alloc_named_var_wrapped(&self, name: String, typ: BType) -> RegAllocType {
+    pub fn alloc_named_var_wrapped(&mut self, name: String, typ: BType) -> RegAllocType {
         let (offset, _) = self.alloc_var(name, typ);
         RegAllocType::MemWithReg {
             offset,
@@ -344,7 +323,7 @@ impl StackFrameManager {
     }
 
     /// often for temporary variables without name
-    pub fn alloc_anonymous_var_wrapped(&self, typ: BType) -> RegAllocType {
+    pub fn alloc_anonymous_var_wrapped(&mut self, typ: BType) -> RegAllocType {
         let (offset, _) = self.alloc_var("".to_string(), typ);
         RegAllocType::MemWithReg {
             offset,
@@ -353,19 +332,22 @@ impl StackFrameManager {
     }
 
     pub fn get_named_var_wrapped(&self, name: String) -> RegAllocType {
-        let frames = self.frames.lock().unwrap();
-        let frame = frames.last().unwrap();
+        let frame = self.frames.last().unwrap();
         let (offset, _) = frame.var_map.get(&name).cloned().unwrap();
 
-        RegAllocType::MemWithReg { offset, reg: RVRegCode::SP }
+        RegAllocType::MemWithReg {
+            offset,
+            reg: RVRegCode::SP,
+        }
     }
 }
 
-lazy_static! {
+thread_local! {
     /// this array records the occupation status of each register.
     /// each item means the inst id that occupies this register.
-    pub static ref RVREG_ALLOCATOR: RVRegAllocator = RVRegAllocator::new();
-    pub static ref STK_FRM_MANAGER: StackFrameManager = StackFrameManager::new();
+
+    pub static RVREG_ALLOCATOR: RefCell<RVRegAllocator> = RefCell::new(RVRegAllocator::new());
+    pub static STK_FRM_MANAGER: RefCell<StackFrameManager> = RefCell::new(StackFrameManager::new());
 }
 
 impl std::fmt::Display for RVRegCode {

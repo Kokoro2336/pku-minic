@@ -1,9 +1,8 @@
 use crate::ast::decl::Decl;
-use crate::ast::stmt::Stmt;
-use crate::config::config::BType;
-use crate::koopa_ir::koopa_ir::{BasicBlock, Func, Program};
+use crate::ast::stmt::{Statement, Stmt};
+use crate::config::config::{BType, CONTEXT_STACK};
+use crate::koopa_ir::koopa_ir::{Func, IRBlock, Program};
 
-use std::cell::RefCell;
 use std::rc::Rc;
 
 /// define the AST structure
@@ -32,27 +31,24 @@ pub struct FuncDef {
 }
 
 impl FuncDef {
-    fn parse(&self) -> Rc<RefCell<Func>> {
+    fn parse(&self) -> Rc<Func> {
         // TODO: processing global value
 
         // get func type and ident
         let func_type = &self.func_type;
         let func_name = self.ident.clone();
 
-        let func = Rc::new(RefCell::new(Func::new(
-            func_name,
-            func_type.clone(),
-            vec![],
-        )));
+        let mut func = Rc::new(Func::new(func_name, func_type.clone(), vec![]));
 
-        // processing block
+        CONTEXT_STACK.with(|stack| stack.borrow_mut().enter_func_scope(Rc::clone(&func)));
+
         {
-            // as the cycle reference of basic block to func, we need to init it previously rather than in .parse()
-            let mut ir_block = BasicBlock::new(&Rc::clone(&func));
-            let basic_block = self.block.parse(ir_block);
-            let mut func_mut = func.borrow_mut();
-            func_mut.push_basic_block(basic_block);
+            let ir_block = self.block.parse();
+            let func_mut = Rc::get_mut(&mut func).unwrap();
+            func_mut.push_ir_block(ir_block);
         }
+
+        CONTEXT_STACK.with(|stack| stack.borrow_mut().exit_scope());
 
         func
     }
@@ -64,11 +60,16 @@ pub struct Block {
 }
 
 impl Block {
-    fn parse(&self, mut basic_block: BasicBlock) -> BasicBlock {
+    pub fn parse(&self) -> Rc<IRBlock> {
+        let ir_block = Rc::new(IRBlock::new());
+        CONTEXT_STACK.with(|stack| stack.borrow_mut().enter_block_scope(Rc::clone(&ir_block)));
+
         for item in &self.block_items {
-            basic_block.parse_item(item);
+            item.parse();
         }
-        basic_block
+
+        CONTEXT_STACK.with(|stack| stack.borrow_mut().exit_scope());
+        ir_block
     }
 }
 
@@ -76,6 +77,19 @@ impl Block {
 pub enum BlockItem {
     Decl { decl: Decl },
     Stmt { stmt: Stmt },
+}
+
+impl BlockItem {
+    pub fn parse(&self) {
+        match self {
+            BlockItem::Decl { decl } => {
+                decl.parse();
+            }
+            BlockItem::Stmt { stmt } => {
+                stmt.parse();
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
