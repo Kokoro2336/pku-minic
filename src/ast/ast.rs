@@ -43,7 +43,8 @@ impl FuncDef {
         CONTEXT_STACK.with(|stack| stack.borrow_mut().enter_func_scope(Rc::clone(&func)));
 
         {
-            let ir_block = self.block.parse();
+            let ir_block = Rc::new(IRBlock::new());
+            self.block.parse(Rc::clone(&ir_block));
             let func_mut = Rc::get_mut(&mut func).unwrap();
             func_mut.push_ir_block(ir_block);
         }
@@ -60,16 +61,14 @@ pub struct Block {
 }
 
 impl Block {
-    pub fn parse(&self) -> Rc<IRBlock> {
-        let ir_block = Rc::new(IRBlock::new());
-        CONTEXT_STACK.with(|stack| stack.borrow_mut().enter_block_scope(Rc::clone(&ir_block)));
+    pub fn parse(&self, ir_block: Rc<IRBlock>) {
+        CONTEXT_STACK.with(|stack| stack.borrow_mut().enter_block_scope(ir_block));
 
         for item in &self.block_items {
             item.parse();
         }
 
         CONTEXT_STACK.with(|stack| stack.borrow_mut().exit_scope());
-        ir_block
     }
 }
 

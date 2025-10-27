@@ -78,13 +78,12 @@ impl KoopaOpCode {
             | KoopaOpCode::XOR
             | KoopaOpCode::SHL
             | KoopaOpCode::SHR
-            | KoopaOpCode::SAR => true,
+            | KoopaOpCode::SAR 
+            | KoopaOpCode::LOAD 
+            | KoopaOpCode:: ALLOC => true,
 
             // These opcodes do not produce a return value
             KoopaOpCode::STORE | KoopaOpCode::RET => false,
-
-            // LOAD produces a return value (e.g., the loaded value)
-            KoopaOpCode::LOAD | KoopaOpCode::ALLOC => true,
         }
     }
 }

@@ -616,37 +616,31 @@ impl Expression for PrimaryExp {
             PrimaryExp::Exp { exp } => exp.parse_var_exp(),
 
             PrimaryExp::LVal { l_val } => {
-                if let Some(value) =
-                    CONTEXT_STACK.with(|stack| stack.borrow().get_var(&l_val.ident))
+                match CONTEXT_STACK.with(|stack| stack.borrow().find_highest_priority(&l_val.ident))
                 {
-                    match value {
-                        IRObj::Pointer {
-                            initialized,
-                            pointer_id,
-                        } => {
-                            if !initialized {
-                                panic!("Variable {} used before initialization", l_val.ident);
-                            }
-
-                            // if it's a variable stored in memory, load first and return inst_id.
-                            insert_instruction(InstData::new(
-                                BType::Int,
-                                IRObj::InstId(CONTEXT_STACK.with(|stack| {
-                                    stack.borrow().get_current_dfg().borrow().get_next_inst_id()
-                                })),
-                                KoopaOpCode::LOAD,
-                                vec![crate::koopa_ir::koopa_ir::Operand::Pointer(pointer_id)],
-                            ))
+                    Some(IRObj::Pointer {
+                        initialized,
+                        pointer_id,
+                    }) => {
+                        // this case the variables wasn't loaded before use
+                        if !initialized {
+                            panic!("Variable {} used before initialization", l_val.ident);
                         }
 
-                        _ => value,
+                        // if it's a variable stored in memory, load first and return inst_id.
+                        insert_instruction(InstData::new(
+                            BType::Int,
+                            IRObj::InstId(CONTEXT_STACK.with(|stack| {
+                                stack.borrow().get_current_dfg().borrow().get_next_inst_id()
+                            })),
+                            KoopaOpCode::LOAD,
+                            vec![crate::koopa_ir::koopa_ir::Operand::Pointer(pointer_id)],
+                        ))
                     }
-                } else if let Some(value) =
-                    CONTEXT_STACK.with(|stack| stack.borrow().get_const(&l_val.ident))
-                {
-                    value
-                } else {
-                    panic!("LVal not found in var table, maybe the ident is not defined");
+                    Some(IRObj::Const(value)) => IRObj::Const(value),
+                    _ => {
+                        panic!("LVal not found in var table, maybe the ident is not defined");
+                    }
                 }
             }
         }
@@ -659,7 +653,7 @@ impl Expression for PrimaryExp {
 
             PrimaryExp::LVal { l_val } => {
                 if let Some(value) =
-                    CONTEXT_STACK.with(|stack| stack.borrow().get_const(&l_val.ident))
+                    CONTEXT_STACK.with(|stack| stack.borrow().get_latest_const(&l_val.ident))
                 {
                     value
                 } else {

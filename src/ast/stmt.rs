@@ -5,6 +5,8 @@ use crate::config::config::CONTEXT_STACK;
 use crate::koopa_ir::config::KoopaOpCode;
 use crate::koopa_ir::koopa_ir::{insert_instruction, InstData, Operand};
 
+use std::rc::Rc;
+
 pub trait Statement {
     fn parse(&self);
 }
@@ -22,19 +24,19 @@ impl Statement for Stmt {
         match self {
             Stmt::RegularStmt { l_val, exp } => {
                 if CONTEXT_STACK
-                    .with(|stack| stack.borrow().get_const(l_val.ident.as_str()))
+                    .with(|stack| stack.borrow().get_latest_const(l_val.ident.as_str()))
                     .is_some()
                 {
                     panic!("Cannot assign to a constant variable");
                 } else if CONTEXT_STACK
-                    .with(|stack| stack.borrow().get_var(l_val.ident.as_str()))
+                    .with(|stack| stack.borrow().get_latest_pointer(l_val.ident.as_str()))
                     .is_none()
                 {
                     panic!("Variable {} not declared", l_val.ident);
                 }
 
                 let pointer = CONTEXT_STACK
-                    .with(|stack| stack.borrow().get_var(&l_val.ident))
+                    .with(|stack| stack.borrow().get_latest_pointer(l_val.ident.as_str()))
                     .unwrap();
                 let result = exp.parse_var_exp();
 
@@ -62,10 +64,11 @@ impl Statement for Stmt {
                     ],
                 ));
 
+                // set_pointer_initialized
                 CONTEXT_STACK.with(|stack| {
                     stack
                         .borrow_mut()
-                        .insert_var(l_val.ident.clone(), result.clone())
+                        .set_pointer_initialized(l_val.ident.as_str())
                 });
             }
 
@@ -96,7 +99,12 @@ impl Statement for Stmt {
             }
 
             Stmt::Block { block } => {
-                block.parse();
+                let ir_block = CONTEXT_STACK.with(|stack| {
+                    let stack = stack.borrow();
+                    stack.get_current_ir_block()
+                });
+
+                block.parse(Rc::clone(&ir_block));
             }
         }
     }

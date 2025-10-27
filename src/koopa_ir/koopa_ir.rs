@@ -141,7 +141,7 @@ pub struct Func {
     pub func_type: BType,
     pub params: Vec<Param>,
     pub dfg: Rc<RefCell<DataFlowGraph>>,
-    pub ir_blocks: Vec<Rc<IRBlock>>,
+    pub ir_blocks: Rc<RefCell<Vec<Rc<IRBlock>>>>,
 }
 
 impl std::fmt::Display for Func {
@@ -153,7 +153,7 @@ impl std::fmt::Display for Func {
             self.get_params_str(),
             self.func_type
         )?;
-        for block in &self.ir_blocks {
+        for block in &*self.ir_blocks.borrow() {
             CONTEXT_STACK.with(|stack| stack.borrow_mut().enter_block_scope(Rc::clone(block)));
             writeln!(f, "{}", block)?;
             CONTEXT_STACK.with(|stack| stack.borrow_mut().exit_scope());
@@ -171,12 +171,12 @@ impl Func {
             func_type,
             params,
             dfg: Rc::new(RefCell::new(DataFlowGraph::new())),
-            ir_blocks: vec![],
+            ir_blocks: Rc::new(RefCell::new(vec![])),
         }
     }
 
     pub fn push_ir_block(&mut self, block: Rc<IRBlock>) {
-        self.ir_blocks.push(Rc::clone(&block));
+        self.ir_blocks.borrow_mut().push(Rc::clone(&block));
     }
 
     pub fn get_params_str(&self) -> String {
@@ -222,7 +222,13 @@ impl std::fmt::Display for IRBlock {
                     continue;
                 }
                 _ => {
-                    writeln!(f, "  %{} = {}", inst, inst_data)?;
+                    if let IRObj::InstId(_) = inst_data.ir_obj {
+                        writeln!(f, "  %{} = {}", inst, inst_data)?;
+                    } else if let IRObj::Pointer { initialized:_, pointer_id } = inst_data.ir_obj {
+                        writeln!(f, "  @{} = {}", pointer_id, inst_data)?;
+                    } else {
+                        writeln!(f, "  {}", inst_data)?;
+                    }
                 }
             }
         }

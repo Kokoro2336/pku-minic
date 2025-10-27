@@ -124,7 +124,7 @@ impl AsmBlock {
         asm_block.prologue(func);
 
         // add inst
-        for ir_block in &func.ir_blocks {
+        for ir_block in &*func.ir_blocks.borrow() {
             CONTEXT_STACK.with(|stack| {
                 let mut stack = stack.borrow_mut();
                 stack.enter_block_scope(Rc::clone(ir_block));
@@ -259,10 +259,6 @@ impl AsmInst {
         inst_data: &InstData,
     ) -> Vec<Self> {
         let mut v = Vec::new();
-        let inst_list = CONTEXT_STACK.with(|stack| {
-            let stack = stack.borrow();
-            stack.get_current_inst_list().borrow().clone()
-        });
 
         let reg_used: RegAllocType = match inst_data.opcode {
             KoopaOpCode::EQ | KoopaOpCode::NE => {

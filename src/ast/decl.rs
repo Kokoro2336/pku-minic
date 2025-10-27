@@ -56,6 +56,21 @@ pub struct ConstDef {
 
 impl Declaration for ConstDef {
     fn parse(&self) -> IRObj {
+        if CONTEXT_STACK
+            .with(|stack| stack.borrow().get_current_pointer(self.ident.as_str()))
+            .is_some()
+        {
+            panic!(
+                "Cannot declare constant {} with the same name as a variable",
+                self.ident
+            );
+        } else if CONTEXT_STACK
+            .with(|stack| stack.borrow().get_current_const(self.ident.as_str()))
+            .is_some()
+        {
+            panic!("Constant {} already declared", self.ident);
+        }
+
         self.const_init_val.parse()
     }
 }
@@ -92,9 +107,12 @@ impl VarDecl {
     fn parse(&self) {
         for var_def in &self.var_defs {
             let result = var_def.parse();
-            // insert pointer into symbol table for parsing first.
-            CONTEXT_STACK
-                .with(|stack| stack.borrow_mut().insert_var(var_def.ident.clone(), result));
+            // insert pointer into pointer table for parsing first.
+            CONTEXT_STACK.with(|stack| {
+                stack
+                    .borrow_mut()
+                    .insert_pointer(var_def.ident.clone(), result)
+            });
         }
     }
 }
@@ -107,6 +125,22 @@ pub struct VarDef {
 
 impl Declaration for VarDef {
     fn parse(&self) -> IRObj {
+        // semantic check
+        if CONTEXT_STACK
+            .with(|stack| stack.borrow().get_current_const(self.ident.as_str()))
+            .is_some()
+        {
+            panic!(
+                "Cannot declare variable {} with the same name as a constant",
+                self.ident
+            );
+        } else if CONTEXT_STACK
+            .with(|stack| stack.borrow().get_current_pointer(self.ident.as_str()))
+            .is_some()
+        {
+            panic!("Variable {} already declared", self.ident);
+        }
+
         let pointer_id = PTR_ID_ALLOCATOR.with(|allocator| allocator.borrow_mut().alloc());
         // whatever the init_val is, we need to allocate space for the variable
         insert_instruction(InstData::new(
@@ -121,6 +155,7 @@ impl Declaration for VarDef {
 
         if let Some(init_val) = &self.init_val {
             let parse_result = init_val.parse();
+            // we don't need to store temp var to var_table here for it'll be removed soon after STORE
             if let IRObj::Const(_) | IRObj::InstId(_) = parse_result {
                 insert_instruction(InstData::new(
                     BType::Void,

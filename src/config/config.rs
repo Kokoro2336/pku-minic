@@ -44,8 +44,8 @@ pub struct Context {
     pub ir_block: Option<Rc<IRBlock>>,
     // current function's symbol tables
     pub global_const_table: HashMap<String, IRObj>,
-    // current function's variable symbol tables
-    pub global_var_table: HashMap<String, IRObj>,
+    // current function's pointer tables
+    pub global_pointer_table: HashMap<String, IRObj>,
 }
 
 impl Context {
@@ -54,7 +54,7 @@ impl Context {
             func: Rc::clone(&func),
             ir_block,
             global_const_table: HashMap::new(),
-            global_var_table: HashMap::new(),
+            global_pointer_table: HashMap::new(),
         }
     }
 }
@@ -90,14 +90,6 @@ impl ContextStack {
         stack.pop();
     }
 
-    pub fn insert_var(&mut self, name: String, value: IRObj) {
-        if let Some(current_context) = self.stack.last_mut() {
-            current_context.global_var_table.insert(name, value);
-        } else {
-            panic!("No context available to insert variable");
-        }
-    }
-
     pub fn insert_const(&mut self, name: String, value: IRObj) {
         if let Some(current_context) = self.stack.last_mut() {
             current_context.global_const_table.insert(name, value);
@@ -106,18 +98,60 @@ impl ContextStack {
         }
     }
 
-    pub fn get_var(&self, name: &str) -> Option<IRObj> {
+    pub fn insert_pointer(&mut self, name: String, value: IRObj) {
+        if let Some(current_context) = self.stack.last_mut() {
+            current_context.global_pointer_table.insert(name, value);
+        } else {
+            panic!("No context available to insert pointer");
+        }
+    }
+
+    pub fn set_pointer_initialized(&mut self, name: &str) {
+        for context in self.stack.iter_mut().rev() {
+            if let Some(IRObj::Pointer {
+                initialized,
+                pointer_id: _,
+            }) = context.global_pointer_table.get_mut(name)
+            {
+                *initialized = true;
+                return;
+            }
+        }
+        panic!("Pointer {} not found to set initialized", name);
+    }
+
+    pub fn get_latest_const(&self, name: &str) -> Option<IRObj> {
         for context in self.stack.iter().rev() {
-            if let Some(value) = context.global_var_table.get(name) {
+            if let Some(value) = context.global_const_table.get(name) {
                 return Some(value.clone());
             }
         }
         None
     }
 
-    pub fn get_const(&self, name: &str) -> Option<IRObj> {
+    pub fn get_latest_pointer(&self, name: &str) -> Option<IRObj> {
         for context in self.stack.iter().rev() {
-            if let Some(value) = context.global_const_table.get(name) {
+            if let Some(value) = context.global_pointer_table.get(name) {
+                return Some(value.clone());
+            }
+        }
+        None
+    }
+
+    pub fn get_current_const(&self, name: &str) -> Option<IRObj> {
+        let stack = &self.stack;
+        if let Some(current_context) = stack.last() {
+            if let Some(value) = current_context.global_const_table.get(name) {
+                return Some(value.clone());
+            }
+        }
+        None
+    }
+
+    pub fn get_current_pointer(&self, name: &str) -> Option<IRObj> {
+        let stack = &self.stack;
+        if let Some(current_context) = stack.last() {
+            if let Some(value) = current_context.global_pointer_table.get(name) {
                 return Some(value.clone());
             }
         }
@@ -145,29 +179,36 @@ impl ContextStack {
             panic!("No context available to get instruction list");
         }
     }
-}
 
-#[derive(Debug)]
-pub struct SymbolTable {
-    table: Vec<HashMap<String, IRObj>>,
-}
-
-impl SymbolTable {
-    pub fn new() -> Self {
-        SymbolTable { table: vec![] }
-    }
-
-    pub fn insert(&mut self, name: String, value: IRObj) {
-        if let Some(scope) = self.table.last_mut() {
-            scope.insert(name, value);
+    pub fn get_current_func(&self) -> Rc<Func> {
+        let stack = &self.stack;
+        if let Some(current_context) = stack.last() {
+            Rc::clone(&current_context.func)
         } else {
-            panic!("No scope available to insert symbol");
+            panic!("No context available to get current function");
         }
     }
 
-    pub fn get(&self, name: &str) -> Option<IRObj> {
-        for scope in self.table.iter().rev() {
-            if let Some(value) = scope.get(name) {
+    pub fn get_current_ir_block(&self) -> Rc<IRBlock> {
+        let stack = &self.stack;
+        if let Some(current_context) = stack.last() {
+            if let Some(ir_block) = &current_context.ir_block {
+                Rc::clone(ir_block)
+            } else {
+                panic!("You couldn't call this func when ir_block is None");
+            }
+        } else {
+            panic!("No context available to get current IR block");
+        }
+    }
+
+    /// find any type of named IRObj with highest priority in the stack.
+    pub fn find_highest_priority(&self, name: &str) -> Option<IRObj> {
+        for context in self.stack.iter().rev() {
+            if let Some(value) = context.global_pointer_table.get(name) {
+                return Some(value.clone());
+            }
+            if let Some(value) = context.global_const_table.get(name) {
                 return Some(value.clone());
             }
         }
