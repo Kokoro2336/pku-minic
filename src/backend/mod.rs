@@ -1,3 +1,4 @@
-/// Assembly module
+//! Assembly module
+
 pub mod config;
-pub mod isel;
+pub mod lowering;

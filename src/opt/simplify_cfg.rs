@@ -1,5 +1,6 @@
+//! Simplify CFG.
+
 use crate::base::{context_or_err, Builder, BuilderContext, Pass, Type};
-/// Simplify CFG.
 use crate::ir::mir::{IR, OpData, OpType, Operand};
 use crate::utils::bitset::BitSet;
 
@@ -242,7 +243,7 @@ impl Pass<()> for SimplifyCFG<'_> {
     fn name(&self) -> &str {
         "SimplifyCFG"
     }
-    fn set_program(&mut self, program: &mut IR) {
+    fn mount(&mut self, program: &mut IR) {
         self.program = Some(program);
     }
     fn run(&mut self) -> () {

@@ -1,2 +1,2 @@
 #[allow(clippy::upper_case_acronyms)]
-pub struct MMachineIR;
+pub struct MachineIR;

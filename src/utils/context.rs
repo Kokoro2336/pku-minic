@@ -1,4 +1,5 @@
-/// Utils for getting builder context from program and function index.
+//! Utils for getting builder context from program and function index.
+
 use crate::base::BuilderContext;
 use crate::ir::mid::IR;
 

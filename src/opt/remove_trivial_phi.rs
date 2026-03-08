@@ -1,6 +1,7 @@
-/// Remove Trivial Phi.
+//! Remove Trivial Phi.
+
 use crate::base::{Builder, BuilderContext, Pass};
-use crate::ir::mid::{Attr, IR, OpData, OpType, Operand, PhiIncoming};
+use crate::ir::mid::{Attr, OpData, OpType, Operand, PhiIncoming, IR};
 use crate::utils::arena::ArenaItem;
 use crate::utils::context::context_or_err;
 
@@ -204,7 +205,7 @@ impl<'a> Pass<'a> for RemoveTrivialPhi<'a> {
         "RemoveTrivialPhi"
     }
 
-    fn set_program(&mut self, program: &'a mut IR) {
+    fn mount(&mut self, program: &'a mut IR) {
         self.program = Some(program);
     }
 

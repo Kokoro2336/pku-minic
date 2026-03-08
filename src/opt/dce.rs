@@ -1,6 +1,7 @@
-/// Dead Code Elimination (DCE).
+//! Dead Code Elimination (DCE).
+
 use crate::base::{Builder, Pass};
-use crate::ir::mid::{IR, OpData, Operand, PhiIncoming};
+use crate::ir::mid::{OpData, Operand, PhiIncoming, IR};
 use crate::utils::arena::ArenaItem;
 use crate::utils::context::context_or_err;
 
@@ -87,7 +88,7 @@ impl<'a> Pass<'a> for DCE<'a> {
     fn name(&self) -> &str {
         "DCE"
     }
-    fn set_program(&mut self, program: &'a mut crate::ir::mid::IR) {
+    fn mount(&mut self, program: &'a mut crate::ir::mid::IR) {
         self.program = Some(program);
     }
     fn run(&mut self) {

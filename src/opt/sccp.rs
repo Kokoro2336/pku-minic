@@ -1,6 +1,7 @@
-/// Sparse Conditional Constant Propagation (SCCP).
-/// Based on Wegman and Zadeck's paper Constant Propagation with Conditional Branches.
-/// Reference: https://dl.acm.org/doi/10.1145/103135.103136
+//! Sparse Conditional Constant Propagation (SCCP).
+//! Based on Wegman and Zadeck's paper Constant Propagation with Conditional Branches.
+//! Reference: https://dl.acm.org/doi/10.1145/103135.103136
+
 use crate::ir::mid::{Op, OpData, OpType, Operand, PhiIncoming, IR};
 use crate::base::{Builder, Pass, Type};
 use crate::utils::context::context_or_err;
@@ -786,7 +787,7 @@ impl<'a> SCCP<'a> {
 
 impl<'a> Pass<'a> for SCCP<'a> {
     fn name(&self) -> &str { "SCCP" }
-    fn set_program(&mut self, program: &'a mut IR) { self.program = Some(program); }
+    fn mount(&mut self, program: &'a mut IR) { self.program = Some(program); }
     fn run(&mut self) {
         let program = self.program.as_mut().unwrap();
         let func_ids = program.funcs.collect_internal();

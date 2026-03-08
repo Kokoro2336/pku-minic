@@ -1,4 +1,5 @@
-/// CLI support.
+//! CLI support.
+
 use clap::Parser;
 
 #[derive(Parser, Debug)]

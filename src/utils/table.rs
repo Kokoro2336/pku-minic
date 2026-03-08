@@ -1,4 +1,5 @@
-/// A simple symbol table implementation using a stack of hash maps to represent scopes.
+//! A simple symbol table implementation using a stack of hash maps to represent scopes.
+
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 

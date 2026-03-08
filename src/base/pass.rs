@@ -1,3 +1,5 @@
+//! Pass management for IR optimization and transformation.
+
 use crate::debug::info;
 use crate::debug::DumpLLVM;
 use crate::ir::mid::IR;
@@ -6,8 +8,11 @@ use crate::cli::Cli;
 use std::collections::VecDeque;
 
 pub trait Pass<'a> {
+    /// Get the name of the pass, which will be used for logging and debugging purposes. It should be unique for each pass to avoid confusion in logs.
     fn name(&self) -> &str;
-    fn set_program(&mut self, program: &'a mut IR);
+    /// mount the IR to the pass, which will be called before `run()`.
+    fn mount(&mut self, program: &'a mut IR);
+    /// run the pass on the mounted IR. The IR is guaranteed to be mounted before this method is called.
     fn run(&mut self);
 }
 
@@ -37,7 +42,7 @@ impl<'a> PassManager<'a> {
         while let Some(mut pass) = self.passes.pop_front() {
             info!("Running pass: {}", pass.name());
             // SAFETY: Passes run sequentially and each pass only borrows `ir` during this iteration.
-            unsafe { pass.set_program(&mut *ir_ptr) };
+            unsafe { pass.mount(&mut *ir_ptr) };
             pass.run();
             info!("Finished pass: {}", pass.name());
 

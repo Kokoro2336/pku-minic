@@ -1,4 +1,5 @@
-/// Worklist implementation for IR optimization passes.
+//! Worklist implementation for IR optimization passes.
+
 use crate::utils::bitset::BitSet;
 
 use rustc_hash::FxHashSet;

@@ -1,4 +1,5 @@
-/// Definition of registers for Lower IR (LIR).
+//! Definition of registers for Lower IR (LIR).
+
 #[repr(u8)]
 #[derive(Copy, Clone, Debug)]
 pub enum XReg {

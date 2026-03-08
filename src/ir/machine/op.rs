@@ -1,4 +1,5 @@
-/// Definition of Lower IR (LIR) instructions.
+//! Definition of Lower IR (LIR) instructions.
+
 use crate::ir::machine::{FReg, XReg};
 
 /// Instruction definition of Lower IR.

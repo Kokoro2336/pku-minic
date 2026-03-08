@@ -1,9 +1,10 @@
-/// SSA construction & Mem2Reg based on Cytron et al. 1991's algorithm.
-/// Reference: https://dl.acm.org/doi/pdf/10.1145/75277.75280
+//! SSA construction & Mem2Reg based on Cytron et al. 1991's algorithm.
+//! Reference: https://dl.acm.org/doi/pdf/10.1145/75277.75280
+
 use crate::analysis::dom::{BuildDomFrontier, BuildDomTree, DomFrontier, DomTree};
 use crate::base::{Builder, BuilderGuard, Pass, Type};
 use crate::debug::info;
-use crate::ir::mid::{Attr, IR, Op, OpData, OpType, Operand, PhiIncoming};
+use crate::ir::mid::{Attr, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use crate::utils::context::context_or_err;
 
 use std::collections::HashMap;
@@ -613,7 +614,7 @@ impl<'a> Pass<'a> for Mem2Reg<'a> {
     fn name(&self) -> &str {
         "Mem2Reg"
     }
-    fn set_program(&mut self, program: &'a mut IR) {
+    fn mount(&mut self, program: &'a mut IR) {
         self.program = Some(program);
     }
     fn run(&mut self) {
