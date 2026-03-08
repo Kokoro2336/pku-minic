@@ -1,11 +1,11 @@
 use crate::base::SYSY_LIB;
 use crate::base::{Builder, BuilderContext, LoopInfo, Type};
-use crate::utils::context::{context_or_err, context};
 use crate::frontend::ast;
 use crate::frontend::ast::*;
 use crate::frontend::semantic::decay;
-use crate::ir::mir;
-use crate::ir::mir::*;
+use crate::ir::mid;
+use crate::ir::mid::*;
+use crate::utils::context::{context, context_or_err};
 use crate::utils::table::SymbolTable;
 
 use std::collections::HashMap;
@@ -13,7 +13,7 @@ use std::collections::HashMap;
 pub struct Emit {
     ast: AST,
     builder: Builder,
-    program: Program,
+    program: MidIR,
 
     // This time, for the convenience of recongizing global vars, we store a separate table for them.
     globals: HashMap<String, Operand>,
@@ -40,7 +40,7 @@ impl Emit {
             builder: Builder::new(),
             syms: SymbolTable::new(),
             globals: HashMap::new(),
-            program: Program::new(),
+            program: MidIR::new(),
             current_function: None,
             mangled: HashMap::new(),
             func_ids: HashMap::new(),
@@ -106,7 +106,7 @@ impl Emit {
             "Terminator insertion outside function",
         );
         self.builder
-            .create(&mut ctx, mir::Op::new(Type::Void, vec![], op_data));
+            .create(&mut ctx, mid::Op::new(Type::Void, vec![], op_data));
     }
 
     // This method is used to insert terminator which blocks the emitting of following instructions, such as return, break, continue and goto.
@@ -222,7 +222,7 @@ impl Emit {
                     );
                     op = this.builder.create(
                         &mut ctx,
-                        mir::Op::new(typ, vec![], OpData::Load { addr: op }),
+                        mid::Op::new(typ, vec![], OpData::Load { addr: op }),
                     );
                 }
                 NodeType::ArrayAccess => {
@@ -237,7 +237,7 @@ impl Emit {
                             // decay it.
                             op = this.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     decay(typ).unwrap(),
                                     vec![],
                                     OpData::GEP {
@@ -255,7 +255,7 @@ impl Emit {
                             );
                             op = this.builder.create(
                                 &mut ctx,
-                                mir::Op::new(typ, vec![], OpData::Load { addr: op }),
+                                mid::Op::new(typ, vec![], OpData::Load { addr: op }),
                             );
                         }
                     }
@@ -293,7 +293,7 @@ impl Emit {
                 "Cast outside function",
             );
             this.builder
-                .create(&mut ctx, mir::Op::new(to, vec![], op_data))
+                .create(&mut ctx, mid::Op::new(to, vec![], op_data))
         }
 
         match &self.ast[node_id] {
@@ -338,7 +338,7 @@ impl Emit {
                     for (i, (arg_name, arg_typ)) in params.iter().enumerate() {
                         let alloca = self.builder.create(
                             &mut ctx,
-                            mir::Op::new(
+                            mid::Op::new(
                                 Type::Pointer {
                                     base: Box::new(arg_typ.clone()),
                                 },
@@ -352,7 +352,7 @@ impl Emit {
                         );
                         self.builder.create(
                             &mut ctx,
-                            mir::Op::new(
+                            mid::Op::new(
                                 Type::Void,
                                 vec![],
                                 OpData::Store {
@@ -371,7 +371,7 @@ impl Emit {
                     let body_block_id = self.builder.create_new_block(&mut ctx);
                     self.builder.create(
                         &mut ctx,
-                        mir::Op::new(
+                        mid::Op::new(
                             Type::Void,
                             vec![],
                             OpData::Jump {
@@ -448,7 +448,7 @@ impl Emit {
                     let mut ctx = context(&mut self.program, self.current_function);
                     let alloca = self.builder.create(
                         &mut ctx,
-                        mir::Op::new(
+                        mid::Op::new(
                             Type::Pointer {
                                 base: Box::new(typ.clone()),
                             },
@@ -473,7 +473,7 @@ impl Emit {
                         let mut ctx = context(&mut self.program, self.current_function);
                         self.builder.create(
                             &mut ctx,
-                            mir::Op::new(
+                            mid::Op::new(
                                 Type::Pointer {
                                     base: Box::new(typ.clone()),
                                 },
@@ -493,7 +493,7 @@ impl Emit {
                         );
                         self.builder.create(
                             &mut ctx,
-                            mir::Op::new(
+                            mid::Op::new(
                                 Type::Void,
                                 vec![],
                                 OpData::Store {
@@ -531,7 +531,7 @@ impl Emit {
                     let mut ctx = context(&mut self.program, self.current_function);
                     let alloca = self.builder.create(
                         &mut ctx,
-                        mir::Op::new(
+                        mid::Op::new(
                             Type::Pointer {
                                 base: Box::new(typ.clone()),
                             },
@@ -557,7 +557,7 @@ impl Emit {
                         let mut ctx = context(&mut self.program, self.current_function);
                         self.builder.create(
                             &mut ctx,
-                            mir::Op::new(
+                            mid::Op::new(
                                 Type::Pointer {
                                     base: Box::new(typ.clone()),
                                 },
@@ -604,7 +604,7 @@ impl Emit {
                             // evaluate the address
                             let addr = self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Pointer {
                                         base: Box::new(base.clone()),
                                     },
@@ -620,7 +620,7 @@ impl Emit {
                             // store
                             self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Void,
                                     vec![],
                                     OpData::Store { addr, value: op_id },
@@ -637,7 +637,7 @@ impl Emit {
                             );
                             let flat_base = self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Pointer {
                                         base: Box::new(base.clone()),
                                     },
@@ -653,7 +653,7 @@ impl Emit {
                             // Allocate spaces for the loop variables
                             let loop_var = self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Pointer {
                                         base: Box::new(Type::Int),
                                     },
@@ -664,7 +664,7 @@ impl Emit {
                             // store chunk_start to loop_var
                             self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Void,
                                     vec![],
                                     OpData::Store {
@@ -675,7 +675,7 @@ impl Emit {
                             );
                             let chuck_end_ptr = self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Pointer {
                                         base: Box::new(Type::Int),
                                     },
@@ -686,7 +686,7 @@ impl Emit {
                             // store chunk_end to loop_var
                             self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Void,
                                     vec![],
                                     OpData::Store {
@@ -704,7 +704,7 @@ impl Emit {
                             // jump to loop entry
                             self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Void,
                                     vec![],
                                     OpData::Jump {
@@ -719,7 +719,7 @@ impl Emit {
                             // load loop variable
                             let current_idx = self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Int,
                                     vec![],
                                     OpData::Load {
@@ -729,7 +729,7 @@ impl Emit {
                             );
                             let limit_idx = self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Int,
                                     vec![],
                                     OpData::Load {
@@ -740,7 +740,7 @@ impl Emit {
                             // compare loop_var with chunk_end
                             let res = self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Bool,
                                     vec![],
                                     OpData::SLt {
@@ -752,7 +752,7 @@ impl Emit {
                             // Br
                             self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Void,
                                     vec![],
                                     OpData::Br {
@@ -770,7 +770,7 @@ impl Emit {
                             // calculate offset by GEP from flattened base pointer.
                             let addr = self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Pointer {
                                         base: Box::new(base.clone()),
                                     },
@@ -785,7 +785,7 @@ impl Emit {
                             // store the init value to the current element
                             self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Void,
                                     vec![],
                                     OpData::Store {
@@ -802,7 +802,7 @@ impl Emit {
                             // increment loop variable
                             let inc = self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Int,
                                     vec![],
                                     OpData::AddI {
@@ -813,7 +813,7 @@ impl Emit {
                             );
                             self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Void,
                                     vec![],
                                     OpData::Store {
@@ -826,7 +826,7 @@ impl Emit {
                             // jump to loop entry
                             self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Void,
                                     vec![],
                                     OpData::Jump {
@@ -872,7 +872,7 @@ impl Emit {
                 let mut ctx = context(&mut self.program, self.current_function);
                 let alloca = self.builder.create(
                     &mut ctx,
-                    mir::Op::new(
+                    mid::Op::new(
                         Type::Pointer {
                             base: Box::new(typ.clone()),
                         },
@@ -1100,7 +1100,7 @@ impl Emit {
                 );
                 self.builder.create(
                     &mut ctx,
-                    mir::Op::new(
+                    mid::Op::new(
                         Type::Void,
                         vec![],
                         OpData::Store {
@@ -1171,7 +1171,7 @@ impl Emit {
                             };
                             builder.create(
                                 ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     ptr_typ,
                                     vec![],
                                     OpData::GEP {
@@ -1188,7 +1188,7 @@ impl Emit {
                                 // Load the pointer first, then use GEP to reach the element
                                 let loaded_ptr = builder.create(
                                     ctx,
-                                    mir::Op::new(
+                                    mid::Op::new(
                                         arr_typ,
                                         vec![],
                                         OpData::Load { addr: ptr.clone() },
@@ -1199,7 +1199,7 @@ impl Emit {
                                 };
                                 builder.create(
                                     ctx,
-                                    mir::Op::new(
+                                    mid::Op::new(
                                         ptr_typ,
                                         vec![],
                                         OpData::GEP {
@@ -1275,7 +1275,7 @@ impl Emit {
                 );
                 let call_op = self.builder.create(
                     &mut ctx,
-                    mir::Op::new(
+                    mid::Op::new(
                         typ,
                         vec![Attr::FuncName(func_name.clone())],
                         OpData::Call {
@@ -1434,7 +1434,7 @@ impl Emit {
                         _ => panic!("Unsupported binary operator {:?} in Emit", op),
                     };
 
-                    builder.create(ctx, mir::Op::new(typ, vec![], op_data))
+                    builder.create(ctx, mid::Op::new(typ, vec![], op_data))
                 }
 
                 let mut res = Operand::Value(0);
@@ -1455,7 +1455,7 @@ impl Emit {
                                 );
                                 let result_alloca = self.builder.create(
                                     &mut ctx,
-                                    mir::Op::new(
+                                    mid::Op::new(
                                         Type::Pointer {
                                             base: Box::new(Type::Bool),
                                         },
@@ -1465,7 +1465,7 @@ impl Emit {
                                 );
                                 self.builder.create(
                                     &mut ctx,
-                                    mir::Op::new(
+                                    mid::Op::new(
                                         Type::Void,
                                         vec![],
                                         OpData::Store {
@@ -1496,7 +1496,7 @@ impl Emit {
                                 );
                                 self.builder.create(
                                     &mut ctx,
-                                    mir::Op::new(
+                                    mid::Op::new(
                                         Type::Void,
                                         vec![],
                                         OpData::Br {
@@ -1518,7 +1518,7 @@ impl Emit {
                                 );
                                 self.builder.create(
                                     &mut ctx,
-                                    mir::Op::new(
+                                    mid::Op::new(
                                         Type::Void,
                                         vec![],
                                         OpData::Store {
@@ -1529,7 +1529,7 @@ impl Emit {
                                 );
                                 self.builder.create(
                                     &mut ctx,
-                                    mir::Op::new(
+                                    mid::Op::new(
                                         Type::Void,
                                         vec![],
                                         OpData::Jump {
@@ -1547,7 +1547,7 @@ impl Emit {
                             );
                             let load_result = self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Bool,
                                     vec![],
                                     OpData::Load {
@@ -1567,7 +1567,7 @@ impl Emit {
                                 );
                                 let result_alloca = self.builder.create(
                                     &mut ctx,
-                                    mir::Op::new(
+                                    mid::Op::new(
                                         Type::Pointer {
                                             base: Box::new(Type::Bool),
                                         },
@@ -1577,7 +1577,7 @@ impl Emit {
                                 );
                                 self.builder.create(
                                     &mut ctx,
-                                    mir::Op::new(
+                                    mid::Op::new(
                                         Type::Void,
                                         vec![],
                                         OpData::Store {
@@ -1602,7 +1602,7 @@ impl Emit {
                                 );
                                 self.builder.create(
                                     &mut ctx,
-                                    mir::Op::new(
+                                    mid::Op::new(
                                         Type::Void,
                                         vec![],
                                         OpData::Br {
@@ -1624,7 +1624,7 @@ impl Emit {
                                 );
                                 self.builder.create(
                                     &mut ctx,
-                                    mir::Op::new(
+                                    mid::Op::new(
                                         Type::Void,
                                         vec![],
                                         OpData::Store {
@@ -1635,7 +1635,7 @@ impl Emit {
                                 );
                                 self.builder.create(
                                     &mut ctx,
-                                    mir::Op::new(
+                                    mid::Op::new(
                                         Type::Void,
                                         vec![],
                                         OpData::Jump {
@@ -1653,7 +1653,7 @@ impl Emit {
                             );
                             let load_result = self.builder.create(
                                 &mut ctx,
-                                mir::Op::new(
+                                mid::Op::new(
                                     Type::Bool,
                                     vec![],
                                     OpData::Load {
@@ -1770,7 +1770,7 @@ impl Emit {
 
                 let un_op = self
                     .builder
-                    .create(&mut ctx, mir::Op::new(typ, vec![], op_data));
+                    .create(&mut ctx, mid::Op::new(typ, vec![], op_data));
                 Some(un_op)
             }
             Node::Literal(Literal::Int(val)) => Some(Operand::Int(*val)),
@@ -1787,7 +1787,7 @@ impl Emit {
                 let mut ctx = context(&mut self.program, self.current_function);
                 let global_alloca = self.builder.create(
                     &mut ctx,
-                    mir::Op::new(
+                    mid::Op::new(
                         Type::Pointer {
                             base: Box::new(typ.clone()),
                         },
@@ -1809,7 +1809,7 @@ impl Emit {
                 let ptr_typ = decay(typ).unwrap_or_else(|e| panic!("{}", e));
                 let ptr_addr = self.builder.create(
                     &mut ctx,
-                    mir::Op::new(
+                    mid::Op::new(
                         ptr_typ,
                         vec![],
                         OpData::GEP {
@@ -1824,13 +1824,13 @@ impl Emit {
         }
     }
 
-    pub fn run(&mut self) -> Program {
+    pub fn run(&mut self) -> MidIR {
         SYSY_LIB.with(|lib| {
             let mut ctx = context(&mut self.program, self.current_function);
             for (name, typ) in lib.iter() {
                 self.builder.create(
                     &mut ctx,
-                    mir::Op::new(
+                    mid::Op::new(
                         Type::Void,
                         vec![],
                         OpData::Declare {

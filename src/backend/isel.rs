@@ -1,4 +1,4 @@
 /// Instruciton Selection (IR Lowering).
-use crate::ir::lir::*;
+use crate::ir::lower::*;
 
 pub struct ISelLowering;

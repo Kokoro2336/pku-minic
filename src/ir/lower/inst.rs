@@ -1,5 +1,5 @@
 /// Definition of Lower IR (LIR) instructions.
-use crate::ir::lir::Reg;
+use crate::ir::lower::Reg;
 
 /// Instruction definition of Lower IR.
 #[derive(Debug, Clone, Copy)]

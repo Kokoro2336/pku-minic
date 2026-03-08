@@ -1,8 +1,8 @@
 /// Remove Trivial Phi.
 use crate::base::{Builder, BuilderContext, Pass};
-use crate::ir::mir::{Attr, OpData, OpType, Operand, PhiIncoming, Program};
-use crate::utils::context::context_or_err;
+use crate::ir::mid::{Attr, MidIR, OpData, OpType, Operand, PhiIncoming};
 use crate::utils::arena::ArenaItem;
+use crate::utils::context::context_or_err;
 
 enum CheckType {
     Empty,           // No non-phi incoming value. We can replace the phi with undef.
@@ -11,7 +11,7 @@ enum CheckType {
 }
 
 pub struct RemoveTrivialPhi<'a> {
-    program: Option<&'a mut Program>,
+    program: Option<&'a mut MidIR>,
     builder: Builder,
     phi_ids: Vec<Operand>,
 
@@ -204,7 +204,7 @@ impl<'a> Pass<'a> for RemoveTrivialPhi<'a> {
         "RemoveTrivialPhi"
     }
 
-    fn set_program(&mut self, program: &'a mut Program) {
+    fn set_program(&mut self, program: &'a mut MidIR) {
         self.program = Some(program);
     }
 

@@ -1,8 +1,8 @@
 mod bb;
 mod func;
 mod op;
-mod program;
+mod module;
 pub use bb::*;
 pub use func::*;
 pub use op::*;
-pub use program::*;
+pub use module::*;

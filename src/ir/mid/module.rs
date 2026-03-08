@@ -1,7 +1,7 @@
-use crate::ir::mir::{CG, DFG};
+use crate::ir::mid::{CG, DFG};
 
 #[derive(Debug, Clone)]
-pub struct Program {
+pub struct MidIR {
     // Including:
     // 1. global variables
     // 2. SysY library functions
@@ -10,7 +10,7 @@ pub struct Program {
     pub funcs: CG,
 }
 
-impl Program {
+impl MidIR {
     pub fn new() -> Self {
         Self {
             globals: DFG::new(),
@@ -19,7 +19,7 @@ impl Program {
     }
 }
 
-impl Default for Program {
+impl Default for MidIR {
     fn default() -> Self {
         Self::new()
     }

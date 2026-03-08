@@ -1,12 +1,12 @@
 /// Dead Code Elimination (DCE).
 use crate::base::{Builder, Pass};
-use crate::ir::mir::{OpData, Operand, PhiIncoming, Program};
-use crate::utils::context::context_or_err;
+use crate::ir::mid::{MidIR, OpData, Operand, PhiIncoming};
 use crate::utils::arena::ArenaItem;
+use crate::utils::context::context_or_err;
 
 #[allow(clippy::upper_case_acronyms)]
 pub struct DCE<'a> {
-    pub program: Option<&'a mut Program>,
+    pub program: Option<&'a mut MidIR>,
     builder: Builder,
     // Worklist of inst
     worklist: Vec<(Operand, Operand)>,
@@ -87,7 +87,7 @@ impl<'a> Pass<'a> for DCE<'a> {
     fn name(&self) -> &str {
         "DCE"
     }
-    fn set_program(&mut self, program: &'a mut crate::ir::mir::Program) {
+    fn set_program(&mut self, program: &'a mut crate::ir::mid::MidIR) {
         self.program = Some(program);
     }
     fn run(&mut self) {

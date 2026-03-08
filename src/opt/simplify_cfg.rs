@@ -1,10 +1,10 @@
 use crate::base::{context_or_err, Builder, BuilderContext, Pass, Type};
 /// Simplify CFG.
-use crate::ir::mir::{OpData, OpType, Operand, Program};
+use crate::ir::mir::{OpData, OpType, Operand, MidIR};
 use crate::utils::bitset::BitSet;
 
 pub struct SimplifyCFG<'a> {
-    pub program: Option<&'a mut Program>,
+    pub program: Option<&'a mut MidIR>,
     builder: Builder,
     visited: BitSet,
     current_function: Option<usize>,
@@ -242,7 +242,7 @@ impl Pass<()> for SimplifyCFG<'_> {
     fn name(&self) -> &str {
         "SimplifyCFG"
     }
-    fn set_program(&mut self, program: &mut Program) {
+    fn set_program(&mut self, program: &mut MidIR) {
         self.program = Some(program);
     }
     fn run(&mut self) -> () {

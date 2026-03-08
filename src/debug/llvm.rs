@@ -3,7 +3,7 @@ use crate::frontend::ast;
 /**
  * Dump customized IR into LLVM format for debugging.
  */
-use crate::ir::mir::*;
+use crate::ir::mid::*;
 use crate::utils::arena::{ArenaItem, IndexedArena};
 use std::fmt::Write;
 
@@ -12,7 +12,7 @@ pub trait Dump {
 }
 
 pub struct DumpContext<'a> {
-    pub program: &'a Program,
+    pub program: &'a MidIR,
     pub function: Option<&'a Function>,
 }
 
@@ -796,7 +796,7 @@ impl Dump for Function {
     }
 }
 
-impl Dump for Program {
+impl Dump for MidIR {
     fn dump_to_llvm(&self, _ctx: &DumpContext) -> Result<String, std::fmt::Error> {
         let mut s = String::new();
         let program_ctx = DumpContext {
@@ -978,12 +978,12 @@ where
 }
 
 pub struct DumpLLVM<'a> {
-    program: &'a mut Program,
+    program: &'a mut MidIR,
     filename: String,
 }
 
 impl<'a> DumpLLVM<'a> {
-    pub fn new(program: &'a mut Program, filename: String) -> Self {
+    pub fn new(program: &'a mut MidIR, filename: String) -> Self {
         Self { program, filename }
     }
 

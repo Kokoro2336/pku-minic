@@ -1,7 +1,7 @@
 /**
  * IRBuilder API.
  */
-use crate::ir::mir::*;
+use crate::ir::mid::*;
 use crate::utils::arena::{Arena, ArenaItem};
 
 use std::ops::{Deref, DerefMut};

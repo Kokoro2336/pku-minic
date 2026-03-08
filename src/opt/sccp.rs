@@ -1,7 +1,7 @@
 /// Sparse Conditional Constant Propagation (SCCP).
 /// Based on Wegman and Zadeck's paper Constant Propagation with Conditional Branches.
 /// Reference: https://dl.acm.org/doi/10.1145/103135.103136
-use crate::ir::mir::{Op, OpData, OpType, Operand, PhiIncoming, Program};
+use crate::ir::mid::{Op, OpData, OpType, Operand, PhiIncoming, MidIR};
 use crate::base::{Builder, Pass, Type};
 use crate::utils::context::context_or_err;
 use crate::utils::arena::{Arena, ArenaItem};
@@ -18,7 +18,7 @@ pub enum Lattice {
 
 #[allow(clippy::upper_case_acronyms)]
 pub struct SCCP<'a> {
-    program: Option<&'a mut Program>,
+    program: Option<&'a mut MidIR>,
     builder: Builder,
 
     // HashSet<(from, to)> for edges in the control flow graph that are executable. Only store true.
@@ -786,7 +786,7 @@ impl<'a> SCCP<'a> {
 
 impl<'a> Pass<'a> for SCCP<'a> {
     fn name(&self) -> &str { "SCCP" }
-    fn set_program(&mut self, program: &'a mut Program) { self.program = Some(program); }
+    fn set_program(&mut self, program: &'a mut MidIR) { self.program = Some(program); }
     fn run(&mut self) {
         let program = self.program.as_mut().unwrap();
         let func_ids = program.funcs.collect_internal();
