@@ -1,21 +1,20 @@
-use crate::base::BuilderContext;
 use crate::debug::info;
 use crate::debug::DumpLLVM;
-use crate::ir::mid::MidIR;
+use crate::ir::mid::IR;
 
 use crate::cli::Cli;
 use std::collections::VecDeque;
 
 pub trait Pass<'a> {
     fn name(&self) -> &str;
-    fn set_program(&mut self, program: &'a mut MidIR);
+    fn set_program(&mut self, program: &'a mut IR);
     fn run(&mut self);
 }
 
 pub struct PassManager<'a> {
-    // The lifetime 'a is tied to the MidIR that the passes will operate on.
+    // The lifetime 'a is tied to the IR that the passes will operate on.
     // The `+ 'a` bound is necessary because the passes themselves (like DCE<'a>)
-    // contain a mutable reference to the MidIR with lifetime 'a.
+    // contain a mutable reference to the IR with lifetime 'a.
     passes: VecDeque<Box<dyn Pass<'a> + 'a>>,
     cli: &'a Cli,
 }
@@ -33,8 +32,8 @@ impl<'a> PassManager<'a> {
         self
     }
 
-    pub fn run(mut self, ir: &'a mut MidIR) {
-        let ir_ptr: *mut MidIR = ir;
+    pub fn run(mut self, ir: &'a mut IR) {
+        let ir_ptr: *mut IR = ir;
         while let Some(mut pass) = self.passes.pop_front() {
             info!("Running pass: {}", pass.name());
             // SAFETY: Passes run sequentially and each pass only borrows `ir` during this iteration.

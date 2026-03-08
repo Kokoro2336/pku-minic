@@ -1,9 +1,9 @@
 /// Utils for getting builder context from program and function index.
 use crate::base::BuilderContext;
-use crate::ir::mid::MidIR;
+use crate::ir::mid::IR;
 
 pub fn context_or_err<'a>(
-    program: &'a mut MidIR,
+    program: &'a mut IR,
     idx: Option<usize>,
     msg: &str,
 ) -> BuilderContext<'a> {
@@ -20,7 +20,7 @@ pub fn context_or_err<'a>(
     }
 }
 
-pub fn context<'a>(program: &'a mut MidIR, idx: Option<usize>) -> BuilderContext<'a> {
+pub fn context<'a>(program: &'a mut IR, idx: Option<usize>) -> BuilderContext<'a> {
     if let Some(func_idx) = idx {
         let (funcs, globals) = (&mut program.funcs, &mut program.globals);
         let func = &mut funcs[func_idx];

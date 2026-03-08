@@ -1,7 +1,9 @@
+//! Definition of IR module, including global variables and functions.
+
 use crate::ir::mid::{CG, DFG};
 
 #[derive(Debug, Clone)]
-pub struct MidIR {
+pub struct IR {
     // Including:
     // 1. global variables
     // 2. SysY library functions
@@ -10,7 +12,7 @@ pub struct MidIR {
     pub funcs: CG,
 }
 
-impl MidIR {
+impl IR {
     pub fn new() -> Self {
         Self {
             globals: DFG::new(),
@@ -19,7 +21,7 @@ impl MidIR {
     }
 }
 
-impl Default for MidIR {
+impl Default for IR {
     fn default() -> Self {
         Self::new()
     }

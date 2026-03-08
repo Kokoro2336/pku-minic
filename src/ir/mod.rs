@@ -1,3 +1,3 @@
-/// Middle IR (MIR) and Lower IR (LIR) definition.
+pub mod machine;
 pub mod mid;
 pub mod lower;

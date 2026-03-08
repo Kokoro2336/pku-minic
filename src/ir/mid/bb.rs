@@ -141,7 +141,6 @@ impl IndexedArena<BasicBlock> {
     }
 }
 
-
 impl Index<Operand> for CFG {
     type Output = BasicBlock;
 

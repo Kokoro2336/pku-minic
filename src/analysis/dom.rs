@@ -1,12 +1,13 @@
+//! Building dominator tree based on Lengauer-Tarjan algorithm.
+//! Reference: https://dl.acm.org/doi/10.1145/357062.357071
+
 use crate::debug::info;
-/// Building dominator tree based on Lengauer-Tarjan algorithm.
-/// Reference: https://dl.acm.org/doi/10.1145/357062.357071
-use crate::ir::mid::{Operand, MidIR};
+use crate::ir::mid::{Operand, IR};
 use crate::utils::bitset::BitSet;
 
 pub type DomTree = Vec<Vec<usize>>;
 pub struct BuildDomTree<'a> {
-    program: &'a mut MidIR,
+    program: &'a mut IR,
     // Vertex number -> DFS number
     dfn: Vec<usize>,
     dfn_cnt: usize,
@@ -37,7 +38,7 @@ pub struct BuildDomTree<'a> {
 }
 
 impl<'a> BuildDomTree<'a> {
-    pub fn new(program: &'a mut MidIR) -> Self {
+    pub fn new(program: &'a mut IR) -> Self {
         let current_function = program.funcs.entry;
         Self {
             program,
@@ -236,7 +237,7 @@ impl<'a> BuildDomTree<'a> {
 pub type DomFrontier = Vec<Vec<usize>>;
 
 pub struct BuildDomFrontier<'a> {
-    program: &'a mut MidIR,
+    program: &'a mut IR,
     dom_trees: Vec<DomTree>,
     // FuncId -> BlockId -> Frontier
     frontiers: Vec<DomFrontier>,
@@ -245,7 +246,7 @@ pub struct BuildDomFrontier<'a> {
 }
 
 impl<'a> BuildDomFrontier<'a> {
-    pub fn new(program: &'a mut MidIR, dom_trees: Vec<DomTree>) -> Self {
+    pub fn new(program: &'a mut IR, dom_trees: Vec<DomTree>) -> Self {
         Self {
             program,
             dom_trees,

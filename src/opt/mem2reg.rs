@@ -3,13 +3,13 @@
 use crate::analysis::dom::{BuildDomFrontier, BuildDomTree, DomFrontier, DomTree};
 use crate::base::{Builder, BuilderGuard, Pass, Type};
 use crate::debug::info;
-use crate::ir::mid::{Attr, MidIR, Op, OpData, OpType, Operand, PhiIncoming};
+use crate::ir::mid::{Attr, IR, Op, OpData, OpType, Operand, PhiIncoming};
 use crate::utils::context::context_or_err;
 
 use std::collections::HashMap;
 
 struct InsertPhi<'a> {
-    program: &'a mut MidIR,
+    program: &'a mut IR,
     builder: Builder,
     // Former computed frontiers
     frontiers: Vec<DomFrontier>,
@@ -33,7 +33,7 @@ struct InsertPhi<'a> {
 }
 
 impl<'a> InsertPhi<'a> {
-    pub fn new(program: &'a mut MidIR, frontiers: Vec<DomFrontier>) -> Self {
+    pub fn new(program: &'a mut IR, frontiers: Vec<DomFrontier>) -> Self {
         Self {
             program,
             builder: Builder::new(),
@@ -212,7 +212,7 @@ enum RenamingPhase {
 }
 
 struct Renaming<'a> {
-    program: Option<&'a mut MidIR>,
+    program: Option<&'a mut IR>,
     builder: Builder,
     dom_trees: Vec<DomTree>,
     // version stack
@@ -235,7 +235,7 @@ struct Renaming<'a> {
 }
 
 impl<'a> Renaming<'a> {
-    pub fn new(program: &'a mut MidIR, dom_trees: Vec<DomTree>) -> Self {
+    pub fn new(program: &'a mut IR, dom_trees: Vec<DomTree>) -> Self {
         Self {
             program: Some(program),
             builder: Builder::new(),
@@ -600,7 +600,7 @@ impl<'a> Renaming<'a> {
 }
 
 pub struct Mem2Reg<'a> {
-    program: Option<&'a mut MidIR>,
+    program: Option<&'a mut IR>,
 }
 
 impl<'a> Mem2Reg<'a> {
@@ -613,7 +613,7 @@ impl<'a> Pass<'a> for Mem2Reg<'a> {
     fn name(&self) -> &str {
         "Mem2Reg"
     }
-    fn set_program(&mut self, program: &'a mut MidIR) {
+    fn set_program(&mut self, program: &'a mut IR) {
         self.program = Some(program);
     }
     fn run(&mut self) {

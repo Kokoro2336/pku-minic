@@ -13,7 +13,7 @@ use std::collections::HashMap;
 pub struct Emit {
     ast: AST,
     builder: Builder,
-    program: MidIR,
+    program: IR,
 
     // This time, for the convenience of recongizing global vars, we store a separate table for them.
     globals: HashMap<String, Operand>,
@@ -40,7 +40,7 @@ impl Emit {
             builder: Builder::new(),
             syms: SymbolTable::new(),
             globals: HashMap::new(),
-            program: MidIR::new(),
+            program: IR::new(),
             current_function: None,
             mangled: HashMap::new(),
             func_ids: HashMap::new(),
@@ -1824,7 +1824,7 @@ impl Emit {
         }
     }
 
-    pub fn run(&mut self) -> MidIR {
+    pub fn run(&mut self) -> IR {
         SYSY_LIB.with(|lib| {
             let mut ctx = context(&mut self.program, self.current_function);
             for (name, typ) in lib.iter() {
