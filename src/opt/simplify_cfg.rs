@@ -1,10 +1,12 @@
-use crate::base::{context_or_err, Builder, BuilderContext, Pass, Type};
-/// Simplify CFG.
-use crate::ir::mir::{OpData, OpType, Operand, Program};
+//! Simplify CFG.
+
+use crate::base::{Pass, Type};
+use crate::ir::mid::Builder;
+use crate::ir::mir::{OpData, OpType, Operand, IR};
 use crate::utils::bitset::BitSet;
 
 pub struct SimplifyCFG<'a> {
-    pub program: Option<&'a mut Program>,
+    pub program: Option<&'a mut IR>,
     builder: Builder,
     visited: BitSet,
     current_function: Option<usize>,
@@ -118,12 +120,9 @@ impl<'a> SimplifyCFG<'a> {
                 pred_last_op
             };
             // Replace the old terminator with the new one.
-            self.builder.replace_op(
-                &mut context_or_err(
-                    self.program.as_deref_mut().unwrap(),
-                    self.current_function,
-                    "SimplifyCFG: No current function context found",
-                ),
+            self.program.as_deref_mut().unwrap().replace_op(
+                &mut self.builder,
+                self.current_function,
                 pred_last_id.clone(),
                 pred_id.clone(),
                 updated_pred_last_op,
@@ -151,11 +150,6 @@ impl<'a> SimplifyCFG<'a> {
                 [pred_id.clone()];
             if pred.succs.len() == 1 && pred.succs[0] == Operand::BB(bb_id) {
                 // Then merge current block into its predecessor.
-                let mut ctx = context_or_err(
-                    self.program.as_deref_mut().unwrap(),
-                    self.current_function,
-                    "SimplifyCFG: No current function context found",
-                );
                 let pred_last = match pred.cur.last() {
                     Some(inst_id) => inst_id.clone(),
                     None => panic!("SimplifyCFG: The predecessor block should not be empty"),
@@ -163,8 +157,8 @@ impl<'a> SimplifyCFG<'a> {
                 // Move the instructions, except the terminator.
                 // It's impossible that the current block has any phi instruction.
                 for inst_id in bb.cur.iter().skip(bb.cur.len() - 1) {
-                    self.builder.move_op_to_bb_at(
-                        &mut ctx,
+                    self.program.as_deref_mut().unwrap().move_op_to_bb_at(
+                        self.current_function,
                         inst_id.clone(),
                         Operand::BB(bb_id),
                         pred_id.clone(),
@@ -173,22 +167,19 @@ impl<'a> SimplifyCFG<'a> {
                 }
             } else {
                 // Else move the instructions in current block to its successor.
-                let mut ctx = context_or_err(
-                    self.program.as_deref_mut().unwrap(),
-                    self.current_function,
-                    "SimplifyCFG: No current function context found",
-                );
                 let succ_non_phi_pos = bb
                     .cur
                     .iter()
                     .position(|inst_id| {
-                        let dfg = ctx.dfg.as_ref().unwrap();
+                        let dfg = &self.program.as_ref().unwrap().funcs
+                            [self.current_function.unwrap()]
+                        .dfg;
                         !dfg[inst_id.clone()].is(OpType::Phi)
                     })
                     .unwrap_or(0);
                 for inst_id in bb.cur.iter().rev().skip(1) {
-                    self.builder.move_op_to_bb_at(
-                        &mut ctx,
+                    self.program.as_deref_mut().unwrap().move_op_to_bb_at(
+                        self.current_function,
                         inst_id.clone(),
                         Operand::BB(bb_id),
                         bb.succs[0].clone(),
@@ -242,7 +233,7 @@ impl Pass<()> for SimplifyCFG<'_> {
     fn name(&self) -> &str {
         "SimplifyCFG"
     }
-    fn set_program(&mut self, program: &mut Program) {
+    fn mount(&mut self, program: &mut IR) {
         self.program = Some(program);
     }
     fn run(&mut self) -> () {

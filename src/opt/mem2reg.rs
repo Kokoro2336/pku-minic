@@ -1,14 +1,17 @@
-/// SSA construction & Mem2Reg based on Cytron et al. 1991's algorithm.
-/// Reference: https://dl.acm.org/doi/pdf/10.1145/75277.75280
+//! SSA construction & Mem2Reg based on Cytron et al. 1991's algorithm.
+//! Reference: https://dl.acm.org/doi/pdf/10.1145/75277.75280
+
+use super::Pass;
 use crate::analysis::dom::{BuildDomFrontier, BuildDomTree, DomFrontier, DomTree};
-use crate::base::{context_or_err, Builder, BuilderGuard, Pass, Type};
+use crate::base::Type;
 use crate::debug::info;
-use crate::ir::mir::{Attr, Op, OpData, OpType, Operand, PhiIncoming, Program};
+use crate::ir::mid::{Attr, Op, OpData, OpType, Operand, PhiIncoming, IR};
+use crate::ir::mid::{Builder, BuilderGuard};
 
 use std::collections::HashMap;
 
 struct InsertPhi<'a> {
-    program: &'a mut Program,
+    program: &'a mut IR,
     builder: Builder,
     // Former computed frontiers
     frontiers: Vec<DomFrontier>,
@@ -26,17 +29,10 @@ struct InsertPhi<'a> {
     op_to_var: HashMap<usize, usize>,
     var_to_op: HashMap<usize, usize>,
     var_counter: usize,
-
-    // State field
-    current_function: Option<usize>,
-
-    // Phis' id
-    // Vec<(OpId, BBId)>
-    phi_ids: Vec<Vec<(Operand, Operand)>>,
 }
 
 impl<'a> InsertPhi<'a> {
-    pub fn new(program: &'a mut Program, frontiers: Vec<DomFrontier>) -> Self {
+    pub fn new(program: &'a mut IR, frontiers: Vec<DomFrontier>) -> Self {
         Self {
             program,
             builder: Builder::new(),
@@ -47,8 +43,6 @@ impl<'a> InsertPhi<'a> {
             op_to_var: HashMap::new(),
             var_to_op: HashMap::new(),
             var_counter: 0,
-            current_function: None,
-            phi_ids: vec![],
         }
     }
 
@@ -58,15 +52,14 @@ impl<'a> InsertPhi<'a> {
         self.var_counter = 0;
 
         let (cfg_len, allocas) = {
-            self.current_function = Some(idx);
+            self.builder.set_current_func(Some(idx));
             let func = &self.program.funcs[idx];
             let cfg_len = func.cfg.storage.len();
-            let mut ctx = context_or_err(
-                self.program,
-                self.current_function,
-                "InsertPhi: No current function context found",
-            );
-            (cfg_len, self.builder.get_all_ops(&mut ctx, OpType::Alloca))
+            (
+                cfg_len,
+                self.program
+                    .get_all_ops(self.builder.current_function, OpType::Alloca),
+            )
         };
 
         // Initialize the map between OpId and VarId
@@ -87,7 +80,7 @@ impl<'a> InsertPhi<'a> {
         self.phis = vec![vec![]; self.var_counter];
 
         // Compute defsites, origins and phis
-        let func_id = self.current_function.unwrap();
+        let func_id = self.builder.current_function.unwrap();
         let bb_ids = self.program.funcs[func_id].cfg.collect();
         for bb_id in bb_ids {
             let func = &self.program.funcs[func_id];
@@ -122,11 +115,9 @@ impl<'a> InsertPhi<'a> {
         }
     }
 
-    pub fn insert(&mut self) -> Vec<(Operand, Operand)> {
-        let mut phi_ids = vec![];
-
+    pub fn insert(&mut self) {
         let defsites_len = self.defsites.len();
-        let func_id = self.current_function.unwrap();
+        let func_id = self.builder.current_function.unwrap();
         for idx in 0..defsites_len {
             while let Some(bb_id) = self.defsites[idx].pop() {
                 let frontiers = self.frontiers[func_id][bb_id].clone();
@@ -141,8 +132,9 @@ impl<'a> InsertPhi<'a> {
                         };
                         // Insert phi
                         // Use guard to save the old context
-                        let phi_op_id = {
+                        {
                             let mut guard = BuilderGuard::new(&mut self.builder);
+                            let current_function = guard.current_function;
 
                             guard.set_current_block(Operand::BB(frontier));
 
@@ -166,13 +158,9 @@ impl<'a> InsertPhi<'a> {
                                 }
                             };
 
-                            let mut ctx = context_or_err(
-                                self.program,
-                                self.current_function,
-                                "InsertPhi: No current function context found",
-                            );
                             guard.create_at_head(
-                                &mut ctx,
+                                self.program,
+                                current_function,
                                 Op::new(
                                     // We don't know the inst's result type yet
                                     var_type,
@@ -182,11 +170,10 @@ impl<'a> InsertPhi<'a> {
                                         incoming: vec![PhiIncoming::None; preds_num],
                                     },
                                 ),
-                            )
+                            );
                         };
 
                         // Record the phi's OpId.
-                        phi_ids.push((phi_op_id, Operand::BB(frontier)));
                         self.phis[idx].push(frontier);
                         if !self.origins[frontier].contains(&idx) {
                             // If it is a new definition in the frontier block, we add the block to the var's worklist.
@@ -196,21 +183,17 @@ impl<'a> InsertPhi<'a> {
                 }
             }
         }
-        phi_ids
     }
 
-    pub fn run(&mut self) -> Vec<Vec<(Operand, Operand)>> {
-        self.phi_ids = vec![vec![]; self.program.funcs.storage.len()];
+    pub fn run(&mut self) {
         self.program
             .funcs
             .collect_internal()
             .into_iter()
             .for_each(|idx| {
                 self.init(idx);
-                let phi_ids = self.insert();
-                self.phi_ids[idx] = phi_ids;
+                self.insert();
             });
-        std::mem::take(&mut self.phi_ids)
     }
 }
 
@@ -223,14 +206,11 @@ enum RenamingPhase {
 }
 
 struct Renaming<'a> {
-    program: Option<&'a mut Program>,
+    program: Option<&'a mut IR>,
     builder: Builder,
     dom_trees: Vec<DomTree>,
     // version stack
     versions: Vec<Vec<Operand>>,
-
-    // State field
-    current_function: Option<usize>,
 
     // Temporary map from VarId to OpId to avoid sparse indexing of the above structures
     op_to_var: HashMap<usize, usize>,
@@ -246,7 +226,7 @@ struct Renaming<'a> {
 }
 
 impl<'a> Renaming<'a> {
-    pub fn new(program: &'a mut Program, dom_trees: Vec<DomTree>) -> Self {
+    pub fn new(program: &'a mut IR, dom_trees: Vec<DomTree>) -> Self {
         Self {
             program: Some(program),
             builder: Builder::new(),
@@ -255,7 +235,6 @@ impl<'a> Renaming<'a> {
             op_to_var: HashMap::new(),
             var_to_op: HashMap::new(),
             var_counter: 0,
-            current_function: None,
             removed: vec![],
             stack: vec![],
         }
@@ -267,7 +246,8 @@ impl<'a> Renaming<'a> {
         self.var_counter = 0;
 
         let (entry, bbs) = {
-            let func = &self.program.as_ref().unwrap().funcs[self.current_function.unwrap()];
+            let func =
+                &self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()];
             let entry = match func.cfg.entry {
                 Some(id) => id,
                 None => panic!("Renaming: function has no entry block"),
@@ -277,30 +257,23 @@ impl<'a> Renaming<'a> {
         };
 
         self.builder.set_current_block(Operand::BB(entry));
-        let func_id = self.current_function.unwrap();
+        let func_id = self.builder.current_function.unwrap();
         // For each block, we check if it contains an alloca. If it does, we move the alloca to the entry block.
         for bb_id in bbs {
             let allocas = {
-                let mut ctx = context_or_err(
-                    self.program.as_deref_mut().unwrap(),
-                    self.current_function,
-                    "Renaming: No current function context found",
-                );
-                self.builder
-                    .get_all_ops_in_block(&mut ctx, Operand::BB(bb_id), OpType::Alloca)
+                self.program.as_deref_mut().unwrap().get_all_ops_in_block(
+                    self.builder.current_function,
+                    Operand::BB(bb_id),
+                    OpType::Alloca,
+                )
             };
 
-            let mut ctx = context_or_err(
-                self.program.as_deref_mut().unwrap(),
-                self.current_function,
-                "Renaming: No current function context found",
-            );
             // Raise all the allocas to the entry block.
             for alloca in &allocas {
                 // raise alloca to the entry block if it's not already in the entry block
                 if bb_id != entry {
-                    self.builder.move_op_to_bb_at(
-                        &mut ctx,
+                    self.program.as_deref_mut().unwrap().move_op_to_bb_at(
+                        self.builder.current_function,
                         alloca.clone(),
                         Operand::BB(bb_id),
                         Operand::BB(entry),
@@ -360,8 +333,8 @@ impl<'a> Renaming<'a> {
 
                     // Gather information first to avoid holding borrow of self.program.funcs
                     let (insts, succs) = {
-                        let func =
-                            &self.program.as_ref().unwrap().funcs[self.current_function.unwrap()];
+                        let func = &self.program.as_ref().unwrap().funcs
+                            [self.builder.current_function.unwrap()];
                         let bb = &func.cfg[bb_id];
                         let insts = bb.cur.clone();
                         let succs = bb.succs.clone();
@@ -375,7 +348,7 @@ impl<'a> Renaming<'a> {
                         // So we clone the necessary data or just check type first.
                         let (op_data, op_attrs) = {
                             let func = &self.program.as_ref().unwrap().funcs
-                                [self.current_function.unwrap()];
+                                [self.builder.current_function.unwrap()];
                             let op = &func.dfg[inst.clone()];
                             (op.data.clone(), op.attrs.clone())
                         };
@@ -408,13 +381,8 @@ impl<'a> Renaming<'a> {
                                     if let Some(version) = self.versions[var_id].last() {
                                         // Replace the load with the current version
                                         let new_val = version.clone();
-                                        let mut ctx = context_or_err(
-                                            self.program.as_deref_mut().unwrap(),
-                                            self.current_function,
-                                            "Renaming: No current function context found",
-                                        );
-                                        self.builder.replace_all_uses(
-                                            &mut ctx,
+                                        self.program.as_deref_mut().unwrap().replace_all_uses(
+                                            self.builder.current_function,
                                             inst.clone(),
                                             new_val,
                                         );
@@ -450,7 +418,7 @@ impl<'a> Renaming<'a> {
                         // Calculate k (predecessor index)
                         let k = {
                             let func = &self.program.as_ref().unwrap().funcs
-                                [self.current_function.unwrap()];
+                                [self.builder.current_function.unwrap()];
                             let succ_block = &func.cfg[succ.clone()];
                             succ_block
                                 .preds
@@ -466,13 +434,11 @@ impl<'a> Renaming<'a> {
 
                         // Get all phis in successor
                         let phis = {
-                            let mut ctx = context_or_err(
-                                self.program.as_deref_mut().unwrap(),
-                                self.current_function,
-                                "Renaming: No current function context found",
-                            );
-                            self.builder
-                                .get_all_ops_in_block(&mut ctx, succ.clone(), OpType::Phi)
+                            self.program.as_deref_mut().unwrap().get_all_ops_in_block(
+                                self.builder.current_function,
+                                succ.clone(),
+                                OpType::Phi,
+                            )
                         };
 
                         for phi in phis {
@@ -480,7 +446,7 @@ impl<'a> Renaming<'a> {
                             // Update phi incoming
                             let op_id = {
                                 let func = &self.program.as_ref().unwrap().funcs
-                                    [self.current_function.unwrap()];
+                                    [self.builder.current_function.unwrap()];
                                 let phi_op = &func.dfg[phi.clone()];
                                 let op_id = phi_op
                                     .attrs
@@ -501,12 +467,8 @@ impl<'a> Renaming<'a> {
                             if let Some(&var_id) = self.op_to_var.get(&op_id) {
                                 if let Some(version) = self.versions[var_id].last().cloned() {
                                     // Update phi incoming
-                                    self.builder.add_phi_incoming(
-                                        &mut context_or_err(
-                                            self.program.as_deref_mut().unwrap(),
-                                            self.current_function,
-                                            "Renaming: No current function context found",
-                                        ),
+                                    self.program.as_deref_mut().unwrap().add_phi_incoming(
+                                        self.builder.current_function,
                                         phi.clone(),
                                         k,
                                         version,
@@ -532,7 +494,7 @@ impl<'a> Renaming<'a> {
 
                     // 4. Process children in domtree
                     // Clone children list to avoid borrow
-                    let children = self.dom_trees[self.current_function.unwrap()][bb_id]
+                    let children = self.dom_trees[self.builder.current_function.unwrap()][bb_id]
                         .iter()
                         .map(|bb_id| RenamingPhase::Enter(*bb_id))
                         .collect::<Vec<RenamingPhase>>();
@@ -554,7 +516,7 @@ impl<'a> Renaming<'a> {
 
         let func_ids = self.program.as_ref().unwrap().funcs.collect_internal();
         for idx in func_ids {
-            self.current_function = Some(idx);
+            self.builder.set_current_func(Some(idx));
             self.init();
             let head = {
                 let func = &self.program.as_ref().unwrap().funcs[idx];
@@ -566,26 +528,25 @@ impl<'a> Renaming<'a> {
             self.rename();
 
             // Clean up removed ops for this function
-            let mut ctx = context_or_err(
-                self.program.as_deref_mut().unwrap(),
-                self.current_function,
-                "Renaming: No current function context found",
-            );
             for (op, bb) in &self.removed {
-                self.builder
-                    .remove_op(&mut ctx, op.clone(), Some(bb.clone()));
+                self.program.as_deref_mut().unwrap().remove_op(
+                    self.builder.current_function,
+                    op.clone(),
+                    Some(bb.clone()),
+                );
             }
             self.removed.clear();
 
             // Remove all the promoted allocas in entry block. You should do this after load/store removal, since some allocas might be used by dead load/store.
             let promoted_allocas = {
-                let mut ctx = context_or_err(
-                    self.program.as_deref_mut().unwrap(),
-                    self.current_function,
-                    "Renaming: No current function context found",
-                );
-                self.builder
-                    .get_all_ops_in_block(&mut ctx, Operand::BB(head), OpType::Alloca)
+                self.program
+                    .as_deref_mut()
+                    .unwrap()
+                    .get_all_ops_in_block(
+                        self.builder.current_function,
+                        Operand::BB(head),
+                        OpType::Alloca,
+                    )
                     .into_iter()
                     .filter(|alloca| {
                         let func = &self.program.as_ref().unwrap().funcs[idx];
@@ -597,21 +558,19 @@ impl<'a> Renaming<'a> {
                     })
                     .collect::<Vec<Operand>>()
             };
-            let mut ctx = context_or_err(
-                self.program.as_deref_mut().unwrap(),
-                self.current_function,
-                "Renaming: No current function context found",
-            );
             for alloca in promoted_allocas {
-                self.builder
-                    .remove_op(&mut ctx, alloca.clone(), Some(Operand::BB(head)));
+                self.program.as_deref_mut().unwrap().remove_op(
+                    self.builder.current_function,
+                    alloca.clone(),
+                    Some(Operand::BB(head)),
+                );
             }
         }
     }
 }
 
 pub struct Mem2Reg<'a> {
-    program: Option<&'a mut Program>,
+    program: Option<&'a mut IR>,
 }
 
 impl<'a> Mem2Reg<'a> {
@@ -624,7 +583,7 @@ impl<'a> Pass<'a> for Mem2Reg<'a> {
     fn name(&self) -> &str {
         "Mem2Reg"
     }
-    fn set_program(&mut self, program: &'a mut Program) {
+    fn mount(&mut self, program: &'a mut IR) {
         self.program = Some(program);
     }
     fn run(&mut self) {

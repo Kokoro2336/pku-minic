@@ -1,4 +1,5 @@
-/// A simple BitSet implementation using Vec<u64> as the underlying storage.
+//! A simple BitSet implementation using Vec<u64> as the underlying storage.
+
 use std::fmt;
 use std::ops::{
     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, IndexMut, Sub, SubAssign,

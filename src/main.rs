@@ -12,15 +12,14 @@ mod frontend;
 mod ir;
 mod opt;
 mod utils;
-use crate::base::PassManager;
 use crate::cli::Cli;
+use crate::debug::info;
 use crate::debug::log::setup;
 use crate::frontend::parse;
 use crate::frontend::*;
+use crate::opt::PassManager;
 use crate::opt::*;
 use crate::utils::arena::Arena;
-
-use debug::info;
 
 // Import SysY parser.
 lalrpop_mod!(sysy);
@@ -55,7 +54,7 @@ fn main() -> Result<()> {
     // info!("\nParsed result: {:#?}", result);
 
     let res = std::thread::Builder::new()
-        // Temporarily, we set the stack size to 16MB to avoid stack overflow in deep recursion of semantic analysis.
+        // For now, we set the stack size to 16MB to avoid stack overflow in deep recursion of semantic analysis.
         .stack_size(16 * 1024 * 1024)
         .spawn(move || {
             info!("Start Semantic Analysis.");

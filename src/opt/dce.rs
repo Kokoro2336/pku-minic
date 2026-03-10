@@ -1,19 +1,18 @@
-/// Dead Code Elimination (DCE).
-use crate::base::Builder;
-use crate::base::{context_or_err, Pass};
-use crate::ir::mir::{OpData, Operand, PhiIncoming, Program};
+//! Dead Code Elimination (DCE).
+
+use super::Pass;
+use crate::ir::mid::Builder;
+use crate::ir::mid::{OpData, Operand, PhiIncoming, IR};
 use crate::utils::arena::ArenaItem;
 
 #[allow(clippy::upper_case_acronyms)]
 pub struct DCE<'a> {
-    pub program: Option<&'a mut Program>,
+    pub program: Option<&'a mut IR>,
     builder: Builder,
     // Worklist of inst
     worklist: Vec<(Operand, Operand)>,
     // Mapping from op_id to bb_id
     op_to_bb: Vec<Operand>,
-    // State fields
-    current_function: Option<usize>,
 }
 
 impl<'a> DCE<'a> {
@@ -23,13 +22,12 @@ impl<'a> DCE<'a> {
             builder: Builder::new(),
             worklist: vec![],
             op_to_bb: vec![],
-            current_function: None,
         }
     }
 
     pub fn is_dead(&self, operand: &Operand) -> bool {
         let program = self.program.as_ref().unwrap();
-        let current_func = match self.current_function {
+        let current_func = match self.builder.current_function {
             Some(idx) => &program.funcs[idx],
             None => panic!("DCE: not in a function"),
         };
@@ -43,9 +41,9 @@ impl<'a> DCE<'a> {
     }
 
     pub fn init(&mut self, func_id: usize) {
-        self.current_function = Some(func_id);
+        self.builder.set_current_func(Some(func_id));
         let program = self.program.as_ref().unwrap();
-        let func = &program.funcs[self.current_function.unwrap()];
+        let func = &program.funcs[self.builder.current_function.unwrap()];
         self.worklist.clear();
 
         // map OpId to BBId
@@ -87,13 +85,13 @@ impl<'a> Pass<'a> for DCE<'a> {
     fn name(&self) -> &str {
         "DCE"
     }
-    fn set_program(&mut self, program: &'a mut crate::ir::mir::Program) {
+    fn mount(&mut self, program: &'a mut crate::ir::mid::IR) {
         self.program = Some(program);
     }
     fn run(&mut self) {
         fn check(this: &mut DCE, operand: &Operand) {
             let program = this.program.as_ref().unwrap();
-            let func = match this.current_function {
+            let func = match this.builder.current_function {
                 Some(idx) => &program.funcs[idx],
                 None => panic!("DCE: not in a function"),
             };
@@ -123,25 +121,25 @@ impl<'a> Pass<'a> for DCE<'a> {
             self.init(func_id);
             while let Some((op_id, bb_id)) = self.worklist.pop() {
                 if let Operand::Value(id) = op_id {
-                    let func =
-                        &self.program.as_ref().unwrap().funcs[self.current_function.unwrap()];
+                    let func = &self.program.as_ref().unwrap().funcs
+                        [self.builder.current_function.unwrap()];
                     let bb = bb_id.get_bb_id();
                     if !func.cfg[bb].cur.iter().any(|inst| inst.get_op_id() == id) {
                         continue;
                     }
                 }
-
-                let mut ctx = context_or_err(
-                    self.program.as_deref_mut().unwrap(),
-                    self.current_function,
-                    "DCE: no context in run",
-                );
                 self.builder.set_current_block(bb_id.clone());
                 let removed_op = match op_id {
-                    Operand::Global(_) => self.builder.remove_op(&mut ctx, op_id, None),
-                    _ => self
-                        .builder
-                        .remove_op(&mut ctx, op_id.clone(), Some(bb_id.clone())),
+                    Operand::Global(_) => self.program.as_deref_mut().unwrap().remove_op(
+                        self.builder.current_function,
+                        op_id,
+                        None,
+                    ),
+                    _ => self.program.as_deref_mut().unwrap().remove_op(
+                        self.builder.current_function,
+                        op_id.clone(),
+                        Some(bb_id.clone()),
+                    ),
                 };
 
                 // Check the operands of the removed instruction

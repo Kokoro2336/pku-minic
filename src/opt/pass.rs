@@ -1,21 +1,25 @@
-use crate::base::BuilderContext;
+//! Pass management for IR optimization and transformation.
+
 use crate::debug::info;
 use crate::debug::DumpLLVM;
-use crate::ir::mir::Program;
+use crate::ir::mid::IR;
 
 use crate::cli::Cli;
 use std::collections::VecDeque;
 
 pub trait Pass<'a> {
+    /// Get the name of the pass, which will be used for logging and debugging purposes. It should be unique for each pass to avoid confusion in logs.
     fn name(&self) -> &str;
-    fn set_program(&mut self, program: &'a mut Program);
+    /// mount the IR to the pass, which will be called before `run()`.
+    fn mount(&mut self, program: &'a mut IR);
+    /// run the pass on the mounted IR. The IR is guaranteed to be mounted before this method is called.
     fn run(&mut self);
 }
 
 pub struct PassManager<'a> {
-    // The lifetime 'a is tied to the Program that the passes will operate on.
+    // The lifetime 'a is tied to the IR that the passes will operate on.
     // The `+ 'a` bound is necessary because the passes themselves (like DCE<'a>)
-    // contain a mutable reference to the Program with lifetime 'a.
+    // contain a mutable reference to the IR with lifetime 'a.
     passes: VecDeque<Box<dyn Pass<'a> + 'a>>,
     cli: &'a Cli,
 }
@@ -33,12 +37,12 @@ impl<'a> PassManager<'a> {
         self
     }
 
-    pub fn run(mut self, ir: &'a mut Program) {
-        let ir_ptr: *mut Program = ir;
+    pub fn run(mut self, ir: &'a mut IR) {
+        let ir_ptr: *mut IR = ir;
         while let Some(mut pass) = self.passes.pop_front() {
             info!("Running pass: {}", pass.name());
             // SAFETY: Passes run sequentially and each pass only borrows `ir` during this iteration.
-            unsafe { pass.set_program(&mut *ir_ptr) };
+            unsafe { pass.mount(&mut *ir_ptr) };
             pass.run();
             info!("Finished pass: {}", pass.name());
 
@@ -76,42 +80,6 @@ impl<'a> PassManager<'a> {
             info!("Finish Dumping LLVM IR.");
             info!("Quit after dumping.");
             std::process::exit(0)
-        }
-    }
-}
-
-pub fn context_or_err<'a>(
-    program: &'a mut Program,
-    idx: Option<usize>,
-    msg: &str,
-) -> BuilderContext<'a> {
-    if let Some(func_idx) = idx {
-        let (funcs, globals) = (&mut program.funcs, &mut program.globals);
-        let func = &mut funcs[func_idx];
-        BuilderContext {
-            cfg: Some(&mut func.cfg),
-            dfg: Some(&mut func.dfg),
-            globals,
-        }
-    } else {
-        panic!("{}", msg);
-    }
-}
-
-pub fn context<'a>(program: &'a mut Program, idx: Option<usize>) -> BuilderContext<'a> {
-    if let Some(func_idx) = idx {
-        let (funcs, globals) = (&mut program.funcs, &mut program.globals);
-        let func = &mut funcs[func_idx];
-        BuilderContext {
-            cfg: Some(&mut func.cfg),
-            dfg: Some(&mut func.dfg),
-            globals,
-        }
-    } else {
-        BuilderContext {
-            cfg: None,
-            dfg: None,
-            globals: &mut program.globals,
         }
     }
 }

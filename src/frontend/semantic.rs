@@ -497,7 +497,8 @@ impl Semantic {
                     let mut placeholder_types = Vec::new();
                     for cap in re.captures_iter(&fmt_str) {
                         match &cap[0] {
-                            "%d" | "%c" => placeholder_types.push(Type::Int),
+                            "%d" => placeholder_types.push(Type::Int),
+                            "%c" => placeholder_types.push(Type::Bool),
                             "%f" => placeholder_types.push(Type::Float),
                             s => return Err(format!("Unsupported format specifier: {}", s)),
                         }

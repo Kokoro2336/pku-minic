@@ -1,10 +1,11 @@
-/// Garbage collection and reference rewriting support for Arena.
-use crate::base::Pass;
-use crate::ir::mir::Program;
+//! Garbage collection and reference rewriting support for Arena.
+
+use super::Pass;
+use crate::ir::mid::IR;
 use crate::utils::arena::Arena;
 
 pub struct Compaction<'a> {
-    program: Option<&'a mut Program>,
+    program: Option<&'a mut IR>,
 }
 
 impl<'a> Compaction<'a> {
@@ -17,7 +18,7 @@ impl<'a> Pass<'a> for Compaction<'a> {
     fn name(&self) -> &str {
         "Compaction"
     }
-    fn set_program(&mut self, ir: &'a mut Program) {
+    fn mount(&mut self, ir: &'a mut IR) {
         self.program = Some(ir);
     }
     fn run(&mut self) {

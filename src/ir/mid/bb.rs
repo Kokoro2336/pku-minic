@@ -1,5 +1,5 @@
 use crate::debug::info;
-use crate::ir::mir::Operand;
+use crate::ir::mid::Operand;
 use crate::utils::arena::*;
 use std::ops::{Index, IndexMut};
 
@@ -140,7 +140,6 @@ impl IndexedArena<BasicBlock> {
         }
     }
 }
-
 
 impl Index<Operand> for CFG {
     type Output = BasicBlock;

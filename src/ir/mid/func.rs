@@ -1,6 +1,6 @@
 use crate::base::Type;
 use crate::debug::info;
-use crate::ir::mir::{BasicBlock, Op, OpData, Operand, PhiIncoming, CFG, DFG};
+use crate::ir::mid::{BasicBlock, Op, OpData, Operand, PhiIncoming, CFG, DFG};
 use crate::utils::arena::*;
 use std::ops::{Index, IndexMut};
 
