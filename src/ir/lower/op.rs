@@ -1,16 +1,21 @@
 //! Operand definition for Lower IR instructions.
 
 use crate::base::Type;
-use crate::ir::lower::r#type::LType;
+use crate::ir::machine::MType;
 use crate::ir::machine::{FReg, XReg};
 use crate::utils::arena::*;
+use crate::ir::machine::SlotId;
+
+#[derive(Debug, Clone)]
+pub struct VirtReg {
+    inst_id: LOperand,
+    phys: Option<LOperand>,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum LOperand {
+    Inst(usize),
     Virt(usize),
-    Op(usize),
-    XPhys(XReg),
-    FPhys(FReg),
     IntImm(i32),
     FloatImm(f32),
     Func(usize),
@@ -20,7 +25,7 @@ pub enum LOperand {
 #[derive(Debug, Clone)]
 pub enum LOpData {
     // customized instructions for convenience
-    DataAlloc {
+    GlobalAlloc {
         size: u32,
         align: u32,
     },
@@ -165,9 +170,11 @@ pub enum LOpData {
     Load {
         addr: LOperand,
     },
-    StackAlloc {
-        size: u32,
-        align: u32,
+    LoadFrameAddr {
+        slot_id: SlotId,
+    },
+    Move {
+        src: LOperand,
     },
 
     /// Control flow
@@ -200,7 +207,7 @@ pub enum Attr {
 
 #[derive(Debug, Clone)]
 pub struct LOp {
-    pub typ: LType,
+    pub typ: MType,
     pub attrs: Vec<Attr>,
     pub data: LOpData,
     pub users: Vec<LOperand>,

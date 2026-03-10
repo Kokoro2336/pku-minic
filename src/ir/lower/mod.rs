@@ -1,5 +1,10 @@
 //! Lower IR (LIR) definition.
 
-pub mod r#type;
-pub mod op;
-pub mod bb;
+mod op;
+mod bb;
+mod builder;
+mod func;
+pub use op::*;
+pub use bb::*;
+pub use builder::*;
+pub use func::*;
