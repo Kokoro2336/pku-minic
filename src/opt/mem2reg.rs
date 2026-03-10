@@ -2,7 +2,8 @@
 //! Reference: https://dl.acm.org/doi/pdf/10.1145/75277.75280
 
 use crate::analysis::dom::{BuildDomFrontier, BuildDomTree, DomFrontier, DomTree};
-use crate::base::{Pass, Type};
+use crate::base::Type;
+use super::Pass;
 use crate::debug::info;
 use crate::ir::mid::{Attr, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use crate::ir::mid::{Builder, BuilderGuard};

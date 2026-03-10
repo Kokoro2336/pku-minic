@@ -1,6 +1,6 @@
 //! Remove Trivial Phi.
 
-use crate::base::Pass;
+use super::Pass;
 use crate::ir::mid::{Attr, OpData, OpType, Operand, PhiIncoming, IR};
 use crate::utils::arena::ArenaItem;
 

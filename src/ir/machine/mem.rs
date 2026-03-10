@@ -1,3 +1,8 @@
+//! Memory management for Machine IR.
+
+use crate::ir::lower::LOperand;
+
+
 pub type SlotId = usize;
 pub struct FrameInfo {
 	pub param_slots: Vec<Slot>

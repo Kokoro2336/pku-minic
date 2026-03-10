@@ -12,14 +12,14 @@ mod frontend;
 mod ir;
 mod opt;
 mod utils;
-use crate::base::PassManager;
 use crate::cli::Cli;
+use crate::debug::info;
 use crate::debug::log::setup;
 use crate::frontend::parse;
 use crate::frontend::*;
+use crate::opt::PassManager;
 use crate::opt::*;
 use crate::utils::arena::Arena;
-use crate::debug::info;
 
 // Import SysY parser.
 lalrpop_mod!(sysy);

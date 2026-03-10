@@ -1,6 +1,6 @@
 //! Garbage collection and reference rewriting support for Arena.
 
-use crate::base::Pass;
+use super::Pass;
 use crate::ir::mid::IR;
 use crate::utils::arena::Arena;
 

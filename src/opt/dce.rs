@@ -1,6 +1,6 @@
 //! Dead Code Elimination (DCE).
 
-use crate::base::Pass;
+use super::Pass;
 use crate::ir::mid::Builder;
 use crate::ir::mid::{OpData, Operand, PhiIncoming, IR};
 use crate::utils::arena::ArenaItem;
@@ -133,16 +133,16 @@ impl<'a> Pass<'a> for DCE<'a> {
                 }
                 self.builder.set_current_block(bb_id.clone());
                 let removed_op = match op_id {
-                    Operand::Global(_) => self
-                        .program
-                        .as_deref_mut()
-                        .unwrap()
-                        .remove_op(self.current_function, op_id, None),
-                    _ => self
-                        .program
-                        .as_deref_mut()
-                        .unwrap()
-                        .remove_op(self.current_function, op_id.clone(), Some(bb_id.clone())),
+                    Operand::Global(_) => self.program.as_deref_mut().unwrap().remove_op(
+                        self.current_function,
+                        op_id,
+                        None,
+                    ),
+                    _ => self.program.as_deref_mut().unwrap().remove_op(
+                        self.current_function,
+                        op_id.clone(),
+                        Some(bb_id.clone()),
+                    ),
                 };
 
                 // Check the operands of the removed instruction

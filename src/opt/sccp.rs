@@ -2,7 +2,8 @@
 //! Based on Wegman and Zadeck's paper Constant Propagation with Conditional Branches.
 //! Reference: https://dl.acm.org/doi/10.1145/103135.103136
 
-use crate::base::{Pass, Type};
+use crate::base::Type;
+use super::Pass;
 use crate::ir::mid::{Builder, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use crate::utils::arena::{Arena, ArenaItem};
 use crate::utils::bitset::BitSet;
