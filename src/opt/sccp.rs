@@ -2,9 +2,8 @@
 //! Based on Wegman and Zadeck's paper Constant Propagation with Conditional Branches.
 //! Reference: https://dl.acm.org/doi/10.1145/103135.103136
 
-use crate::ir::mid::{Op, OpData, OpType, Operand, PhiIncoming, IR};
-use crate::base::{Builder, Pass, Type};
-use crate::utils::context::context_or_err;
+use crate::base::{Pass, Type};
+use crate::ir::mid::{Builder, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use crate::utils::arena::{Arena, ArenaItem};
 use crate::utils::bitset::BitSet;
 
@@ -441,10 +440,11 @@ impl<'a> SCCP<'a> {
 
                 // Visit the successor block. We need to check all phi nodes in the successor block and update their lattices.
                 {
-                    let mut ctx = context_or_err(self.program.as_deref_mut().unwrap(), self.current_function, "SCCP: no context in propagate");
                     let phis = self
-                        .builder
-                        .get_all_ops_in_block(&mut ctx, to.clone(), OpType::Phi);
+                        .program
+                        .as_deref_mut()
+                        .unwrap()
+                        .get_all_ops_in_block(self.current_function, to.clone(), OpType::Phi);
                     for phi in phis {
                         self.visit_phi(phi);
                     }
@@ -453,8 +453,11 @@ impl<'a> SCCP<'a> {
                 // If to is visited for the first time, we need to visit all non-phi instructions in the block.
                 if !self.visited.contains(to.get_bb_id()) {
                     self.visited.insert(to.get_bb_id());
-                    let mut ctx = context_or_err(self.program.as_deref_mut().unwrap(), self.current_function, "SCCP: no context in propagate");
-                    let non_phis = self.builder.get_all_non_phi_in_block(&mut ctx, to.clone());
+                    let non_phis = self
+                        .program
+                        .as_deref_mut()
+                        .unwrap()
+                        .get_all_non_phi_in_block(self.current_function, to.clone());
                     for non_phi in non_phis {
                         self.visit_expr(non_phi, to.clone());
                     }
@@ -501,9 +504,10 @@ impl<'a> SCCP<'a> {
                 if let Lattice::Constant(c) = lattice {
                     let bb_id = self.op_to_bb[op_id].clone();
                     let op_id = Operand::Value(op_id);
-                    let mut ctx = context_or_err(self.program.as_deref_mut().unwrap(), self.current_function, "SCCP: no context in rewrite");
-                    self.builder
-                        .replace_all_uses(&mut ctx, op_id.clone(), c.clone());
+                    self.program
+                        .as_deref_mut()
+                        .unwrap()
+                        .replace_all_uses(self.current_function, op_id.clone(), c.clone());
                     Some((op_id.clone(), bb_id.clone()))
                 } else {
                     None
@@ -527,9 +531,9 @@ impl<'a> SCCP<'a> {
                         if let Operand::Bool(b) = c {
                             let target_bb = if b { then_bb } else { else_bb };
                             let bb_id = self.op_to_bb[br_op.get_op_id()].clone();
-                            let mut ctx = context_or_err(self.program.as_deref_mut().unwrap(), self.current_function, "SCCP: no context in rewrite");
-                            self.builder.replace_op(
-                                &mut ctx,
+                            self.program.as_deref_mut().unwrap().replace_op(
+                                &mut self.builder,
+                                self.current_function,
                                 br_op.clone(),
                                 bb_id,
                                 Op {
@@ -551,8 +555,11 @@ impl<'a> SCCP<'a> {
         }
 
         // Slay the edge of dead block in phi operations.
-        let mut ctx = context_or_err(self.program.as_deref_mut().unwrap(), self.current_function, "SCCP: no context in rewrite");
-        let phis = self.builder.get_all_ops(&mut ctx, OpType::Phi);
+        let phis = self
+            .program
+            .as_deref_mut()
+            .unwrap()
+            .get_all_ops(self.current_function, OpType::Phi);
         for phi_op in &phis {
             let dfg = &mut self.program.as_mut().unwrap().funcs[self.current_function.unwrap()].dfg;
             let op = dfg[phi_op.clone()].clone();
@@ -567,9 +574,8 @@ impl<'a> SCCP<'a> {
                             let ans_succ = &cfg[*bb_id].succs;
 
                             if !self.visited.contains(*bb_id) || !ans_succ.contains(&current_bb) {
-                                let mut ctx = context_or_err(self.program.as_deref_mut().unwrap(), self.current_function, "SCCP: no context in rewrite");
-                                self.builder.slay_phi_incoming(
-                                    &mut ctx,
+                                self.program.as_deref_mut().unwrap().slay_phi_incoming(
+                                    self.current_function,
                                     phi_op.clone(),
                                     bb.clone(),
                                 );
@@ -586,8 +592,10 @@ impl<'a> SCCP<'a> {
 
         // Remove the ops
         removed.into_iter().for_each(|(op_id, bb_id)| {
-            let mut ctx = context_or_err(self.program.as_deref_mut().unwrap(), self.current_function, "SCCP: no context in rewrite");
-            self.builder.remove_op(&mut ctx, op_id, Some(bb_id));
+            self.program
+                .as_deref_mut()
+                .unwrap()
+                .remove_op(self.current_function, op_id, Some(bb_id));
         });
 
         let dead_blocks = self.program.as_ref().unwrap().funcs[self.current_function.unwrap()]
@@ -614,9 +622,10 @@ impl<'a> SCCP<'a> {
             };
             if matches!(terminator, OpData::Br { .. } | OpData::Jump { .. }) {
                 // remove the op
-                let mut ctx = context_or_err(self.program.as_deref_mut().unwrap(), self.current_function, "SCCP: no context in rewrite");
-                self.builder
-                    .remove_op(&mut ctx, last.clone(), Some(Operand::BB(*bb_id)));
+                self.program
+                    .as_deref_mut()
+                    .unwrap()
+                    .remove_op(self.current_function, last.clone(), Some(Operand::BB(*bb_id)));
             }
         });
 
@@ -627,6 +636,7 @@ impl<'a> SCCP<'a> {
 
             // Split users check and removal due to data dependency.
             for inst in cur.iter().rev() {
+                crate::debug::info!("SCCP rewrite: checking users of instruction {:#?} in dead block {}", inst, bb_id);
                 let func_id = self.current_function.unwrap();
                 let funcs = &mut self.program.as_mut().unwrap().funcs;
                 let dfg = &mut funcs[func_id].dfg;

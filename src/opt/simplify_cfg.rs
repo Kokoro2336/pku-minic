@@ -1,7 +1,8 @@
 //! Simplify CFG.
 
-use crate::base::{context_or_err, Builder, BuilderContext, Pass, Type};
-use crate::ir::mir::{IR, OpData, OpType, Operand};
+use crate::base::{Pass, Type};
+use crate::ir::mid::Builder;
+use crate::ir::mir::{OpData, OpType, Operand, IR};
 use crate::utils::bitset::BitSet;
 
 pub struct SimplifyCFG<'a> {
@@ -119,12 +120,9 @@ impl<'a> SimplifyCFG<'a> {
                 pred_last_op
             };
             // Replace the old terminator with the new one.
-            self.builder.replace_op(
-                &mut context_or_err(
-                    self.program.as_deref_mut().unwrap(),
-                    self.current_function,
-                    "SimplifyCFG: No current function context found",
-                ),
+            self.program.as_deref_mut().unwrap().replace_op(
+                &mut self.builder,
+                self.current_function,
                 pred_last_id.clone(),
                 pred_id.clone(),
                 updated_pred_last_op,
@@ -152,11 +150,6 @@ impl<'a> SimplifyCFG<'a> {
                 [pred_id.clone()];
             if pred.succs.len() == 1 && pred.succs[0] == Operand::BB(bb_id) {
                 // Then merge current block into its predecessor.
-                let mut ctx = context_or_err(
-                    self.program.as_deref_mut().unwrap(),
-                    self.current_function,
-                    "SimplifyCFG: No current function context found",
-                );
                 let pred_last = match pred.cur.last() {
                     Some(inst_id) => inst_id.clone(),
                     None => panic!("SimplifyCFG: The predecessor block should not be empty"),
@@ -164,8 +157,8 @@ impl<'a> SimplifyCFG<'a> {
                 // Move the instructions, except the terminator.
                 // It's impossible that the current block has any phi instruction.
                 for inst_id in bb.cur.iter().skip(bb.cur.len() - 1) {
-                    self.builder.move_op_to_bb_at(
-                        &mut ctx,
+                    self.program.as_deref_mut().unwrap().move_op_to_bb_at(
+                        self.current_function,
                         inst_id.clone(),
                         Operand::BB(bb_id),
                         pred_id.clone(),
@@ -174,22 +167,19 @@ impl<'a> SimplifyCFG<'a> {
                 }
             } else {
                 // Else move the instructions in current block to its successor.
-                let mut ctx = context_or_err(
-                    self.program.as_deref_mut().unwrap(),
-                    self.current_function,
-                    "SimplifyCFG: No current function context found",
-                );
                 let succ_non_phi_pos = bb
                     .cur
                     .iter()
                     .position(|inst_id| {
-                        let dfg = ctx.dfg.as_ref().unwrap();
+                        let dfg = &self.program.as_ref().unwrap().funcs
+                            [self.current_function.unwrap()]
+                        .dfg;
                         !dfg[inst_id.clone()].is(OpType::Phi)
                     })
                     .unwrap_or(0);
                 for inst_id in bb.cur.iter().rev().skip(1) {
-                    self.builder.move_op_to_bb_at(
-                        &mut ctx,
+                    self.program.as_deref_mut().unwrap().move_op_to_bb_at(
+                        self.current_function,
                         inst_id.clone(),
                         Operand::BB(bb_id),
                         bb.succs[0].clone(),

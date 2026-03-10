@@ -2,10 +2,10 @@
 //! Reference: https://dl.acm.org/doi/pdf/10.1145/75277.75280
 
 use crate::analysis::dom::{BuildDomFrontier, BuildDomTree, DomFrontier, DomTree};
-use crate::base::{Builder, BuilderGuard, Pass, Type};
+use crate::base::{Pass, Type};
 use crate::debug::info;
 use crate::ir::mid::{Attr, Op, OpData, OpType, Operand, PhiIncoming, IR};
-use crate::utils::context::context_or_err;
+use crate::ir::mid::{Builder, BuilderGuard};
 
 use std::collections::HashMap;
 
@@ -58,12 +58,11 @@ impl<'a> InsertPhi<'a> {
             self.current_function = Some(idx);
             let func = &self.program.funcs[idx];
             let cfg_len = func.cfg.storage.len();
-            let mut ctx = context_or_err(
-                self.program,
-                self.current_function,
-                "InsertPhi: No current function context found",
-            );
-            (cfg_len, self.builder.get_all_ops(&mut ctx, OpType::Alloca))
+            (
+                cfg_len,
+                self.program
+                    .get_all_ops(self.current_function, OpType::Alloca),
+            )
         };
 
         // Initialize the map between OpId and VarId
@@ -161,13 +160,9 @@ impl<'a> InsertPhi<'a> {
                                 }
                             };
 
-                            let mut ctx = context_or_err(
+                            guard.create_at_head(
                                 self.program,
                                 self.current_function,
-                                "InsertPhi: No current function context found",
-                            );
-                            guard.create_at_head(
-                                &mut ctx,
                                 Op::new(
                                     // We don't know the inst's result type yet
                                     var_type,
@@ -271,26 +266,19 @@ impl<'a> Renaming<'a> {
         // For each block, we check if it contains an alloca. If it does, we move the alloca to the entry block.
         for bb_id in bbs {
             let allocas = {
-                let mut ctx = context_or_err(
-                    self.program.as_deref_mut().unwrap(),
+                self.program.as_deref_mut().unwrap().get_all_ops_in_block(
                     self.current_function,
-                    "Renaming: No current function context found",
-                );
-                self.builder
-                    .get_all_ops_in_block(&mut ctx, Operand::BB(bb_id), OpType::Alloca)
+                    Operand::BB(bb_id),
+                    OpType::Alloca,
+                )
             };
 
-            let mut ctx = context_or_err(
-                self.program.as_deref_mut().unwrap(),
-                self.current_function,
-                "Renaming: No current function context found",
-            );
             // Raise all the allocas to the entry block.
             for alloca in &allocas {
                 // raise alloca to the entry block if it's not already in the entry block
                 if bb_id != entry {
-                    self.builder.move_op_to_bb_at(
-                        &mut ctx,
+                    self.program.as_deref_mut().unwrap().move_op_to_bb_at(
+                        self.current_function,
                         alloca.clone(),
                         Operand::BB(bb_id),
                         Operand::BB(entry),
@@ -398,13 +386,8 @@ impl<'a> Renaming<'a> {
                                     if let Some(version) = self.versions[var_id].last() {
                                         // Replace the load with the current version
                                         let new_val = version.clone();
-                                        let mut ctx = context_or_err(
-                                            self.program.as_deref_mut().unwrap(),
+                                        self.program.as_deref_mut().unwrap().replace_all_uses(
                                             self.current_function,
-                                            "Renaming: No current function context found",
-                                        );
-                                        self.builder.replace_all_uses(
-                                            &mut ctx,
                                             inst.clone(),
                                             new_val,
                                         );
@@ -456,13 +439,11 @@ impl<'a> Renaming<'a> {
 
                         // Get all phis in successor
                         let phis = {
-                            let mut ctx = context_or_err(
-                                self.program.as_deref_mut().unwrap(),
+                            self.program.as_deref_mut().unwrap().get_all_ops_in_block(
                                 self.current_function,
-                                "Renaming: No current function context found",
-                            );
-                            self.builder
-                                .get_all_ops_in_block(&mut ctx, succ.clone(), OpType::Phi)
+                                succ.clone(),
+                                OpType::Phi,
+                            )
                         };
 
                         for phi in phis {
@@ -491,12 +472,8 @@ impl<'a> Renaming<'a> {
                             if let Some(&var_id) = self.op_to_var.get(&op_id) {
                                 if let Some(version) = self.versions[var_id].last().cloned() {
                                     // Update phi incoming
-                                    self.builder.add_phi_incoming(
-                                        &mut context_or_err(
-                                            self.program.as_deref_mut().unwrap(),
-                                            self.current_function,
-                                            "Renaming: No current function context found",
-                                        ),
+                                    self.program.as_deref_mut().unwrap().add_phi_incoming(
+                                        self.current_function,
                                         phi.clone(),
                                         k,
                                         version,
@@ -556,26 +533,21 @@ impl<'a> Renaming<'a> {
             self.rename();
 
             // Clean up removed ops for this function
-            let mut ctx = context_or_err(
-                self.program.as_deref_mut().unwrap(),
-                self.current_function,
-                "Renaming: No current function context found",
-            );
             for (op, bb) in &self.removed {
-                self.builder
-                    .remove_op(&mut ctx, op.clone(), Some(bb.clone()));
+                self.program.as_deref_mut().unwrap().remove_op(
+                    self.current_function,
+                    op.clone(),
+                    Some(bb.clone()),
+                );
             }
             self.removed.clear();
 
             // Remove all the promoted allocas in entry block. You should do this after load/store removal, since some allocas might be used by dead load/store.
             let promoted_allocas = {
-                let mut ctx = context_or_err(
-                    self.program.as_deref_mut().unwrap(),
-                    self.current_function,
-                    "Renaming: No current function context found",
-                );
-                self.builder
-                    .get_all_ops_in_block(&mut ctx, Operand::BB(head), OpType::Alloca)
+                self.program
+                    .as_deref_mut()
+                    .unwrap()
+                    .get_all_ops_in_block(self.current_function, Operand::BB(head), OpType::Alloca)
                     .into_iter()
                     .filter(|alloca| {
                         let func = &self.program.as_ref().unwrap().funcs[idx];
@@ -587,14 +559,12 @@ impl<'a> Renaming<'a> {
                     })
                     .collect::<Vec<Operand>>()
             };
-            let mut ctx = context_or_err(
-                self.program.as_deref_mut().unwrap(),
-                self.current_function,
-                "Renaming: No current function context found",
-            );
             for alloca in promoted_allocas {
-                self.builder
-                    .remove_op(&mut ctx, alloca.clone(), Some(Operand::BB(head)));
+                self.program.as_deref_mut().unwrap().remove_op(
+                    self.current_function,
+                    alloca.clone(),
+                    Some(Operand::BB(head)),
+                );
             }
         }
     }
