@@ -1,7 +1,7 @@
 //! Remove Trivial Phi.
 
 use super::Pass;
-use crate::ir::mid::{Attr, OpData, OpType, Operand, PhiIncoming, IR};
+use crate::ir::mid::{Attr, Builder, OpData, OpType, Operand, PhiIncoming, IR};
 use crate::utils::arena::ArenaItem;
 
 enum CheckType {
@@ -12,23 +12,21 @@ enum CheckType {
 
 pub struct RemoveTrivialPhi<'a> {
     program: Option<&'a mut IR>,
+    builder: Builder,
     phi_ids: Vec<Operand>,
 
     // Ancillary state fields
     worklist: Vec<(Operand, Operand, CheckType)>, // Vec of (PhiId, BBId, CheckType)
     op_to_bb: Vec<Operand>,                       // Mapping from OpId to BBId
-
-    // State function
-    current_function: Option<usize>,
 }
 
 impl<'a> RemoveTrivialPhi<'a> {
     pub fn new() -> Self {
         Self {
             program: None,
+            builder: Builder::new(),
             phi_ids: Vec::new(),
             op_to_bb: Vec::new(),
-            current_function: None,
             worklist: Vec::new(),
         }
     }
@@ -70,7 +68,7 @@ impl<'a> RemoveTrivialPhi<'a> {
     }
 
     fn init(&mut self, idx: usize) {
-        self.current_function = Some(idx);
+        self.builder.set_current_func(Some(idx));
         let program = self.program.as_deref_mut().unwrap();
         let func = &program.funcs[idx];
 
@@ -88,7 +86,7 @@ impl<'a> RemoveTrivialPhi<'a> {
                 }
             });
 
-        self.phi_ids = program.get_all_ops(self.current_function, OpType::Phi);
+        self.phi_ids = program.get_all_ops(self.builder.current_function, OpType::Phi);
         self.worklist = self
             .phi_ids
             .iter()
@@ -107,7 +105,7 @@ impl<'a> RemoveTrivialPhi<'a> {
         // Check whether the phi_ids are valid
         while let Some((phi_id, bb_id, check_result)) = self.worklist.pop() {
             let uses = {
-                let func_id = match self.current_function {
+                let func_id = match self.builder.current_function {
                     Some(id) => id,
                     None => panic!("RemoveTrivialPhi: no current function"),
                 };
@@ -117,11 +115,11 @@ impl<'a> RemoveTrivialPhi<'a> {
                 phi_op.attrs.retain(|attr| !matches!(attr, Attr::OldIdx(_)));
                 phi_op.users.clone()
             };
-            let current_function = self.current_function.unwrap();
+            let current_function = self.builder.current_function.unwrap();
             match check_result {
                 CheckType::Empty => {
                     self.program.as_deref_mut().unwrap().replace_all_uses(
-                        self.current_function,
+                        self.builder.current_function,
                         phi_id.clone(),
                         Operand::Undefined,
                     );
@@ -153,14 +151,14 @@ impl<'a> RemoveTrivialPhi<'a> {
                         }
                     }
                     self.program.as_deref_mut().unwrap().remove_op(
-                        self.current_function,
+                        self.builder.current_function,
                         phi_id,
                         Some(bb_id),
                     );
                 }
                 CheckType::Single(value) => {
                     self.program.as_deref_mut().unwrap().replace_all_uses(
-                        self.current_function,
+                        self.builder.current_function,
                         phi_id.clone(),
                         value,
                     );
@@ -191,7 +189,7 @@ impl<'a> RemoveTrivialPhi<'a> {
                         }
                     }
                     self.program.as_deref_mut().unwrap().remove_op(
-                        self.current_function,
+                        self.builder.current_function,
                         phi_id,
                         Some(bb_id),
                     );

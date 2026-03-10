@@ -6,7 +6,7 @@ use crate::utils::arena::*;
 
 pub type VRegs = IndexedArena<VirtReg>;
 #[derive(Debug, Clone)]
-pub struct Function {
+pub struct LFunction {
     pub name: String,
     pub typ: MType,
     pub cfg: LCFG,

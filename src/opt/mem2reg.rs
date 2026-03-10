@@ -1,9 +1,9 @@
 //! SSA construction & Mem2Reg based on Cytron et al. 1991's algorithm.
 //! Reference: https://dl.acm.org/doi/pdf/10.1145/75277.75280
 
+use super::Pass;
 use crate::analysis::dom::{BuildDomFrontier, BuildDomTree, DomFrontier, DomTree};
 use crate::base::Type;
-use super::Pass;
 use crate::debug::info;
 use crate::ir::mid::{Attr, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use crate::ir::mid::{Builder, BuilderGuard};
@@ -29,9 +29,6 @@ struct InsertPhi<'a> {
     op_to_var: HashMap<usize, usize>,
     var_to_op: HashMap<usize, usize>,
     var_counter: usize,
-
-    // State field
-    current_function: Option<usize>,
 }
 
 impl<'a> InsertPhi<'a> {
@@ -46,7 +43,6 @@ impl<'a> InsertPhi<'a> {
             op_to_var: HashMap::new(),
             var_to_op: HashMap::new(),
             var_counter: 0,
-            current_function: None,
         }
     }
 
@@ -56,13 +52,13 @@ impl<'a> InsertPhi<'a> {
         self.var_counter = 0;
 
         let (cfg_len, allocas) = {
-            self.current_function = Some(idx);
+            self.builder.set_current_func(Some(idx));
             let func = &self.program.funcs[idx];
             let cfg_len = func.cfg.storage.len();
             (
                 cfg_len,
                 self.program
-                    .get_all_ops(self.current_function, OpType::Alloca),
+                    .get_all_ops(self.builder.current_function, OpType::Alloca),
             )
         };
 
@@ -84,7 +80,7 @@ impl<'a> InsertPhi<'a> {
         self.phis = vec![vec![]; self.var_counter];
 
         // Compute defsites, origins and phis
-        let func_id = self.current_function.unwrap();
+        let func_id = self.builder.current_function.unwrap();
         let bb_ids = self.program.funcs[func_id].cfg.collect();
         for bb_id in bb_ids {
             let func = &self.program.funcs[func_id];
@@ -121,7 +117,7 @@ impl<'a> InsertPhi<'a> {
 
     pub fn insert(&mut self) {
         let defsites_len = self.defsites.len();
-        let func_id = self.current_function.unwrap();
+        let func_id = self.builder.current_function.unwrap();
         for idx in 0..defsites_len {
             while let Some(bb_id) = self.defsites[idx].pop() {
                 let frontiers = self.frontiers[func_id][bb_id].clone();
@@ -138,6 +134,7 @@ impl<'a> InsertPhi<'a> {
                         // Use guard to save the old context
                         {
                             let mut guard = BuilderGuard::new(&mut self.builder);
+                            let current_function = guard.current_function;
 
                             guard.set_current_block(Operand::BB(frontier));
 
@@ -163,7 +160,7 @@ impl<'a> InsertPhi<'a> {
 
                             guard.create_at_head(
                                 self.program,
-                                self.current_function,
+                                current_function,
                                 Op::new(
                                     // We don't know the inst's result type yet
                                     var_type,
@@ -215,9 +212,6 @@ struct Renaming<'a> {
     // version stack
     versions: Vec<Vec<Operand>>,
 
-    // State field
-    current_function: Option<usize>,
-
     // Temporary map from VarId to OpId to avoid sparse indexing of the above structures
     op_to_var: HashMap<usize, usize>,
     var_to_op: HashMap<usize, usize>,
@@ -241,7 +235,6 @@ impl<'a> Renaming<'a> {
             op_to_var: HashMap::new(),
             var_to_op: HashMap::new(),
             var_counter: 0,
-            current_function: None,
             removed: vec![],
             stack: vec![],
         }
@@ -253,7 +246,8 @@ impl<'a> Renaming<'a> {
         self.var_counter = 0;
 
         let (entry, bbs) = {
-            let func = &self.program.as_ref().unwrap().funcs[self.current_function.unwrap()];
+            let func =
+                &self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()];
             let entry = match func.cfg.entry {
                 Some(id) => id,
                 None => panic!("Renaming: function has no entry block"),
@@ -263,12 +257,12 @@ impl<'a> Renaming<'a> {
         };
 
         self.builder.set_current_block(Operand::BB(entry));
-        let func_id = self.current_function.unwrap();
+        let func_id = self.builder.current_function.unwrap();
         // For each block, we check if it contains an alloca. If it does, we move the alloca to the entry block.
         for bb_id in bbs {
             let allocas = {
                 self.program.as_deref_mut().unwrap().get_all_ops_in_block(
-                    self.current_function,
+                    self.builder.current_function,
                     Operand::BB(bb_id),
                     OpType::Alloca,
                 )
@@ -279,7 +273,7 @@ impl<'a> Renaming<'a> {
                 // raise alloca to the entry block if it's not already in the entry block
                 if bb_id != entry {
                     self.program.as_deref_mut().unwrap().move_op_to_bb_at(
-                        self.current_function,
+                        self.builder.current_function,
                         alloca.clone(),
                         Operand::BB(bb_id),
                         Operand::BB(entry),
@@ -339,8 +333,8 @@ impl<'a> Renaming<'a> {
 
                     // Gather information first to avoid holding borrow of self.program.funcs
                     let (insts, succs) = {
-                        let func =
-                            &self.program.as_ref().unwrap().funcs[self.current_function.unwrap()];
+                        let func = &self.program.as_ref().unwrap().funcs
+                            [self.builder.current_function.unwrap()];
                         let bb = &func.cfg[bb_id];
                         let insts = bb.cur.clone();
                         let succs = bb.succs.clone();
@@ -354,7 +348,7 @@ impl<'a> Renaming<'a> {
                         // So we clone the necessary data or just check type first.
                         let (op_data, op_attrs) = {
                             let func = &self.program.as_ref().unwrap().funcs
-                                [self.current_function.unwrap()];
+                                [self.builder.current_function.unwrap()];
                             let op = &func.dfg[inst.clone()];
                             (op.data.clone(), op.attrs.clone())
                         };
@@ -388,7 +382,7 @@ impl<'a> Renaming<'a> {
                                         // Replace the load with the current version
                                         let new_val = version.clone();
                                         self.program.as_deref_mut().unwrap().replace_all_uses(
-                                            self.current_function,
+                                            self.builder.current_function,
                                             inst.clone(),
                                             new_val,
                                         );
@@ -424,7 +418,7 @@ impl<'a> Renaming<'a> {
                         // Calculate k (predecessor index)
                         let k = {
                             let func = &self.program.as_ref().unwrap().funcs
-                                [self.current_function.unwrap()];
+                                [self.builder.current_function.unwrap()];
                             let succ_block = &func.cfg[succ.clone()];
                             succ_block
                                 .preds
@@ -441,7 +435,7 @@ impl<'a> Renaming<'a> {
                         // Get all phis in successor
                         let phis = {
                             self.program.as_deref_mut().unwrap().get_all_ops_in_block(
-                                self.current_function,
+                                self.builder.current_function,
                                 succ.clone(),
                                 OpType::Phi,
                             )
@@ -452,7 +446,7 @@ impl<'a> Renaming<'a> {
                             // Update phi incoming
                             let op_id = {
                                 let func = &self.program.as_ref().unwrap().funcs
-                                    [self.current_function.unwrap()];
+                                    [self.builder.current_function.unwrap()];
                                 let phi_op = &func.dfg[phi.clone()];
                                 let op_id = phi_op
                                     .attrs
@@ -474,7 +468,7 @@ impl<'a> Renaming<'a> {
                                 if let Some(version) = self.versions[var_id].last().cloned() {
                                     // Update phi incoming
                                     self.program.as_deref_mut().unwrap().add_phi_incoming(
-                                        self.current_function,
+                                        self.builder.current_function,
                                         phi.clone(),
                                         k,
                                         version,
@@ -500,7 +494,7 @@ impl<'a> Renaming<'a> {
 
                     // 4. Process children in domtree
                     // Clone children list to avoid borrow
-                    let children = self.dom_trees[self.current_function.unwrap()][bb_id]
+                    let children = self.dom_trees[self.builder.current_function.unwrap()][bb_id]
                         .iter()
                         .map(|bb_id| RenamingPhase::Enter(*bb_id))
                         .collect::<Vec<RenamingPhase>>();
@@ -522,7 +516,7 @@ impl<'a> Renaming<'a> {
 
         let func_ids = self.program.as_ref().unwrap().funcs.collect_internal();
         for idx in func_ids {
-            self.current_function = Some(idx);
+            self.builder.set_current_func(Some(idx));
             self.init();
             let head = {
                 let func = &self.program.as_ref().unwrap().funcs[idx];
@@ -536,7 +530,7 @@ impl<'a> Renaming<'a> {
             // Clean up removed ops for this function
             for (op, bb) in &self.removed {
                 self.program.as_deref_mut().unwrap().remove_op(
-                    self.current_function,
+                    self.builder.current_function,
                     op.clone(),
                     Some(bb.clone()),
                 );
@@ -548,7 +542,11 @@ impl<'a> Renaming<'a> {
                 self.program
                     .as_deref_mut()
                     .unwrap()
-                    .get_all_ops_in_block(self.current_function, Operand::BB(head), OpType::Alloca)
+                    .get_all_ops_in_block(
+                        self.builder.current_function,
+                        Operand::BB(head),
+                        OpType::Alloca,
+                    )
                     .into_iter()
                     .filter(|alloca| {
                         let func = &self.program.as_ref().unwrap().funcs[idx];
@@ -562,7 +560,7 @@ impl<'a> Renaming<'a> {
             };
             for alloca in promoted_allocas {
                 self.program.as_deref_mut().unwrap().remove_op(
-                    self.current_function,
+                    self.builder.current_function,
                     alloca.clone(),
                     Some(Operand::BB(head)),
                 );

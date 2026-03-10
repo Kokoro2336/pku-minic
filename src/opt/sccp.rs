@@ -43,8 +43,6 @@ pub struct SCCP<'a> {
     // br_ops excluding ret.
     br_ops: Vec<Operand>,
     in_br_ops: BitSet,
-
-    current_function: Option<usize>,
 }
 
 impl<'a> SCCP<'a> {
@@ -61,7 +59,6 @@ impl<'a> SCCP<'a> {
             op_to_bb: Vec::new(),
             br_ops: Vec::new(),
             in_br_ops: BitSet::new(),
-            current_function: None,
         }
     }
 
@@ -182,7 +179,7 @@ impl<'a> SCCP<'a> {
     }
 
     fn init(&mut self, idx: usize) {
-        self.current_function = Some(idx);
+        self.builder.set_current_func(Some(idx));
         let func = &self.program.as_ref().unwrap().funcs[idx];
         let entry = match func.cfg.entry {
             Some(e) => e,
@@ -228,7 +225,7 @@ impl<'a> SCCP<'a> {
     }
 
     fn visit_expr(&mut self, op_id: Operand, bb_id: Operand) {
-        let func = match self.current_function {
+        let func = match self.builder.current_function {
             Some(idx) => idx,
             None => panic!("SCCP visit_expr: current_function is None"), // should not happen
         };
@@ -380,7 +377,7 @@ impl<'a> SCCP<'a> {
     }
 
     fn visit_phi(&mut self, op_id: Operand) {
-        let func = match self.current_function {
+        let func = match self.builder.current_function {
             Some(idx) => idx,
             None => panic!("SCCP visit_phi: current_function is None"), // should not happen
         };
@@ -445,7 +442,7 @@ impl<'a> SCCP<'a> {
                         .program
                         .as_deref_mut()
                         .unwrap()
-                        .get_all_ops_in_block(self.current_function, to.clone(), OpType::Phi);
+                        .get_all_ops_in_block(self.builder.current_function, to.clone(), OpType::Phi);
                     for phi in phis {
                         self.visit_phi(phi);
                     }
@@ -458,14 +455,14 @@ impl<'a> SCCP<'a> {
                         .program
                         .as_deref_mut()
                         .unwrap()
-                        .get_all_non_phi_in_block(self.current_function, to.clone());
+                        .get_all_non_phi_in_block(self.builder.current_function, to.clone());
                     for non_phi in non_phis {
                         self.visit_expr(non_phi, to.clone());
                     }
                 }
 
                 // If to only has only one outgoing edge, push succ to edge_list.
-                let cfg = &mut self.program.as_mut().unwrap().funcs[self.current_function.unwrap()].cfg;
+                let cfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].cfg;
                 if cfg[to.get_bb_id()].succs.len() == 1 {
                     let succ = cfg[to.get_bb_id()].succs[0].clone();
                     self.edge_list.push((to.clone(), succ));
@@ -477,7 +474,7 @@ impl<'a> SCCP<'a> {
                 // Critical: remove the inst first.
                 self.in_inst_list.remove(op_id.get_op_id());
 
-                let dfg = &mut self.program.as_mut().unwrap().funcs[self.current_function.unwrap()].dfg;
+                let dfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
                 let op_data = dfg[op_id.clone()].data.clone();
                 if op_data.is(OpType::Phi) {
                     self.visit_phi(op_id.clone());
@@ -508,7 +505,7 @@ impl<'a> SCCP<'a> {
                     self.program
                         .as_deref_mut()
                         .unwrap()
-                        .replace_all_uses(self.current_function, op_id.clone(), c.clone());
+                        .replace_all_uses(self.builder.current_function, op_id.clone(), c.clone());
                     Some((op_id.clone(), bb_id.clone()))
                 } else {
                     None
@@ -518,7 +515,7 @@ impl<'a> SCCP<'a> {
 
         // Replace br with jump if the condition is a constant.
         for br_op in self.br_ops.iter() {
-            let dfg = &mut self.program.as_mut().unwrap().funcs[self.current_function.unwrap()].dfg;
+            let dfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
             let op = dfg[br_op.clone()].clone();
             if let OpData::Br {
                 cond,
@@ -532,9 +529,10 @@ impl<'a> SCCP<'a> {
                         if let Operand::Bool(b) = c {
                             let target_bb = if b { then_bb } else { else_bb };
                             let bb_id = self.op_to_bb[br_op.get_op_id()].clone();
+                            let current_function = self.builder.current_function;
                             self.program.as_deref_mut().unwrap().replace_op(
                                 &mut self.builder,
-                                self.current_function,
+                                current_function,
                                 br_op.clone(),
                                 bb_id,
                                 Op {
@@ -560,9 +558,9 @@ impl<'a> SCCP<'a> {
             .program
             .as_deref_mut()
             .unwrap()
-            .get_all_ops(self.current_function, OpType::Phi);
+            .get_all_ops(self.builder.current_function, OpType::Phi);
         for phi_op in &phis {
-            let dfg = &mut self.program.as_mut().unwrap().funcs[self.current_function.unwrap()].dfg;
+            let dfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
             let op = dfg[phi_op.clone()].clone();
             if let OpData::Phi { incoming } = op.data {
                 for incoming in incoming.iter() {
@@ -571,12 +569,12 @@ impl<'a> SCCP<'a> {
                             // Check whether the block is dead or the current block is no longer the successor of the incoming block. 
                             // If so, we need to slay this incoming edge.
                             let current_bb = self.op_to_bb[phi_op.get_op_id()].clone();
-                            let cfg = &mut self.program.as_mut().unwrap().funcs[self.current_function.unwrap()].cfg;
+                            let cfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].cfg;
                             let ans_succ = &cfg[*bb_id].succs;
 
                             if !self.visited.contains(*bb_id) || !ans_succ.contains(&current_bb) {
                                 self.program.as_deref_mut().unwrap().slay_phi_incoming(
-                                    self.current_function,
+                                    self.builder.current_function,
                                     phi_op.clone(),
                                     bb.clone(),
                                 );
@@ -596,10 +594,10 @@ impl<'a> SCCP<'a> {
             self.program
                 .as_deref_mut()
                 .unwrap()
-                .remove_op(self.current_function, op_id, Some(bb_id));
+                .remove_op(self.builder.current_function, op_id, Some(bb_id));
         });
 
-        let dead_blocks = self.program.as_ref().unwrap().funcs[self.current_function.unwrap()]
+        let dead_blocks = self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()]
             .cfg
             .collect()
             .into_iter()
@@ -609,14 +607,14 @@ impl<'a> SCCP<'a> {
         // Phase 1: Isolate the dead blocks, disconnect the edges from live blocks to dead blocks.
         dead_blocks.iter().for_each(|bb_id| {
             let (last, terminator) = {
-                let cfg = &mut self.program.as_mut().unwrap().funcs[self.current_function.unwrap()].cfg;
+                let cfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].cfg;
                 let bb = &cfg[*bb_id];
                 let last = match bb.cur.last() {
                     Some(last) => last.clone(),
                     None => return,
                 };
                 let data = {
-                    let dfg = &mut self.program.as_mut().unwrap().funcs[self.current_function.unwrap()].dfg;
+                    let dfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
                     dfg[last.clone()].data.clone()
                 };
                 (last, data)
@@ -626,19 +624,19 @@ impl<'a> SCCP<'a> {
                 self.program
                     .as_deref_mut()
                     .unwrap()
-                    .remove_op(self.current_function, last.clone(), Some(Operand::BB(*bb_id)));
+                    .remove_op(self.builder.current_function, last.clone(), Some(Operand::BB(*bb_id)));
             }
         });
 
         // Phase 2: Check users in dead blocks.
         for bb_id in &dead_blocks {
-            let cfg = &mut self.program.as_mut().unwrap().funcs[self.current_function.unwrap()].cfg;
+            let cfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].cfg;
             let cur = cfg[*bb_id].cur.clone();
 
             // Split users check and removal due to data dependency.
             for inst in cur.iter().rev() {
                 crate::debug::info!("SCCP rewrite: checking users of instruction {:#?} in dead block {}", inst, bb_id);
-                let func_id = self.current_function.unwrap();
+                let func_id = self.builder.current_function.unwrap();
                 let funcs = &mut self.program.as_mut().unwrap().funcs;
                 let dfg = &mut funcs[func_id].dfg;
 
@@ -778,9 +776,9 @@ impl<'a> SCCP<'a> {
 
         // Phase 3: Remove the instructions in dead blocks directly by dfg.
         for bb_id in &dead_blocks {
-            let cfg = &mut self.program.as_mut().unwrap().funcs[self.current_function.unwrap()].cfg;
+            let cfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].cfg;
             let cur = cfg[*bb_id].cur.clone();
-            let dfg = &mut self.program.as_mut().unwrap().funcs[self.current_function.unwrap()].dfg;
+            let dfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
             for inst in cur.iter().rev() {
                 // Remove the uses
                 dfg.remove(inst.get_op_id());
@@ -790,7 +788,7 @@ impl<'a> SCCP<'a> {
         // Phase 4: Remove the blocks directly by cfg.
         for bb_id in dead_blocks {
             // remove the block from cfg
-            let cfg = &mut self.program.as_mut().unwrap().funcs[self.current_function.unwrap()].cfg;
+            let cfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].cfg;
             cfg.remove(bb_id);
         }
     }

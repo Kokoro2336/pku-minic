@@ -13,6 +13,7 @@ pub struct LoopInfo {
 
 pub struct Builder {
     pub loop_stack: Vec<LoopInfo>,
+    pub current_function: Option<usize>,
     // current basic block
     pub current_block: Option<Operand>,
     // insertion point: insert before this instruction; None means append at block end.
@@ -22,6 +23,7 @@ pub struct Builder {
 pub struct BuilderGuard<'a> {
     pub builder: &'a mut Builder,
     loop_stack: Vec<LoopInfo>,
+    current_function: Option<usize>,
     current_block: Option<Operand>,
     current_inst: Option<Operand>,
 }
@@ -29,11 +31,13 @@ pub struct BuilderGuard<'a> {
 impl<'a> BuilderGuard<'a> {
     pub fn new(builder: &'a mut Builder) -> Self {
         let loop_stack = builder.loop_stack.clone();
+        let current_function = builder.current_function;
         let current_block = builder.current_block.clone();
         let current_inst = builder.current_inst.clone();
         Self {
             builder,
             loop_stack,
+            current_function,
             current_block,
             current_inst,
         }
@@ -57,6 +61,7 @@ impl DerefMut for BuilderGuard<'_> {
 impl Drop for BuilderGuard<'_> {
     fn drop(&mut self) {
         self.builder.loop_stack = self.loop_stack.clone();
+        self.builder.current_function = self.current_function;
         self.builder.current_block = self.current_block.clone();
         self.builder.current_inst = self.current_inst.clone();
     }
@@ -67,9 +72,14 @@ impl Builder {
     pub fn new() -> Self {
         Self {
             loop_stack: vec![],
+            current_function: None,
             current_block: None,
             current_inst: None,
         }
+    }
+
+    pub fn set_current_func(&mut self, func_id: Option<usize>) {
+        self.current_function = func_id;
     }
 
     pub fn push_loop(&mut self, loop_info: LoopInfo) {

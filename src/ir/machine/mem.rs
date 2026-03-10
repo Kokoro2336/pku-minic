@@ -13,6 +13,7 @@ pub enum Slot {
 	Local { size: u32, align: u32, offset: i32 },
 }
 
+/// TODO: implement stack frame layout and management.
 impl FrameInfo {
 	/// Return the size of the entire stack frame.
 	/// CAUTION: The size should be 16-bytes aligned.
