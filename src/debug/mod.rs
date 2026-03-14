@@ -1,4 +1,5 @@
-// Expose logging macros for outer use.
+//! Debug utilities.
+
 pub mod llvm;
 pub mod log;
 pub use llvm::DumpLLVM;

@@ -1,6 +1,5 @@
-/**
- * Definition of AST nodes and related types.
- */
+//! Definition of AST nodes and related types.
+ 
 use crate::base::Type;
 use crate::debug::info;
 use crate::utils::arena::*;

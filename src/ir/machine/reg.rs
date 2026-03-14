@@ -38,11 +38,25 @@ pub enum XReg {
 }
 
 impl XReg {
+    #[inline(always)]
     pub fn is_temp(&self) -> bool {
         matches!(
             self,
             XReg::T0 | XReg::T1 | XReg::T2 | XReg::T3 | XReg::T4 | XReg::T5 | XReg::T6
         )
+    }
+    #[inline(always)]
+    pub fn get_param_regs() -> Vec<XReg> {
+        vec![
+            XReg::A0,
+            XReg::A1,
+            XReg::A2,
+            XReg::A3,
+            XReg::A4,
+            XReg::A5,
+            XReg::A6,
+            XReg::A7,
+        ]
     }
 }
 
@@ -196,7 +210,7 @@ impl std::fmt::Display for FReg {
 impl FReg {
     /// Determines if the register is callee-saved.
     /// Critical for generating the function Prologue/Epilogue (stack spill/reload).
-    #[inline]
+    #[inline(always)]
     pub fn is_callee_saved(self) -> bool {
         matches!(
             self,
@@ -214,10 +228,38 @@ impl FReg {
                 | FReg::Fs11
         )
     }
+    #[inline(always)]
+    pub fn get_param_regs() -> Vec<FReg> {
+        vec![
+            FReg::Fa0,
+            FReg::Fa1,
+            FReg::Fa2,
+            FReg::Fa3,
+            FReg::Fa4,
+            FReg::Fa5,
+            FReg::Fa6,
+            FReg::Fa7,
+        ]
+    }
 }
 
 impl From<FReg> for u8 {
     fn from(reg: FReg) -> Self {
         reg as u8
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Reg {
+    X(XReg),
+    F(FReg),
+}
+
+impl std::fmt::Display for Reg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Reg::X(xreg) => write!(f, "{xreg}"),
+            Reg::F(freg) => write!(f, "{freg}"),
+        }
     }
 }

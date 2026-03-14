@@ -1,37 +1,91 @@
 //! Memory management for Machine IR.
 
+use crate::base::Type;
 use crate::ir::lower::LOperand;
+use crate::utils::arena::*;
+use std::ops::{Index, IndexMut};
 
+pub type DataInfo = IndexedArena<Data>;
 
-pub type SlotId = usize;
-pub struct FrameInfo {
-	pub param_slots: Vec<Slot>
+#[derive(Debug, Clone)]
+pub struct Data {
+    offset: u32,
+    size: u32,
+    align: u32,
 }
 
+impl Data {
+    pub fn new(typ: Type) -> Self {
+        todo!()
+    }
+}
+
+pub type FrameInfo = IndexedArena<Slot>;
+
+#[derive(Debug, Clone)]
 pub enum Slot {
-	Param { offset: i32, size: u32 }, 
-	Local { size: u32, align: u32, offset: i32 },
+    Param { size: u32, align: u32, offset: i32 },
+    Local { size: u32, align: u32, offset: i32 },
+    CalleeSaved { size: u32, align: u32, offset: i32 },
+}
+
+impl Slot {
+    pub fn new(typ: Type) -> Self {
+        todo!()
+    }
 }
 
 /// TODO: implement stack frame layout and management.
 impl FrameInfo {
-	/// Return the size of the entire stack frame.
-	/// CAUTION: The size should be 16-bytes aligned.
-	pub fn size(&mut self) -> u32 {
+    /// Return the size of the entire stack frame.
+    /// CAUTION: The size should be 16-bytes aligned.
+    pub fn size(&mut self) -> u32 {
         todo!()
     }
-	/// alloc local variable.
-	pub fn alloc_local(&mut self, size: usize, align: usize) -> usize {
-        todo!()
+}
+
+impl Index<LOperand> for DataInfo {
+    type Output = Data;
+
+    fn index(&self, index: LOperand) -> &Self::Output {
+        match index {
+            LOperand::Data(id) => self.get(id).unwrap(),
+            _ => panic!("DataInfo index: expected LOperand::Data, got {:?}", index),
+        }
     }
-	/// alloc params. 
-	pub fn alloc_param(&mut self, size: usize, align: usize) -> usize {
-        todo!()
+}
+
+impl IndexMut<LOperand> for DataInfo {
+    fn index_mut(&mut self, index: LOperand) -> &mut Self::Output {
+        match index {
+            LOperand::Data(id) => self.get_mut(id).unwrap(),
+            _ => panic!(
+                "DataInfo index_mut: expected LOperand::Data, got {:?}",
+                index
+            ),
+        }
     }
-	pub fn alloc_callee_saved(&mut self, size: usize, align: usize) -> usize {
-        todo!()
+}
+
+impl Index<LOperand> for FrameInfo {
+    type Output = Slot;
+
+    fn index(&self, index: LOperand) -> &Self::Output {
+        match index {
+            LOperand::Slot(id) => self.get(id).unwrap(),
+            _ => panic!("FrameInfo index: expected LOperand::Slot, got {:?}", index),
+        }
     }
-	pub fn get_local(&self, slot_id: usize) -> Slot {
-        todo!()
+}
+
+impl IndexMut<LOperand> for FrameInfo {
+    fn index_mut(&mut self, index: LOperand) -> &mut Self::Output {
+        match index {
+            LOperand::Slot(id) => self.get_mut(id).unwrap(),
+            _ => panic!(
+                "FrameInfo index_mut: expected LOperand::Slot, got {:?}",
+                index
+            ),
+        }
     }
 }

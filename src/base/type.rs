@@ -1,4 +1,4 @@
-use crate::backend::config::RISCV_BITS;
+use crate::backend::RISCV_BITS;
 
 /// type of value
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,5 +74,17 @@ impl Type {
     }
     pub fn is_scalar(&self) -> bool {
         matches!(self, Type::Int | Type::Float | Type::Char | Type::Bool)
+    }
+    /// Compute the size of the subarray starting from the given dimension index.
+    pub fn subarr_size(&self, dim_idx: usize) -> u32 {
+        match self {
+            Type::Array { base, dims } => {
+                if dim_idx >= dims.len() {
+                    panic!("Dimension index out of bounds");
+                }
+                base.size_in_bytes() * dims[dim_idx..].iter().product::<u32>()
+            }
+            _ => panic!("subarr_size can only be called on array types"),
+        }
     }
 }

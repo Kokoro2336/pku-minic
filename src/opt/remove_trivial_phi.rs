@@ -35,9 +35,9 @@ impl<'a> RemoveTrivialPhi<'a> {
         let dfg = &program.funcs[current_function].dfg;
         let phi_op = &dfg[phi.clone()];
         match &phi_op.data {
-            OpData::Phi { incoming } => {
+            OpData::Phi { incomings } => {
                 let mut distinct: Vec<(Operand, Operand)> = vec![];
-                for phi_incoming in incoming.iter() {
+                for phi_incoming in incomings.iter() {
                     let (value, bb_id) = match phi_incoming {
                         PhiIncoming::Data { value, bb } => (value, bb),
                         PhiIncoming::None => continue,

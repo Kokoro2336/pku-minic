@@ -189,8 +189,8 @@ impl<'a> Pass<'a> for DCE<'a> {
                         }
                     }
 
-                    OpData::Phi { incoming } => {
-                        for phi_incoming in incoming.iter() {
+                    OpData::Phi { incomings } => {
+                        for phi_incoming in incomings.iter() {
                             if let PhiIncoming::Data { value, bb: _ } = phi_incoming {
                                 check(self, value);
                             }

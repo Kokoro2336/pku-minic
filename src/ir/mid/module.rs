@@ -82,8 +82,8 @@ impl IR {
                     dfg.add_use(val, op);
                 }
             }
-            OpData::Phi { incoming } => {
-                for phi_incoming in incoming {
+            OpData::Phi { incomings } => {
+                for phi_incoming in incomings {
                     if let PhiIncoming::Data { value, .. } = phi_incoming {
                         dfg.add_use(value, op.clone());
                     }
@@ -180,9 +180,9 @@ impl IR {
                     dfg.remove_use(val, op);
                 }
             }
-            OpData::Phi { incoming } => {
+            OpData::Phi { incomings } => {
                 let mut removed = vec![];
-                for phi_incoming in incoming {
+                for phi_incoming in incomings {
                     if let PhiIncoming::Data { value, .. } = phi_incoming {
                         if !removed.contains(&value) {
                             removed.push(value.clone());
@@ -296,7 +296,7 @@ impl IR {
             | OpData::Store { .. }
             | OpData::Alloca(_)
             | OpData::Phi { .. }
-            | OpData::GlobalAlloca { .. }
+            | OpData::GlobalAlloca(_)
             | OpData::Call { .. }
             | OpData::GEP { .. }
             | OpData::Sitofp { .. }
@@ -363,7 +363,7 @@ impl IR {
             | OpData::Store { .. }
             | OpData::Alloca(_)
             | OpData::Phi { .. }
-            | OpData::GlobalAlloca { .. }
+            | OpData::GlobalAlloca(_)
             | OpData::Call { .. }
             | OpData::GEP { .. }
             | OpData::Sitofp { .. }
@@ -740,8 +740,8 @@ impl IR {
             self.dfg_mut_or_panic(current_function, "IR add_phi_incoming: no current function");
         let phi_id = phi.get_op_id();
 
-        if let OpData::Phi { incoming } = &mut dfg[phi_id].data {
-            incoming[idx] = PhiIncoming::Data {
+        if let OpData::Phi { incomings } = &mut dfg[phi_id].data {
+            incomings[idx] = PhiIncoming::Data {
                 value: value.clone(),
                 bb,
             };
@@ -775,19 +775,19 @@ impl IR {
             "IR slay_phi_incoming: no current function",
         );
 
-        if let OpData::Phi { incoming } = dfg[phi_id].data.clone() {
-            if let Some(pos) = incoming.iter().position(|inc| {
+        if let OpData::Phi { incomings } = dfg[phi_id].data.clone() {
+            if let Some(pos) = incomings.iter().position(|inc| {
                 if let PhiIncoming::Data { bb: inc_bb, .. } = inc {
                     inc_bb == &bb
                 } else {
                     false
                 }
             }) {
-                if let PhiIncoming::Data { value, .. } = &incoming[pos] {
+                if let PhiIncoming::Data { value, .. } = &incomings[pos] {
                     dfg.remove_use(value.clone(), phi.clone());
                 }
-                if let OpData::Phi { incoming } = &mut dfg[phi_id].data {
-                    incoming.swap_remove(pos);
+                if let OpData::Phi { incomings } = &mut dfg[phi_id].data {
+                    incomings.swap_remove(pos);
                 }
             } else {
                 panic!(

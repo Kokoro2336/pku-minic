@@ -167,7 +167,7 @@ impl<'a> InsertPhi<'a> {
                                     vec![Attr::OldIdx(Operand::Value(self.var_to_op[&idx]))],
                                     OpData::Phi {
                                         // Hold the place with dummy incoming. We will update it later.
-                                        incoming: vec![PhiIncoming::None; preds_num],
+                                        incomings: vec![PhiIncoming::None; preds_num],
                                     },
                                 ),
                             );

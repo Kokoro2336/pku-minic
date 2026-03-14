@@ -1,4 +1,6 @@
 //! Assembly module
 
-pub mod config;
-pub mod lowering;
+mod config;
+mod lowering;
+pub use config::*;
+pub use lowering::*;

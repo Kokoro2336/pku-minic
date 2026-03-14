@@ -122,8 +122,8 @@ impl Arena<Function> for IndexedArena<Function> {
                                 remap_with_cfg(else_bb, &old_arena_cfg);
                             }
 
-                            OpData::Phi { incoming } => {
-                                for phi_incoming in incoming.iter_mut() {
+                            OpData::Phi { incomings } => {
+                                for phi_incoming in incomings.iter_mut() {
                                     if let PhiIncoming::Data { bb, .. } = phi_incoming {
                                         remap_with_cfg(bb, &old_arena_cfg);
                                     }
@@ -150,7 +150,7 @@ impl Arena<Function> for IndexedArena<Function> {
                             | OpData::Load { .. }
                             | OpData::Store { .. }
                             | OpData::Alloca(_)
-                            | OpData::GlobalAlloca { .. }
+                            | OpData::GlobalAlloca(_)
                             | OpData::Declare { .. }
                             | OpData::GEP { .. }
                             | OpData::Sitofp { .. }
