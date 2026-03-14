@@ -443,7 +443,7 @@ impl Emit {
                                 },
                                 Attr::Name(name.clone()),
                             ],
-                            OpData::GlobalAlloca(typ.size_in_bytes()),
+                            OpData::GlobalAlloca(typ.clone()),
                         ),
                     );
                     self.globals.insert(name, alloca);
@@ -522,7 +522,7 @@ impl Emit {
                                 },
                                 Attr::Name(name.clone()),
                             ],
-                            OpData::GlobalAlloca(typ.size_in_bytes()),
+                            OpData::GlobalAlloca(typ.clone()),
                         ),
                     );
                     self.globals.insert(name, alloca);
@@ -873,7 +873,7 @@ impl Emit {
                             },
                             Attr::Name(emitted_name.clone()),
                         ],
-                        OpData::GlobalAlloca(typ.size_in_bytes()),
+                        OpData::GlobalAlloca(typ.clone()),
                     ),
                 );
                 self.globals.insert(emitted_name, alloca);
@@ -1757,7 +1757,7 @@ impl Emit {
                                     .collect(),
                             ),
                         }],
-                        OpData::GlobalAlloca(typ.size_in_bytes()),
+                        OpData::GlobalAlloca(typ.clone()),
                     ),
                 );
                 let ptr_typ = decay(typ).unwrap_or_else(|e| panic!("{}", e));

@@ -387,8 +387,8 @@ impl<'a> SCCP<'a> {
         };
         let old = Self::get_lattice(self, &op_id);
 
-        if let OpData::Phi { incoming } = op_data {
-            let lattice_list = incoming
+        if let OpData::Phi { incomings } = op_data {
+            let lattice_list = incomings
                 .iter()
                 .filter_map(|incoming| {
                     if let PhiIncoming::Data {
@@ -562,8 +562,8 @@ impl<'a> SCCP<'a> {
         for phi_op in &phis {
             let dfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
             let op = dfg[phi_op.clone()].clone();
-            if let OpData::Phi { incoming } = op.data {
-                for incoming in incoming.iter() {
+            if let OpData::Phi { incomings } = op.data {
+                for incoming in incomings.iter() {
                     if let PhiIncoming::Data { bb, .. } = incoming {
                         if let Operand::BB(bb_id) = bb {
                             // Check whether the block is dead or the current block is no longer the successor of the incoming block. 
@@ -702,8 +702,8 @@ impl<'a> SCCP<'a> {
                             }
                         }
                     }
-                    OpData::Phi { incoming } => {
-                        for phi_incoming in incoming {
+                    OpData::Phi { incomings } => {
+                        for phi_incoming in incomings {
                             if let PhiIncoming::Data { value, .. } = phi_incoming {
                                 if is_live_value(&value) {
                                     dfg.remove_use(value, op.clone());

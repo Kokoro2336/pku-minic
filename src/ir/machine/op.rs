@@ -1,9 +1,9 @@
 //! Definition of Lower IR (LIR) instructions.
 
-use crate::ir::machine::{FReg, XReg};
+use super::Reg;
 
 /// Instruction definition of Lower IR.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum MOp {
     // ==========================================
     // 1. Pseudo-instructions & Data Movement
@@ -277,36 +277,12 @@ impl std::fmt::Display for MOp {
             MOp::FmvWX { rd, rs } => write!(f, "fmv.w.x {rd}, {rs}"),
             MOp::FmvXW { rd, rs } => write!(f, "fmv.x.w {rd}, {rs}"),
 
-            MOp::Lw { rd, base, offset } => match (base, offset) {
-                (_, MOperand::Mem { .. }) => write!(f, "lw {rd}, {offset}"),
-                (MOperand::Mem { .. }, _) => write!(f, "lw {rd}, {base}"),
-                _ => write!(f, "lw {rd}, {offset}({base})"),
-            },
-            MOp::Sw { rs, base, offset } => match (base, offset) {
-                (_, MOperand::Mem { .. }) => write!(f, "sw {rs}, {offset}"),
-                (MOperand::Mem { .. }, _) => write!(f, "sw {rs}, {base}"),
-                _ => write!(f, "sw {rs}, {offset}({base})"),
-            },
-            MOp::Flw { rd, base, offset } => match (base, offset) {
-                (_, MOperand::Mem { .. }) => write!(f, "flw {rd}, {offset}"),
-                (MOperand::Mem { .. }, _) => write!(f, "flw {rd}, {base}"),
-                _ => write!(f, "flw {rd}, {offset}({base})"),
-            },
-            MOp::Fsw { rs, base, offset } => match (base, offset) {
-                (_, MOperand::Mem { .. }) => write!(f, "fsw {rs}, {offset}"),
-                (MOperand::Mem { .. }, _) => write!(f, "fsw {rs}, {base}"),
-                _ => write!(f, "fsw {rs}, {offset}({base})"),
-            },
-            MOp::Ld { rd, base, offset } => match (base, offset) {
-                (_, MOperand::Mem { .. }) => write!(f, "ld {rd}, {offset}"),
-                (MOperand::Mem { .. }, _) => write!(f, "ld {rd}, {base}"),
-                _ => write!(f, "ld {rd}, {offset}({base})"),
-            },
-            MOp::Sd { rs, base, offset } => match (base, offset) {
-                (_, MOperand::Mem { .. }) => write!(f, "sd {rs}, {offset}"),
-                (MOperand::Mem { .. }, _) => write!(f, "sd {rs}, {base}"),
-                _ => write!(f, "sd {rs}, {offset}({base})"),
-            },
+            MOp::Lw { rd, base, offset } => write!(f, "lw {rd}, {offset}({base})"),
+            MOp::Sw { rs, base, offset } => write!(f, "sw {rs}, {offset}({base})"),
+            MOp::Flw { rd, base, offset } => write!(f, "flw {rd}, {offset}({base})"),
+            MOp::Fsw { rs, base, offset } => write!(f, "fsw {rs}, {offset}({base})"),
+            MOp::Ld { rd, base, offset } => write!(f, "ld {rd}, {offset}({base})"),
+            MOp::Sd { rs, base, offset } => write!(f, "sd {rs}, {offset}({base})"),
 
             MOp::J { offset } => write!(f, "j {offset}"),
             MOp::Call { target } => write!(f, "call {target}"),
@@ -322,13 +298,10 @@ impl std::fmt::Display for MOp {
 }
 
 /// Operand definition for Lower IR instructions.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum MOperand {
     Virt(usize),
-    XPhys(XReg),
-    FPhys(FReg),
-    // Restrict the base register to XReg.
-    Mem { base: XReg, offset: i32 },
+    Phys(Reg),
     IntImm(i32),
     FloatImm(f32),
 }
@@ -342,31 +315,10 @@ impl MOperand {
         }
     }
 
-    pub fn get_xphys(&self) -> XReg {
+    pub fn get_phys(&self) -> Reg {
         match self {
-            MOperand::XPhys(reg) => *reg,
-            _ => panic!("Expected XPhys operand, found {:?}", self),
-        }
-    }
-
-    pub fn get_fphys(&self) -> FReg {
-        match self {
-            MOperand::FPhys(reg) => *reg,
-            _ => panic!("Expected FPhys operand, found {:?}", self),
-        }
-    }
-
-    pub fn get_mem_reg(&self) -> XReg {
-        match self {
-            MOperand::Mem { base, .. } => *base,
-            _ => panic!("Expected Mem operand, found {:?}", self),
-        }
-    }
-
-    pub fn get_mem_offset(&self) -> i32 {
-        match self {
-            MOperand::Mem { offset, .. } => *offset,
-            _ => panic!("Expected Mem operand, found {:?}", self),
+            MOperand::Phys(reg) => reg.clone(),
+            _ => panic!("Expected Phys operand, found {:?}", self),
         }
     }
 
@@ -389,9 +341,7 @@ impl std::fmt::Display for MOperand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MOperand::Virt(id) => write!(f, "v{id}"),
-            MOperand::XPhys(reg) => write!(f, "{reg}"),
-            MOperand::FPhys(reg) => write!(f, "{reg}"),
-            MOperand::Mem { base, offset } => write!(f, "{offset}({base})"),
+            MOperand::Phys(reg) => write!(f, "{reg}"),
             MOperand::IntImm(v) => write!(f, "{v}"),
             MOperand::FloatImm(v) => write!(f, "{v}"),
         }

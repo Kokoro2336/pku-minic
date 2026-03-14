@@ -1,8 +1,7 @@
+//! Dump customized IR into LLVM format for debugging.
+
 use crate::base::Type;
 use crate::frontend::ast;
-/**
- * Dump customized IR into LLVM format for debugging.
- */
 use crate::ir::mid::*;
 use crate::utils::arena::{ArenaItem, IndexedArena};
 use std::fmt::Write;
@@ -664,9 +663,9 @@ impl Dump for Op {
                 }
                 write!(s, ")")?;
             }
-            OpData::Phi { incoming } => {
+            OpData::Phi { incomings } => {
                 write!(s, "phi {} ", self.typ.dump_to_llvm(ctx)?)?;
-                for (i, phi_incoming) in incoming.iter().enumerate() {
+                for (i, phi_incoming) in incomings.iter().enumerate() {
                     if let PhiIncoming::Data { value: val, bb } = phi_incoming {
                         write!(
                             s,
@@ -674,7 +673,7 @@ impl Dump for Op {
                             val.dump_to_llvm(ctx)?,
                             bb.dump_to_llvm(ctx)?
                         )?;
-                        if i < incoming.len() - 1 {
+                        if i < incomings.len() - 1 {
                             write!(s, ", ")?;
                         }
                     }

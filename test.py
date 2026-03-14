@@ -101,12 +101,22 @@ def main():
     parser.add_argument('--graph', action='store_true', help='Generate CFG graphs (.dot/.svg) from linked LLVM IR using opt + graphviz')
     parser.add_argument('--trace', action='store_true', help='Enable trace logging')
     parser.add_argument('--dump-after', type=str, default='', help='Dump LLVM IR after a specific pass (pass name)')
+    parser.add_argument('--emit-llvm', action='store_true', help='Enable compiler --emit-llvm explicitly for dumping LLVM IR')
     backend_group = parser.add_mutually_exclusive_group()
     backend_group.add_argument('--lli', action='store_true', help='Use lli to interpret linked .ll')
     backend_group.add_argument('--llc', action='store_true', help='Use llc to compile linked .ll into executable and run it')
     args = parser.parse_args()
 
-    exec_mode = 'llc' if args.llc else 'lli'
+    if args.lli:
+        exec_mode = 'lli'
+    elif args.llc:
+        exec_mode = 'llc'
+    else:
+        exec_mode = 'compiler'
+
+    # LLVM dump is required for IR-level workflows and is auto-enabled for --lli.
+    need_emit_llvm = args.emit_llvm or args.lli or args.llc or args.graph or bool(args.dump_after)
+    need_runtime_exec = args.lli or args.llc
 
     if args.clean and not (args.test or args.basic):
         clean_directory("./test")
@@ -209,7 +219,9 @@ def main():
             
             # Run compiler
             # Command: ./target/debug/compiler <input> -o <output>
-            cmd = [compiler_binary, "--emit-llvm", test_file, "-o", output_file_name]
+            cmd = [compiler_binary, test_file, "-o", output_file_name]
+            if need_emit_llvm:
+                cmd.append("--emit-llvm")
             if args.dump_after:
                 cmd.append(f"--dump-after={args.dump_after}")
             if args.graph:
@@ -227,7 +239,7 @@ def main():
                 runtime_with_ret = None
                 runtime_raw = None
 
-                if final_returncode == 0:
+                if final_returncode == 0 and need_emit_llvm:
                     generated_ll = os.path.join(dump_llvm_dir, f"{name_no_ext}.ll")
                     if not os.path.exists(generated_ll):
                         final_returncode = 1
@@ -246,13 +258,13 @@ def main():
                             if graph_code != 0:
                                 final_returncode = graph_code
 
-                        if final_returncode == 0 and not os.path.exists(sylib_ll):
+                        if final_returncode == 0 and need_runtime_exec and not os.path.exists(sylib_ll):
                             final_returncode = 1
                             final_stderr += (
                                 f"\n[ERROR] Runtime library LLVM IR not found: {sylib_ll}\n"
                             ).encode()
 
-                        if final_returncode == 0:
+                        if final_returncode == 0 and need_runtime_exec:
                             link_cmd = ["llvm-link", generated_ll, sylib_ll, "-S", "-o", linked_ll_path]
                             link_result = subprocess.run(link_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                             final_stdout += link_result.stdout
@@ -260,7 +272,7 @@ def main():
 
                             if link_result.returncode != 0:
                                 final_returncode = link_result.returncode
-                        if final_returncode == 0:
+                        if final_returncode == 0 and need_runtime_exec:
                             input_file = os.path.splitext(test_file)[0] + ".in"
                             if exec_mode == 'lli':
                                 lli_cmd = ["lli", linked_ll_path]
@@ -353,7 +365,7 @@ def main():
                                 final_stderr += b"\n[ERROR] Runtime execution did not produce output.\n"
 
                 expected_output_file = os.path.splitext(test_file)[0] + ".out"
-                if final_returncode == 0:
+                if final_returncode == 0 and need_runtime_exec:
                     if runtime_with_ret is None:
                         final_returncode = 1
                         final_stderr += b"\n[ERROR] Runtime output missing for comparison.\n"

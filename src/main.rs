@@ -12,6 +12,7 @@ mod frontend;
 mod ir;
 mod opt;
 mod utils;
+use crate::backend::*;
 use crate::cli::Cli;
 use crate::debug::info;
 use crate::debug::log::setup;
@@ -91,6 +92,11 @@ fn main() -> Result<()> {
         .register(Box::new(DCE::new()))
         .register(Box::new(Compaction::new()))
         .run(&mut ir);
+
+    // Start Lowering
+    info!("Start Lowering.");
+    let mut lower_ir = Lowering::new(ir).run();
+    info!("Finish Lowering.");
 
     Ok(())
 }

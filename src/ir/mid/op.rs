@@ -17,7 +17,8 @@ pub type DFG = IndexedArena<Op>;
 #[allow(clippy::upper_case_acronyms)]
 pub enum OpData {
     // customized instructions for convenience
-    GlobalAlloca(u32),
+    // TODO: Operand should be original type.
+    GlobalAlloca(Type),
     // getelementptr
     GEP {
         base: Operand,
@@ -172,7 +173,7 @@ pub enum OpData {
         addr: Operand,
     },
     Phi {
-        incoming: Vec<PhiIncoming>, // Vec<(value, bb_id)>
+        incomings: Vec<PhiIncoming>, // Vec<(value, bb_id)>
     },
     Alloca(Type),
 
@@ -294,12 +295,12 @@ impl std::fmt::Display for Op {
 
             OpData::Store { addr, value } => write!(f, "store {}, {}", addr, value),
             OpData::Load { addr } => write!(f, "load {}", addr),
-            OpData::Phi { incoming } => {
+            OpData::Phi { incomings } => {
                 write!(f, "phi [")?;
-                for (i, phi_incoming) in incoming.iter().enumerate() {
+                for (i, phi_incoming) in incomings.iter().enumerate() {
                     if let PhiIncoming::Data { value, bb } = phi_incoming {
                         write!(f, "({}, {})", value, bb)?;
-                        if i != incoming.len() - 1 {
+                        if i != incomings.len() - 1 {
                             write!(f, ", ")?;
                         }
                     }
@@ -646,15 +647,15 @@ impl Arena<Op> for IndexedArena<Op> {
                         }
                     }
 
-                    OpData::Phi { incoming } => {
-                        for phi_incoming in incoming.iter_mut() {
+                    OpData::Phi { incomings } => {
+                        for phi_incoming in incomings.iter_mut() {
                             if let PhiIncoming::Data { value, .. } = phi_incoming {
                                 remap_value(value, &old_arena);
                             }
                         }
                     }
 
-                    OpData::GlobalAlloca { .. }
+                    OpData::GlobalAlloca(_)
                     | OpData::Alloca(_)
                     | OpData::Jump { .. }
                     | OpData::Declare { .. } => { /* no operands to rewrite */ }
@@ -824,8 +825,8 @@ impl IndexedArena<Op> {
                     };
                 }
             }
-            OpData::Phi { incoming } => {
-                for phi_incoming in incoming.iter_mut() {
+            OpData::Phi { incomings } => {
+                for phi_incoming in incomings.iter_mut() {
                     if let PhiIncoming::Data { value, .. } = phi_incoming {
                         if *value == old {
                             *value = new.clone();
@@ -833,7 +834,7 @@ impl IndexedArena<Op> {
                     }
                 }
             }
-            OpData::GlobalAlloca { .. }
+            OpData::GlobalAlloca(_)
             | OpData::Alloca(_)
             | OpData::Jump { .. }
             | OpData::Declare { .. } => { /* no operands to replace */ }

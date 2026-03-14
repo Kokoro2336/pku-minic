@@ -94,7 +94,7 @@ impl Arena<BasicBlock> for IndexedArena<BasicBlock> {
     }
 }
 
-impl IndexedArena<BasicBlock> {
+impl CFG {
     pub fn add_succ(&mut self, bb_idx: Operand, succ_idx: Operand) {
         if !self[bb_idx.get_bb_id()].succs.contains(&succ_idx) {
             self[bb_idx.get_bb_id()].succs.push(succ_idx);

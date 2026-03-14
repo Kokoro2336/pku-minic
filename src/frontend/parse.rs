@@ -1,12 +1,11 @@
+//! A module which provides a variety of utilities for parsing.
+
 use crate::base::Type;
 use crate::debug::{error, info};
 use crate::frontend::ast::*;
 use crate::utils::arena::Arena;
 use crate::utils::table::SymbolTable;
 
-/**
- * A module which provides a variety of utilities for parsing.
- */
 pub struct Parser {
     // This symbol table is used for constant folding during parsing, we don't need to add variants.
     pub syms: SymbolTable<String, NodeId>,

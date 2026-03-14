@@ -1,7 +1,6 @@
-/**
- * Semantic analysis.
- * Performs type inference, add implicit cast and checks for semantic errors.
- */
+//! Semantic analysis.
+//! Performs type inference, add implicit cast and checks for semantic errors.
+ 
 use crate::base::{Type, SYSY_LIB};
 use crate::frontend::ast::*;
 use crate::utils::arena::Arena;

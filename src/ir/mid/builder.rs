@@ -78,18 +78,24 @@ impl Builder {
         }
     }
 
+    #[inline(always)]
     pub fn set_current_func(&mut self, func_id: Option<usize>) {
         self.current_function = func_id;
+        self.current_block = None;
+        self.current_inst = None;
     }
 
+    #[inline(always)]
     pub fn push_loop(&mut self, loop_info: LoopInfo) {
         self.loop_stack.push(loop_info);
     }
 
+    #[inline(always)]
     pub fn pop_loop(&mut self) -> Option<LoopInfo> {
         self.loop_stack.pop()
     }
 
+    #[inline(always)]
     pub fn set_current_block(&mut self, block_id: Operand) {
         self.current_block = Some(block_id);
         self.current_inst = None;
