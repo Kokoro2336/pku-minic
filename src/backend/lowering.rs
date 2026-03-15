@@ -43,6 +43,28 @@ pub struct Lowering {
     phi_moves: FxHashMap<(usize, usize), Vec<LOperand>>,
 }
 
+macro_rules! match_rd {
+    (
+        target: $target:expr,
+
+        op_with_rds: [ $($op_with_rd:ident),* $(,)? ],
+        // Match arms.
+        rd_arm: $SrcRd:ident($rd:ident) => $rd_body:block,
+
+        // Handwritten fallback branches (captured by tt)
+        fallback: { $($rest:tt)* }
+    ) => {
+        match $target {
+            // Unroll the rd arms.
+            $(
+                $SrcRd::$op_with_rd { rd: $rd, .. } => $rd_body,
+            )*
+            // Unroll the rest handwritten branches.
+            $($rest)*
+        }
+    };
+}
+
 impl Lowering {
     pub fn new(ir: IR) -> Self {
         Self {
@@ -72,41 +94,21 @@ impl Lowering {
                 let lop = &self.lower_ir.funcs
                     [self.builder.current_function.expect("No current function")]
                 .dfg[lop_id.clone()];
-                match &lop.data {
-                    LOpData::AddI { rd, .. }
-                    | LOpData::SubI { rd, .. }
-                    | LOpData::AddF { rd, .. }
-                    | LOpData::SubF { rd, .. }
-                    | LOpData::MulI { rd, .. }
-                    | LOpData::MulF { rd, .. }
-                    | LOpData::DivI { rd, .. }
-                    | LOpData::DivF { rd, .. }
-                    | LOpData::ModI { rd, .. }
-                    | LOpData::SNe { rd, .. }
-                    | LOpData::SEq { rd, .. }
-                    | LOpData::SGt { rd, .. }
-                    | LOpData::SLt { rd, .. }
-                    | LOpData::SGe { rd, .. }
-                    | LOpData::SLe { rd, .. }
-                    | LOpData::Xor { rd, .. }
-                    | LOpData::Shl { rd, .. }
-                    | LOpData::Shr { rd, .. }
-                    | LOpData::Sar { rd, .. }
-                    | LOpData::ONe { rd, .. }
-                    | LOpData::OEq { rd, .. }
-                    | LOpData::OGt { rd, .. }
-                    | LOpData::OLt { rd, .. }
-                    | LOpData::OGe { rd, .. }
-                    | LOpData::OLe { rd, .. }
-                    | LOpData::Sitofp { rd, .. }
-                    | LOpData::Fptosi { rd, .. }
-                    | LOpData::Uitofp { rd, .. }
-                    | LOpData::Zext { rd, .. }
-                    | LOpData::Move { rd, .. } => rd.clone(),
-                    _ => unreachable!(
-                        "Only value-producing LOp should be mapped to IR values, but got {:?}",
-                        lop.data
-                    ),
+
+                match_rd! {
+                    target: &lop.data,
+                    op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Uitofp, Zext, Load, Move],
+                    rd_arm: LOpData(rd) => {
+                        rd.clone()
+                    },
+                    fallback: {
+                        // For other LOpData which doesn't have rd field (e.g. Call and Store), we return Undef.
+                        LOpData::Store {..}
+                        | LOpData::Call {..}
+                        | LOpData::Br {..}
+                        | LOpData::Jump {..}
+                        | LOpData::Ret => unreachable!("Only LOp with rd field can be mapped to IR value, but got {:?}", lop.data),
+                    }
                 }
             }
             Operand::Param { idx, .. } => self.param_map[idx].clone(),
@@ -233,45 +235,21 @@ impl Lowering {
             [self.builder.current_function.expect("No current function")]
         .dfg[lop_id.clone()]
         .data;
-        match data {
-            LOpData::AddI { rd: dst, .. }
-            | LOpData::SubI { rd: dst, .. }
-            | LOpData::MulI { rd: dst, .. }
-            | LOpData::DivI { rd: dst, .. }
-            | LOpData::ModI { rd: dst, .. }
-            | LOpData::SNe { rd: dst, .. }
-            | LOpData::SEq { rd: dst, .. }
-            | LOpData::SGt { rd: dst, .. }
-            | LOpData::SLt { rd: dst, .. }
-            | LOpData::SGe { rd: dst, .. }
-            | LOpData::SLe { rd: dst, .. }
-            | LOpData::Xor { rd: dst, .. }
-            | LOpData::Shl { rd: dst, .. }
-            | LOpData::Shr { rd: dst, .. }
-            | LOpData::Sar { rd: dst, .. }
-            | LOpData::AddF { rd: dst, .. }
-            | LOpData::SubF { rd: dst, .. }
-            | LOpData::MulF { rd: dst, .. }
-            | LOpData::DivF { rd: dst, .. }
-            | LOpData::ONe { rd: dst, .. }
-            | LOpData::OEq { rd: dst, .. }
-            | LOpData::OGt { rd: dst, .. }
-            | LOpData::OLt { rd: dst, .. }
-            | LOpData::OGe { rd: dst, .. }
-            | LOpData::OLe { rd: dst, .. }
-            | LOpData::Sitofp { rd: dst, .. }
-            | LOpData::Fptosi { rd: dst, .. }
-            | LOpData::Uitofp { rd: dst, .. }
-            | LOpData::Zext { rd: dst, .. }
-            | LOpData::Load { rd: dst, .. }
-            | LOpData::Move { rd: dst, .. } => {
-                *dst = vreg_id.clone();
+
+        match_rd! {
+            target: data,
+            op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Uitofp, Zext, Load, Move],
+            rd_arm: LOpData(rd) => {
+                *rd = vreg_id.clone();
+            },
+            fallback: {
+                // Only Move can be binded with vreg, since other LOp with rd field are not created for temp values.
+                LOpData::Br {..}
+                | LOpData::Jump {..}
+                | LOpData::Store {..}
+                | LOpData::Call {..}
+                | LOpData::Ret => unreachable!("Only Move can be binded with vreg, but got {:?}", data),
             }
-            LOpData::Store { .. }
-            | LOpData::Call { .. }
-            | LOpData::Br { .. }
-            | LOpData::Jump { .. }
-            | LOpData::Ret => unreachable!("{:?} should not be binded to a vreg", data),
         }
 
         let vreg = &mut self.lower_ir.funcs
