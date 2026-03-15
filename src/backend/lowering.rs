@@ -15,6 +15,7 @@ use rustc_hash::FxHashMap;
 /// 1. Lower the GEP
 /// 2. Lower the function call (handle the argument passing and return value passing according to the calling convention)
 /// 3. Phi Elimination (SSA to non-SSA)
+///
 /// And Lowering should not has any ISA-specific transfromation except ABI adaptation.
 pub struct Lowering {
     ir: IR,
@@ -470,7 +471,7 @@ impl Lowering {
                                 size: arg_typ.size_in_bytes(),
                                 align: arg_typ.align_in_bytes(),
                             });
-                            let store_lop_id = self.create(LOp::new(
+                            self.create(LOp::new(
                                 Type::Void.into(),
                                 vec![],
                                 LOpData::Store {
@@ -570,7 +571,7 @@ impl Lowering {
                                     phys: None,
                                 });
 
-                                let mut mul_lop = LOp::new(
+                                let mul_lop = LOp::new(
                                     MType::U64,
                                     vec![],
                                     LOpData::MulI {
@@ -675,20 +676,10 @@ impl Lowering {
 
             if bb_id == self.ir.funcs[func_id].cfg.entry.expect("No entry block") {
                 let func = &self.ir.funcs[func_id];
-                let lfunc_typ = match &func.typ {
-                    Type::Function {
-                        param_types,
-                        return_type,
-                    } => MType::Function {
-                        return_type: Box::new((**return_type).clone().into()),
-                        param_types: param_types.iter().map(|t| (*t).clone().into()).collect(),
-                    },
-                    _ => unreachable!("Only function type should be in the function arena"),
-                };
 
                 self.alloc_and_map_func(
                     Operand::Func(self.builder.current_function.expect("No current function")),
-                    LFunction::new(func.name.clone(), lfunc_typ),
+                    LFunction::new(func.name.clone()),
                 );
 
                 // Create prologue.
@@ -824,7 +815,7 @@ impl Lowering {
             if new.len() == old_len && !edges.is_empty() {
                 // If there is a cycle, we can break it by inserting a temporary move.
                 // Choose the first edge in the cycle to break.
-                let (from, _) = *edges.iter().next().unwrap();
+                let (from, _) = *edges.first().unwrap();
                 let temp_vreg_id = self.lower_ir.funcs
                     [self.builder.current_function.expect("No current function")]
                 .vregs

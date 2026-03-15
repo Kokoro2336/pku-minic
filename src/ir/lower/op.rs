@@ -1,10 +1,8 @@
 //! Operand definition for Lower IR instructions.
 
 use crate::base::Type;
-use crate::frontend::ast::Literal;
 use crate::ir::machine::MType;
 use crate::ir::machine::Reg;
-use crate::ir::mid::{Attr, OpData, Operand};
 use crate::utils::arena::*;
 
 use std::ops::{Index, IndexMut};
@@ -16,21 +14,6 @@ pub struct VirtReg {
     pub phys: Option<Reg>,
 }
 
-impl VirtReg {
-    pub fn new() -> Self {
-        Self {
-            inst_id: LOperand::Undef,
-            phys: None,
-        }
-    }
-    pub fn with_phys(phys: Reg) -> Self {
-        Self {
-            inst_id: LOperand::Undef,
-            phys: Some(phys),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum LOperand {
     Func(usize),
@@ -38,7 +21,6 @@ pub enum LOperand {
     Inst(usize),
     Virt(usize),
     Phys(Reg),
-    Param(usize),
 
     // Immediate
     IntImm(i32),
@@ -317,7 +299,6 @@ impl IndexedArena<LOp> {
             LOperand::Virt(_)
             | LOperand::IntImm(_)
             | LOperand::FloatImm(_)
-            | LOperand::Param(_)
             | LOperand::Func(_)
             | LOperand::Phys(_)
             | LOperand::Slot(_)
@@ -338,7 +319,6 @@ impl IndexedArena<LOp> {
             LOperand::Virt(_)
             | LOperand::IntImm(_)
             | LOperand::FloatImm(_)
-            | LOperand::Param(_)
             | LOperand::Phys(_)
             | LOperand::Func(_)
             | LOperand::Slot(_)
@@ -360,7 +340,6 @@ impl IndexedArena<LOp> {
             LOperand::Virt(_)
             | LOperand::IntImm(_)
             | LOperand::FloatImm(_)
-            | LOperand::Param(_)
             | LOperand::Func(_)
             | LOperand::Phys(_)
             | LOperand::Slot(_)
