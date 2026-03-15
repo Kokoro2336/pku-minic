@@ -52,7 +52,7 @@ impl LowerIR {
         let data = dfg[op.get_inst_id()].data.clone();
 
         match data {
-            LOpData::Load { addr } => {
+            LOpData::Load { addr, .. } => {
                 dfg.add_use(addr, op);
             }
             LOpData::Store { addr, value } => {
@@ -62,42 +62,42 @@ impl LowerIR {
             LOpData::Br { cond, .. } => {
                 dfg.add_use(cond, op);
             }
-            LOpData::Move { src } => {
+            LOpData::Move { src, .. } => {
                 dfg.add_use(src, op);
             }
-            LOpData::AddI { lhs, rhs }
-            | LOpData::SubI { lhs, rhs }
-            | LOpData::MulI { lhs, rhs }
-            | LOpData::DivI { lhs, rhs }
-            | LOpData::ModI { lhs, rhs }
-            | LOpData::SNe { lhs, rhs }
-            | LOpData::SEq { lhs, rhs }
-            | LOpData::SGt { lhs, rhs }
-            | LOpData::SLt { lhs, rhs }
-            | LOpData::SGe { lhs, rhs }
-            | LOpData::SLe { lhs, rhs }
-            | LOpData::Xor { lhs, rhs }
-            | LOpData::Shl { lhs, rhs }
-            | LOpData::Shr { lhs, rhs }
-            | LOpData::Sar { lhs, rhs }
-            | LOpData::AddF { lhs, rhs }
-            | LOpData::SubF { lhs, rhs }
-            | LOpData::MulF { lhs, rhs }
-            | LOpData::DivF { lhs, rhs }
-            | LOpData::ONe { lhs, rhs }
-            | LOpData::OEq { lhs, rhs }
-            | LOpData::OGt { lhs, rhs }
-            | LOpData::OLt { lhs, rhs }
-            | LOpData::OGe { lhs, rhs }
-            | LOpData::OLe { lhs, rhs } => {
+            LOpData::AddI { lhs, rhs, .. }
+            | LOpData::SubI { lhs, rhs, .. }
+            | LOpData::MulI { lhs, rhs, .. }
+            | LOpData::DivI { lhs, rhs, .. }
+            | LOpData::ModI { lhs, rhs, .. }
+            | LOpData::SNe { lhs, rhs, .. }
+            | LOpData::SEq { lhs, rhs, .. }
+            | LOpData::SGt { lhs, rhs, .. }
+            | LOpData::SLt { lhs, rhs, .. }
+            | LOpData::SGe { lhs, rhs, .. }
+            | LOpData::SLe { lhs, rhs, .. }
+            | LOpData::Xor { lhs, rhs, .. }
+            | LOpData::Shl { lhs, rhs, .. }
+            | LOpData::Shr { lhs, rhs, .. }
+            | LOpData::Sar { lhs, rhs, .. }
+            | LOpData::AddF { lhs, rhs, .. }
+            | LOpData::SubF { lhs, rhs, .. }
+            | LOpData::MulF { lhs, rhs, .. }
+            | LOpData::DivF { lhs, rhs, .. }
+            | LOpData::ONe { lhs, rhs, .. }
+            | LOpData::OEq { lhs, rhs, .. }
+            | LOpData::OGt { lhs, rhs, .. }
+            | LOpData::OLt { lhs, rhs, .. }
+            | LOpData::OGe { lhs, rhs, .. }
+            | LOpData::OLe { lhs, rhs, .. } => {
                 dfg.add_use(lhs, op.clone());
                 dfg.add_use(rhs, op);
             }
 
-            LOpData::Sitofp { value }
-            | LOpData::Fptosi { value }
-            | LOpData::Uitofp { value }
-            | LOpData::Zext { value } => {
+            LOpData::Sitofp { value, .. }
+            | LOpData::Fptosi { value, .. }
+            | LOpData::Uitofp { value, .. }
+            | LOpData::Zext { value, .. } => {
                 dfg.add_use(value, op);
             }
 
@@ -111,7 +111,7 @@ impl LowerIR {
         let data = dfg[op.get_inst_id()].data.clone();
 
         match data {
-            LOpData::Load { addr } => {
+            LOpData::Load { addr, .. } => {
                 dfg.remove_use(addr, op);
             }
             LOpData::Store { addr, value } => {
@@ -121,42 +121,42 @@ impl LowerIR {
             LOpData::Br { cond, .. } => {
                 dfg.remove_use(cond, op);
             }
-            LOpData::Move { src } => {
+            LOpData::Move { src, .. } => {
                 dfg.remove_use(src, op);
             }
-            LOpData::AddI { lhs, rhs }
-            | LOpData::SubI { lhs, rhs }
-            | LOpData::MulI { lhs, rhs }
-            | LOpData::DivI { lhs, rhs }
-            | LOpData::ModI { lhs, rhs }
-            | LOpData::SNe { lhs, rhs }
-            | LOpData::SEq { lhs, rhs }
-            | LOpData::SGt { lhs, rhs }
-            | LOpData::SLt { lhs, rhs }
-            | LOpData::SGe { lhs, rhs }
-            | LOpData::SLe { lhs, rhs }
-            | LOpData::Xor { lhs, rhs }
-            | LOpData::Shl { lhs, rhs }
-            | LOpData::Shr { lhs, rhs }
-            | LOpData::Sar { lhs, rhs }
-            | LOpData::AddF { lhs, rhs }
-            | LOpData::SubF { lhs, rhs }
-            | LOpData::MulF { lhs, rhs }
-            | LOpData::DivF { lhs, rhs }
-            | LOpData::ONe { lhs, rhs }
-            | LOpData::OEq { lhs, rhs }
-            | LOpData::OGt { lhs, rhs }
-            | LOpData::OLt { lhs, rhs }
-            | LOpData::OGe { lhs, rhs }
-            | LOpData::OLe { lhs, rhs } => {
+            LOpData::AddI { lhs, rhs, .. }
+            | LOpData::SubI { lhs, rhs, .. }
+            | LOpData::MulI { lhs, rhs, .. }
+            | LOpData::DivI { lhs, rhs, .. }
+            | LOpData::ModI { lhs, rhs, .. }
+            | LOpData::SNe { lhs, rhs, .. }
+            | LOpData::SEq { lhs, rhs, .. }
+            | LOpData::SGt { lhs, rhs, .. }
+            | LOpData::SLt { lhs, rhs, .. }
+            | LOpData::SGe { lhs, rhs, .. }
+            | LOpData::SLe { lhs, rhs, .. }
+            | LOpData::Xor { lhs, rhs, .. }
+            | LOpData::Shl { lhs, rhs, .. }
+            | LOpData::Shr { lhs, rhs, .. }
+            | LOpData::Sar { lhs, rhs, .. }
+            | LOpData::AddF { lhs, rhs, .. }
+            | LOpData::SubF { lhs, rhs, .. }
+            | LOpData::MulF { lhs, rhs, .. }
+            | LOpData::DivF { lhs, rhs, .. }
+            | LOpData::ONe { lhs, rhs, .. }
+            | LOpData::OEq { lhs, rhs, .. }
+            | LOpData::OGt { lhs, rhs, .. }
+            | LOpData::OLt { lhs, rhs, .. }
+            | LOpData::OGe { lhs, rhs, .. }
+            | LOpData::OLe { lhs, rhs, .. } => {
                 dfg.remove_use(lhs, op.clone());
                 dfg.remove_use(rhs, op);
             }
 
-            LOpData::Sitofp { value }
-            | LOpData::Fptosi { value }
-            | LOpData::Uitofp { value }
-            | LOpData::Zext { value } => {
+            LOpData::Sitofp { value, .. }
+            | LOpData::Fptosi { value, .. }
+            | LOpData::Uitofp { value, .. }
+            | LOpData::Zext { value, .. } => {
                 dfg.remove_use(value, op);
             }
 

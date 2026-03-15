@@ -72,6 +72,18 @@ impl Type {
             Type::Char => 1,
         }
     }
+    pub fn align_in_bytes(&self) -> u32 {
+        match self {
+            Type::Bool => 1,
+            Type::Int => 4,
+            Type::Float => 4,
+            Type::Void => 1, // align to 1 byte for void type
+            Type::Array { base, .. } => base.align_in_bytes(),
+            Type::Pointer { .. } => RISCV_BITS / 8,
+            Type::Function { .. } => panic!("Function type has no alignment"),
+            Type::Char => 1,
+        }
+    }
     pub fn is_scalar(&self) -> bool {
         matches!(self, Type::Int | Type::Float | Type::Char | Type::Bool)
     }

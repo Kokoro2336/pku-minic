@@ -9,7 +9,6 @@ pub type DataInfo = IndexedArena<Data>;
 
 #[derive(Debug, Clone)]
 pub struct Data {
-    offset: u32,
     size: u32,
     align: u32,
 }
@@ -24,9 +23,9 @@ pub type FrameInfo = IndexedArena<Slot>;
 
 #[derive(Debug, Clone)]
 pub enum Slot {
-    Param { size: u32, align: u32, offset: i32 },
-    Local { size: u32, align: u32, offset: i32 },
-    CalleeSaved { size: u32, align: u32, offset: i32 },
+    Param { size: u32, align: u32 },
+    Local { size: u32, align: u32 },
+    CalleeSaved { size: u32, align: u32 },
 }
 
 impl Slot {
