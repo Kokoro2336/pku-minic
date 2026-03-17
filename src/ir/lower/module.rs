@@ -3,7 +3,7 @@
 use super::{LBuilder, LBuilderGuard, LOp, LOpData, LOperand, LCFG, LCG, LDFG};
 use crate::ir::machine::DataInfo;
 use crate::utils::arena::ArenaItem;
-use crate::utils::r#match::{match_minor, match_ops};
+use crate::utils::r#match::{match_minor_ops, match_ops};
 
 pub struct LowerIR {
     pub data_info: DataInfo,
@@ -157,7 +157,7 @@ impl LowerIR {
         );
         let data = dfg[op.get_inst_id()].data.clone();
 
-        match_minor! {
+        match_minor_ops! {
             target: data,
             minor_arms: {
                 LOpData::Br {
@@ -226,7 +226,7 @@ impl LowerIR {
         );
         let data = dfg[op.get_inst_id()].data.clone();
 
-        match_minor! {
+        match_minor_ops! {
             target: data,
             minor_arms: {
                 LOpData::Br {
@@ -288,83 +288,44 @@ impl LowerIR {
         current_function: Option<usize>,
         op: LOp,
     ) -> LOperand {
-        match op.data {
-            LOpData::AddI { .. }
-            | LOpData::SubI { .. }
-            | LOpData::MulI { .. }
-            | LOpData::DivI { .. }
-            | LOpData::ModI { .. }
-            | LOpData::Xor { .. }
-            | LOpData::SNe { .. }
-            | LOpData::SEq { .. }
-            | LOpData::SGt { .. }
-            | LOpData::SLt { .. }
-            | LOpData::SGe { .. }
-            | LOpData::SLe { .. }
-            | LOpData::Shl { .. }
-            | LOpData::Shr { .. }
-            | LOpData::Sar { .. }
-            | LOpData::AddF { .. }
-            | LOpData::SubF { .. }
-            | LOpData::MulF { .. }
-            | LOpData::DivF { .. }
-            | LOpData::ONe { .. }
-            | LOpData::OEq { .. }
-            | LOpData::OGt { .. }
-            | LOpData::OLt { .. }
-            | LOpData::OGe { .. }
-            | LOpData::OLe { .. }
-            | LOpData::Sitofp { .. }
-            | LOpData::Fptosi { .. }
-            | LOpData::Uitofp { .. }
-            | LOpData::Zext { .. }
-            | LOpData::Store { .. }
-            | LOpData::Load { .. }
-            | LOpData::Move { .. }
-            | LOpData::Call { .. }
-            | LOpData::Br { .. }
-            | LOpData::Jump { .. }
-            | LOpData::Ret => {
-                let (cfg, dfg) = self
-                    .cfg_dfg_mut_or_panic(current_function, "LowerIR create: no current function");
+        let (cfg, dfg) =
+            self.cfg_dfg_mut_or_panic(current_function, "LowerIR create: no current function");
 
-                let new_id = dfg.alloc(op);
-                let current_block = if let Some(block) = &builder.current_block {
-                    block.get_bb_id()
-                } else {
-                    panic!("LowerIR create: current_block is None");
-                };
-                let bb = &mut cfg[current_block];
+        let new_id = dfg.alloc(op);
+        let current_block = if let Some(block) = &builder.current_block {
+            block.get_bb_id()
+        } else {
+            panic!("LowerIR create: current_block is None");
+        };
+        let bb = &mut cfg[current_block];
 
-                let op_id = if let Some(current_inst) = &builder.current_inst {
-                    let pos = bb
-                        .cur
-                        .iter()
-                        .position(|id| id.get_inst_id() == current_inst.get_inst_id())
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "LowerIR create: current_inst {:?} not found in current_block {:?}",
-                                current_inst, builder.current_block
-                            )
-                        });
-                    let op_id = LOperand::Inst(new_id);
-                    bb.cur.insert(pos, op_id.clone());
-                    op_id
-                } else {
-                    let op_id = LOperand::Inst(new_id);
-                    bb.cur.push(op_id.clone());
-                    op_id
-                };
+        let op_id = if let Some(current_inst) = &builder.current_inst {
+            let pos = bb
+                .cur
+                .iter()
+                .position(|id| id.get_inst_id() == current_inst.get_inst_id())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "LowerIR create: current_inst {:?} not found in current_block {:?}",
+                        current_inst, builder.current_block
+                    )
+                });
+            let op_id = LOperand::Inst(new_id);
+            bb.cur.insert(pos, op_id.clone());
+            op_id
+        } else {
+            let op_id = LOperand::Inst(new_id);
+            bb.cur.push(op_id.clone());
+            op_id
+        };
 
-                self.add_uses(current_function, op_id.clone());
-                let current_block = builder
-                    .current_block
-                    .clone()
-                    .unwrap_or_else(|| panic!("LowerIR create: current_block is None"));
-                self.add_control_flow(current_function, op_id.clone(), current_block);
-                op_id
-            }
-        }
+        self.add_uses(current_function, op_id.clone());
+        let current_block = builder
+            .current_block
+            .clone()
+            .unwrap_or_else(|| panic!("LowerIR create: current_block is None"));
+        self.add_control_flow(current_function, op_id.clone(), current_block);
+        op_id
     }
 
     pub fn create_at_head(

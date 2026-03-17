@@ -33,8 +33,8 @@ pub struct Lowering {
     processed: BitSet,
 
     /// Move instruction buffer for Phi
-    /// Edge(BBId, BBId) -> Move InstId.
-    phi_moves: FxHashMap<(usize, usize), Vec<LOperand>>,
+    /// OpId -> BBId
+    phis: Vec<(usize, usize)>,
 }
 
 macro_rules! match_rd {
@@ -72,7 +72,7 @@ impl Lowering {
             param_map: Vec::new(),
             worklist: Worklist::new(),
             processed: BitSet::new(),
-            phi_moves: FxHashMap::default(),
+            phis: Vec::new(),
         }
     }
 
@@ -122,7 +122,6 @@ impl Lowering {
             Operand::BB(id) => self.block_map[id] = value,
             Operand::Func(id) => self.func_map[id] = value,
             Operand::Param { idx, .. } => self.param_map[idx] = value,
-
             Operand::Bool(_) | Operand::Int(_) | Operand::Float(_) | Operand::Undefined => (),
         }
     }
@@ -138,7 +137,7 @@ impl Lowering {
         self.param_map.clear();
         self.worklist.clear();
         self.processed.clear();
-        self.phi_moves.clear();
+        self.phis.clear();
 
         // Resize the maps.
         self.func_map
@@ -249,7 +248,7 @@ impl Lowering {
         let vreg = &mut self.lower_ir.funcs
             [self.builder.current_function.expect("No current function")]
         .vregs[vreg_id];
-        vreg.inst_id = lop_id;
+        vreg.defs.push(lop_id);
     }
 
     fn get_param_regs(param_types: &[Type]) -> Vec<Reg> {
@@ -426,7 +425,7 @@ impl Lowering {
                         let arg_typ = self.ir.funcs[func_id].dfg[arg.clone()].typ.clone();
                         if idx < PARAM_REG_MAX_NUM as usize {
                             let vreg_id = self.alloc_vreg(VirtReg {
-                                inst_id: LOperand::Undef,
+                                defs: vec![],
                                 phys: Some(param_regs.remove(0)),
                             });
                             let move_lop_id = self.create(LOp::new(
@@ -467,7 +466,7 @@ impl Lowering {
                     // If the function returns a value, we create a move and bind the original VReg.
                     if typ != Type::Void {
                         let vreg_id = self.alloc_vreg(VirtReg {
-                            inst_id: LOperand::Undef,
+                            defs: vec![],
                             phys: None,
                         });
                         let move_lop_id = self.alloc_and_map_lop(
@@ -484,30 +483,11 @@ impl Lowering {
                         self.bind(move_lop_id, vreg_id.clone());
                     }
                 }
-                OpData::Phi { incomings } => {
-                    // TODO: Handle the case when phi's incoming are not created yet.
-                    // For Phi, we need to create move instructions for each incoming edge.
-                    for incoming in incomings {
-                        let (value, bb_id) = match incoming {
-                            PhiIncoming::Data { value, bb } => (value, bb),
-                            PhiIncoming::None => continue,
-                        };
-                        let incoming_vreg_id = self.get(value.clone());
-                        let op = &self.ir.funcs[func_id].dfg[op_id.clone()];
-                        let move_lop = LOp::new(
-                            op.typ.clone().into(),
-                            vec![],
-                            LOpData::Move {
-                                rd: LOperand::Undef,
-                                src: incoming_vreg_id,
-                            },
-                        );
-                        // The moves will be binded to the same VReg allocated to Phi instruction previously.
-                        let move_lop_id = self.alloc_and_map_lop(op_id.clone(), move_lop);
-                        // Record the move instruction for Phi elimination later.
-                        let edge = (bb_id.get_bb_id(), op_id.get_op_id());
-                        self.phi_moves.entry(edge).or_default().push(move_lop_id);
-                    }
+                OpData::Phi { .. } => {
+                    // Defer the processing of phis util the rest operations all have their LOp.
+                    // Record the move instruction for Phi elimination later.
+                    let current_block = self.builder.current_block.clone().expect("No current block");
+                    self.phis.push((op_id.get_op_id(), current_block.get_bb_id()));
                 }
                 OpData::Alloca(typ) => {
                     // For Alloca, we need to allocate stack space in the function's frame.
@@ -539,7 +519,7 @@ impl Lowering {
                         match &base_typ {
                             Type::Array { .. } => {
                                 let mul_vreg_id = self.alloc_vreg(VirtReg {
-                                    inst_id: LOperand::Undef,
+                                    defs: vec![],
                                     phys: None,
                                 });
 
@@ -676,7 +656,7 @@ impl Lowering {
                 for (idx, param_typ) in param_types.iter().enumerate() {
                     if idx < PARAM_REG_MAX_NUM as usize {
                         let vreg_id = self.alloc_vreg(VirtReg {
-                            inst_id: LOperand::Undef,
+                            defs: vec![],
                             phys: None,
                         });
 
@@ -792,7 +772,7 @@ impl Lowering {
                     [self.builder.current_function.expect("No current function")]
                 .vregs
                 .alloc(VirtReg {
-                    inst_id: LOperand::Undef,
+                    defs: vec![],
                     phys: None,
                 });
                 let temp_lop_id = self.builder.create(
@@ -964,10 +944,50 @@ impl Lowering {
             self.worklist.push_back(entry);
             self.lower_bbs();
 
+            // Process phis.
+            let mut phi_moves: FxHashMap<(usize, (usize, usize)), Vec<LOperand>> =
+                FxHashMap::default();
+            for (phi_id, phi_bb_id) in std::mem::take(&mut self.phis) {
+                let (typ, phi_op_data) = {
+                    let op = &self.ir.funcs[func_id].dfg[Operand::Value(phi_id)];
+                    (op.typ.clone(), op.data.clone())
+                };
+
+                if let OpData::Phi { incomings } = phi_op_data {
+                    for incoming in incomings {
+                        let (value, bb_id) = match incoming {
+                            PhiIncoming::Data { value, bb } => (value, bb),
+                            PhiIncoming::None => continue,
+                        };
+
+                        let incoming_vreg_id = self.get(value.clone());
+                        let move_lop = LOp::new(
+                            typ.clone().into(),
+                            vec![],
+                            LOpData::Move {
+                                rd: LOperand::Undef,
+                                src: incoming_vreg_id,
+                            },
+                        );
+
+                        // The moves will be binded to the same VReg allocated to Phi instruction previously.
+                        let move_lop_id = self.alloc_and_map_lop(Operand::Value(phi_id), move_lop);
+                        // Record the move_lop_id for later resorting and trampoline insertion.
+                        phi_moves
+                            .entry((phi_id, (bb_id.get_bb_id(), phi_bb_id)))
+                            .or_default()
+                            .push(move_lop_id);
+                    }
+                } else {
+                    unreachable!("Only Phi should be in the phis map");
+                }
+            }
+
             // Refinement: reschedule the Moves generated by Phis and create trampolines.
-            for edge in self.phi_moves.keys().cloned().collect::<Vec<_>>() {
-                let move_lop_ids = self.phi_moves[&edge].clone();
+            for key in phi_moves.keys().cloned() {
+                let move_lop_ids = phi_moves[&key].clone();
                 let resorted_moves = self.resort_moves(move_lop_ids);
+                let (_, edge) = key;
                 self.create_trampoline(edge, resorted_moves);
             }
         }

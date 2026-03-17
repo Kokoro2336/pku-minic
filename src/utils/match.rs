@@ -31,8 +31,8 @@ macro_rules! match_ops {
     };
 }
 
-/// Only for matching a few ops.
-macro_rules! match_minor {
+/// For matching a few ops.
+macro_rules! match_minor_ops {
     (
         target: $target:expr,
 
@@ -75,5 +75,5 @@ macro_rules! match_minor {
     };
 }
 
-pub(crate) use match_minor;
+pub(crate) use match_minor_ops;
 pub(crate) use match_ops;

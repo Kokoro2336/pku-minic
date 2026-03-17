@@ -11,7 +11,7 @@ use strum_macros::EnumDiscriminants;
 
 #[derive(Debug, Clone)]
 pub struct VirtReg {
-    pub inst_id: LOperand,
+    pub defs: Vec<LOperand>,
     pub phys: Option<Reg>,
 }
 
