@@ -60,25 +60,25 @@ impl std::fmt::Display for Type {
 }
 
 impl Type {
-    pub fn size_in_bytes(&self) -> u32 {
+    pub fn size(&self) -> u32 {
         match self {
             Type::Bool => 1,
             Type::Int => 4,
             Type::Float => 4,
             Type::Void => 0,
-            Type::Array { base, dims } => base.size_in_bytes() * dims.iter().product::<u32>(),
+            Type::Array { base, dims } => base.size() * dims.iter().product::<u32>(),
             Type::Pointer { .. } => RISCV_BITS / 8,
             Type::Function { .. } => panic!("Function type has no size"),
             Type::Char => 1,
         }
     }
-    pub fn align_in_bytes(&self) -> u32 {
+    pub fn align(&self) -> u32 {
         match self {
             Type::Bool => 1,
             Type::Int => 4,
             Type::Float => 4,
             Type::Void => 1, // align to 1 byte for void type
-            Type::Array { base, .. } => base.align_in_bytes(),
+            Type::Array { base, .. } => base.align(),
             Type::Pointer { .. } => RISCV_BITS / 8,
             Type::Function { .. } => panic!("Function type has no alignment"),
             Type::Char => 1,
@@ -94,7 +94,7 @@ impl Type {
                 if dim_idx >= dims.len() {
                     panic!("Dimension index out of bounds");
                 }
-                base.size_in_bytes() * dims[dim_idx..].iter().product::<u32>()
+                base.size() * dims[dim_idx..].iter().product::<u32>()
             }
             _ => panic!("subarr_size can only be called on array types"),
         }

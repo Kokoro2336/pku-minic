@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::ops::{Index, IndexMut};
+use std::ops::Range;
 
 pub trait Arena<T>
 where
@@ -160,6 +161,14 @@ where
             );
         }
         self.storage[idx] = ArenaItem::Data(new_item);
+    }
+
+    pub fn ids(&self) -> Range<usize> {
+        0..self.storage.len()
+    }
+
+    pub fn len(&self) -> usize {
+        self.storage.len()
     }
 }
 

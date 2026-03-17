@@ -15,7 +15,10 @@ pub struct Data {
 
 impl Data {
     pub fn new(typ: Type) -> Self {
-        todo!()
+        Data {
+            size: typ.size(),
+            align: typ.align(),
+        }
     }
 }
 
@@ -26,12 +29,6 @@ pub enum Slot {
     Param { size: u32, align: u32 },
     Local { size: u32, align: u32 },
     CalleeSaved { size: u32, align: u32 },
-}
-
-impl Slot {
-    pub fn new(typ: Type) -> Self {
-        todo!()
-    }
 }
 
 /// TODO: implement stack frame layout and management.

@@ -85,9 +85,12 @@ impl Lowering {
             // When getting an IR value, we get Vreg of LOp.
             Operand::Value(id) => {
                 let lop_id = self.value_map[id].clone();
-                let lop = &self.lower_ir.funcs
-                    [self.builder.current_function.expect("No current function")]
-                .dfg[lop_id.clone()];
+                if matches!(lop_id, LOperand::Data(_) | LOperand::Slot(_)) {
+                    return lop_id;
+                }
+
+                let current_function = self.builder.current_function.expect("No current function");
+                let lop = &self.lower_ir.funcs[current_function].dfg[lop_id.clone()];
 
                 match_rd! {
                     target: &lop.data,
@@ -131,8 +134,6 @@ impl Lowering {
 
         // Clear the maps.
         self.block_map.clear();
-        self.func_map.clear();
-        self.global_map.clear();
         self.value_map.clear();
         self.param_map.clear();
         self.worklist.clear();
@@ -140,14 +141,10 @@ impl Lowering {
         self.phis.clear();
 
         // Resize the maps.
-        self.func_map
-            .resize(self.ir.funcs.collect().len(), LOperand::Undef);
-        self.global_map
-            .resize(self.ir.globals.collect().len(), LOperand::Undef);
         self.block_map
-            .resize(self.ir.funcs[idx].cfg.collect().len(), LOperand::Undef);
+            .resize(self.ir.funcs[idx].cfg.len(), LOperand::Undef);
         self.value_map
-            .resize(self.ir.funcs[idx].dfg.collect().len(), LOperand::Undef);
+            .resize(self.ir.funcs[idx].dfg.len(), LOperand::Undef);
         let param_num = match &self.ir.funcs[idx].typ {
             Type::Function { param_types, .. } => param_types.len(),
             _ => unreachable!("Only function type should be in the function arena"),
@@ -439,8 +436,8 @@ impl Lowering {
                             self.bind(move_lop_id, vreg_id);
                         } else {
                             let slot_id = self.alloc_slot(Slot::Param {
-                                size: arg_typ.size_in_bytes(),
-                                align: arg_typ.align_in_bytes(),
+                                size: arg_typ.size(),
+                                align: arg_typ.align(),
                             });
                             self.create(LOp::new(
                                 Type::Void.into(),
@@ -491,7 +488,10 @@ impl Lowering {
                 }
                 OpData::Alloca(typ) => {
                     // For Alloca, we need to allocate stack space in the function's frame.
-                    self.alloc_and_map_slot(Operand::Value(op_id.get_op_id()), Slot::new(typ));
+                    self.alloc_and_map_slot(Operand::Value(op_id.get_op_id()), Slot::Local {
+                        size: typ.size(),
+                        align: typ.align(),
+                    });
                 }
                 OpData::GEP { base, indices } => {
                     // GEP is only used for array in SysY.
@@ -568,7 +568,7 @@ impl Lowering {
                                         vec![],
                                         LOpData::MulI {
                                             rd: LOperand::Undef,
-                                            lhs: LOperand::IntImm(base_typ.size_in_bytes() as i32),
+                                            lhs: LOperand::IntImm(base_typ.size() as i32),
                                             rhs: self.get(index.clone()),
                                         },
                                     ),
@@ -675,12 +675,8 @@ impl Lowering {
                         self.param_map[idx] = vreg_id;
                     } else {
                         let (size, align) = match &param_typ {
-                            Type::Int | Type::Float => {
-                                (param_typ.size_in_bytes(), param_typ.align_in_bytes())
-                            }
-                            Type::Pointer { .. } => {
-                                (param_typ.size_in_bytes(), param_typ.align_in_bytes())
-                            }
+                            Type::Int | Type::Float => (param_typ.size(), param_typ.align()),
+                            Type::Pointer { .. } => (param_typ.size(), param_typ.align()),
                             Type::Bool
                             | Type::Char
                             | Type::Void
@@ -915,7 +911,7 @@ impl Lowering {
 
     fn lower_global(&mut self) {
         // Pre-allocate global objects.
-        for global in self.ir.globals.collect() {
+        for global in self.ir.globals.ids() {
             let global_op = &self.ir.globals[global];
             match global_op.data.clone() {
                 OpData::GlobalAlloca(typ) => {
@@ -925,9 +921,17 @@ impl Lowering {
                 _ => unreachable!("Only global alloca and declare should be in the global arena"),
             }
         }
+        // Pre-allocate functions.
+        for func_id in self.ir.funcs.ids() {
+            let func = &self.ir.funcs[func_id];
+            self.alloc_and_map_func(Operand::Func(func_id), LFunction::new(func.name.clone()));
+        }
     }
 
     pub fn run(&mut self) -> LowerIR {
+        self.func_map.resize(self.ir.funcs.len(), LOperand::Undef);
+        self.global_map
+            .resize(self.ir.globals.len(), LOperand::Undef);
         self.lower_global();
 
         // Pre-allocate functions.
@@ -937,7 +941,7 @@ impl Lowering {
             // Pre-allocate basic blocks.
             let func = &self.ir.funcs[func_id];
             let entry = func.cfg.entry.expect("No entry block");
-            for bb_id in func.cfg.collect() {
+            for bb_id in func.cfg.ids() {
                 self.alloc_and_map_block(Operand::BB(bb_id), LBasicBlock::new());
             }
 
