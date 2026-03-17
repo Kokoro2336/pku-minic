@@ -2,6 +2,7 @@ use crate::base::Type;
 use crate::debug::info;
 use crate::ir::mid::{BasicBlock, Op, OpData, Operand, PhiIncoming, CFG, DFG};
 use crate::utils::arena::*;
+use crate::utils::r#match::match_minor;
 use std::ops::{Index, IndexMut};
 
 pub type CG = IndexedArena<Function>;
@@ -111,69 +112,74 @@ impl Arena<Function> for IndexedArena<Function> {
                 // rewrite BBId in dfg ops
                 func.dfg.storage.iter_mut().for_each(|item| {
                     if let ArenaItem::Data(op) = item {
-                        match &mut op.data {
-                            OpData::Jump { target_bb } => {
-                                remap_with_cfg(target_bb, &old_arena_cfg);
-                            }
-                            OpData::Br {
-                                then_bb, else_bb, ..
-                            } => {
-                                remap_with_cfg(then_bb, &old_arena_cfg);
-                                remap_with_cfg(else_bb, &old_arena_cfg);
-                            }
+                        match_minor! {
+                            target: &mut op.data,
+                            minor_arms: {
+                                OpData::Jump { target_bb } => {
+                                    remap_with_cfg(target_bb, &old_arena_cfg);
+                                }
+                                OpData::Br {
+                                    then_bb, else_bb, ..
+                                } => {
+                                    remap_with_cfg(then_bb, &old_arena_cfg);
+                                    remap_with_cfg(else_bb, &old_arena_cfg);
+                                }
 
-                            OpData::Phi { incomings } => {
-                                for phi_incoming in incomings.iter_mut() {
-                                    if let PhiIncoming::Data { bb, .. } = phi_incoming {
-                                        remap_with_cfg(bb, &old_arena_cfg);
+                                OpData::Phi { incomings } => {
+                                    for phi_incoming in incomings.iter_mut() {
+                                        if let PhiIncoming::Data { bb, .. } = phi_incoming {
+                                            remap_with_cfg(bb, &old_arena_cfg);
+                                        }
+                                        // If incoming == None, do nothing
                                     }
-                                    // If incoming == None, do nothing
                                 }
-                            }
 
-                            // Special: Call needs to rewrite the function operand.
-                            OpData::Call { func, .. } => {
-                                if let Operand::Func(func_id) = func {
-                                    remap_idx(func_id, &old_arena);
+                                // Special: Call needs to rewrite the function operand.
+                                OpData::Call { func, .. } => {
+                                    if let Operand::Func(func_id) = func {
+                                        remap_idx(func_id, &old_arena);
+                                    }
                                 }
-                            }
-
-                            OpData::AddF { .. }
-                            | OpData::SubF { .. }
-                            | OpData::MulF { .. }
-                            | OpData::DivF { .. }
-                            | OpData::AddI { .. }
-                            | OpData::SubI { .. }
-                            | OpData::MulI { .. }
-                            | OpData::DivI { .. }
-                            | OpData::ModI { .. }
-                            | OpData::Load { .. }
-                            | OpData::Store { .. }
-                            | OpData::Alloca(_)
-                            | OpData::GlobalAlloca(_)
-                            | OpData::Declare { .. }
-                            | OpData::GEP { .. }
-                            | OpData::Sitofp { .. }
-                            | OpData::Fptosi { .. }
-                            | OpData::Zext { .. }
-                            | OpData::Uitofp { .. }
-                            | OpData::Ret { .. }
-                            | OpData::Shl { .. }
-                            | OpData::Shr { .. }
-                            | OpData::Sar { .. }
-                            | OpData::SNe { .. }
-                            | OpData::SEq { .. }
-                            | OpData::Xor { .. }
-                            | OpData::SGt { .. }
-                            | OpData::SLt { .. }
-                            | OpData::SGe { .. }
-                            | OpData::SLe { .. }
-                            | OpData::ONe { .. }
-                            | OpData::OEq { .. }
-                            | OpData::OGt { .. }
-                            | OpData::OLt { .. }
-                            | OpData::OGe { .. }
-                            | OpData::OLe { .. } => { /* no BBId to rewrite */ }
+                            },
+                            uni_ops: [
+                                OpData::AddF,
+                                OpData::SubF,
+                                OpData::MulF,
+                                OpData::DivF,
+                                OpData::AddI,
+                                OpData::SubI,
+                                OpData::MulI,
+                                OpData::DivI,
+                                OpData::ModI,
+                                OpData::Load,
+                                OpData::Store,
+                                OpData::Alloca,
+                                OpData::GlobalAlloca,
+                                OpData::Declare,
+                                OpData::GEP,
+                                OpData::Sitofp,
+                                OpData::Fptosi,
+                                OpData::Zext,
+                                OpData::Uitofp,
+                                OpData::Ret,
+                                OpData::Shl,
+                                OpData::Shr,
+                                OpData::Sar,
+                                OpData::SNe,
+                                OpData::SEq,
+                                OpData::Xor,
+                                OpData::SGt,
+                                OpData::SLt,
+                                OpData::SGe,
+                                OpData::SLe,
+                                OpData::ONe,
+                                OpData::OEq,
+                                OpData::OGt,
+                                OpData::OLt,
+                                OpData::OGe,
+                                OpData::OLe
+                            ],
+                            uni_arm: { /* no BBId to rewrite */ }
                         }
                     }
                 });

@@ -11,6 +11,7 @@ pub struct Worklist<T, S> {
     in_list: S,
 }
 
+#[allow(unused)]
 pub trait WorklistTrait<T> {
     fn new() -> Self;
     fn push_back(&mut self, item: T);

@@ -6,6 +6,7 @@ use crate::base::Type;
 use crate::debug::info;
 use crate::frontend::ast::Literal;
 use crate::utils::arena::*;
+use crate::utils::r#match::match_ops;
 
 #[allow(clippy::upper_case_acronyms)]
 pub type DFG = IndexedArena<Op>;
@@ -583,82 +584,65 @@ impl Arena<Op> for IndexedArena<Op> {
                 });
 
                 // rewrite operands excluding BBId
-                match &mut node.data {
-                    OpData::AddI { lhs, rhs }
-                    | OpData::SubI { lhs, rhs }
-                    | OpData::MulI { lhs, rhs }
-                    | OpData::DivI { lhs, rhs }
-                    | OpData::ModI { lhs, rhs }
-                    | OpData::SNe { lhs, rhs }
-                    | OpData::SEq { lhs, rhs }
-                    | OpData::SGt { lhs, rhs }
-                    | OpData::SLt { lhs, rhs }
-                    | OpData::SGe { lhs, rhs }
-                    | OpData::SLe { lhs, rhs }
-                    | OpData::Xor { lhs, rhs }
-                    | OpData::Shl { lhs, rhs }
-                    | OpData::Shr { lhs, rhs }
-                    | OpData::Sar { lhs, rhs }
-                    | OpData::AddF { lhs, rhs }
-                    | OpData::SubF { lhs, rhs }
-                    | OpData::MulF { lhs, rhs }
-                    | OpData::DivF { lhs, rhs }
-                    | OpData::ONe { lhs, rhs }
-                    | OpData::OEq { lhs, rhs }
-                    | OpData::OGt { lhs, rhs }
-                    | OpData::OLt { lhs, rhs }
-                    | OpData::OGe { lhs, rhs }
-                    | OpData::OLe { lhs, rhs } => {
+                match_ops! {
+                    target: &mut node.data,
+                    bin_ops: [
+                        AddI, SubI, MulI, DivI, ModI,
+                        SNe, SEq, SGt, SLt, SGe, SLe,
+                        Xor, Shl, Shr, Sar,
+                        AddF, SubF, MulF, DivF,
+                        ONe, OEq, OGt, OLt, OGe, OLe
+                    ],
+                    bin_arm: OpData { lhs, rhs } => {
                         remap_value(lhs, &old_arena);
                         remap_value(rhs, &old_arena);
-                    }
-
-                    OpData::Sitofp { value }
-                    | OpData::Fptosi { value }
-                    | OpData::Uitofp { value }
-                    | OpData::Zext { value } => {
+                    },
+                    un_ops: [Sitofp, Fptosi, Uitofp, Zext],
+                    un_arm: OpData { value } => {
                         remap_value(value, &old_arena);
-                    }
-                    OpData::Store { addr, value } => {
-                        remap_value(addr, &old_arena);
-                        remap_value(value, &old_arena);
-                    }
-                    OpData::Load { addr } => {
-                        remap_value(addr, &old_arena);
-                    }
-                    OpData::Call { args, .. } => {
-                        for arg in args.iter_mut() {
-                            remap_value(arg, &old_arena);
+                    },
+                    fallback: {
+                        OpData::Store { addr, value } => {
+                            remap_value(addr, &old_arena);
+                            remap_value(value, &old_arena);
                         }
-                    }
-                    OpData::Br { cond, .. } => {
-                        remap_value(cond, &old_arena);
-                    }
-                    OpData::Ret { value } => {
-                        if let Some(val) = value {
-                            remap_value(val, &old_arena);
+                        OpData::Load { addr } => {
+                            remap_value(addr, &old_arena);
                         }
-                    }
-
-                    OpData::GEP { base, indices } => {
-                        remap_value(base, &old_arena);
-                        for index in indices.iter_mut() {
-                            remap_value(index, &old_arena);
-                        }
-                    }
-
-                    OpData::Phi { incomings } => {
-                        for phi_incoming in incomings.iter_mut() {
-                            if let PhiIncoming::Data { value, .. } = phi_incoming {
-                                remap_value(value, &old_arena);
+                        OpData::Call { args, .. } => {
+                            for arg in args.iter_mut() {
+                                remap_value(arg, &old_arena);
                             }
                         }
-                    }
+                        OpData::Br { cond, .. } => {
+                            remap_value(cond, &old_arena);
+                        }
+                        OpData::Ret { value } => {
+                            if let Some(val) = value {
+                                remap_value(val, &old_arena);
+                            }
+                        }
 
-                    OpData::GlobalAlloca(_)
-                    | OpData::Alloca(_)
-                    | OpData::Jump { .. }
-                    | OpData::Declare { .. } => { /* no operands to rewrite */ }
+                        OpData::GEP { base, indices } => {
+                            remap_value(base, &old_arena);
+                            for index in indices.iter_mut() {
+                                remap_value(index, &old_arena);
+                            }
+                        }
+
+                        OpData::Phi { incomings } => {
+                            for phi_incoming in incomings.iter_mut() {
+                                if let PhiIncoming::Data { value, .. } = phi_incoming {
+                                    remap_value(value, &old_arena);
+                                }
+                            }
+                        }
+
+                        OpData::GlobalAlloca(_)
+                        | OpData::Alloca(_)
+                        | OpData::Jump { .. }
+                        | OpData::Declare { .. } => { /* no operands to rewrite */ }
+                    }
                 }
             }
         }
@@ -741,103 +725,86 @@ impl IndexedArena<Op> {
 
         let op = &mut self[op_id];
         // Update Use
-        match &mut op.data {
-            OpData::AddI { lhs, rhs }
-            | OpData::SubI { lhs, rhs }
-            | OpData::MulI { lhs, rhs }
-            | OpData::DivI { lhs, rhs }
-            | OpData::ModI { lhs, rhs }
-            | OpData::SNe { lhs, rhs }
-            | OpData::SEq { lhs, rhs }
-            | OpData::SGt { lhs, rhs }
-            | OpData::SLt { lhs, rhs }
-            | OpData::SGe { lhs, rhs }
-            | OpData::SLe { lhs, rhs }
-            | OpData::Xor { lhs, rhs }
-            | OpData::Shl { lhs, rhs }
-            | OpData::Shr { lhs, rhs }
-            | OpData::Sar { lhs, rhs }
-            | OpData::AddF { lhs, rhs }
-            | OpData::SubF { lhs, rhs }
-            | OpData::MulF { lhs, rhs }
-            | OpData::DivF { lhs, rhs }
-            | OpData::ONe { lhs, rhs }
-            | OpData::OEq { lhs, rhs }
-            | OpData::OGt { lhs, rhs }
-            | OpData::OLt { lhs, rhs }
-            | OpData::OGe { lhs, rhs }
-            | OpData::OLe { lhs, rhs } => {
+        match_ops! {
+            target: &mut op.data,
+            bin_ops: [
+                AddI, SubI, MulI, DivI, ModI,
+                SNe, SEq, SGt, SLt, SGe, SLe,
+                Xor, Shl, Shr, Sar,
+                AddF, SubF, MulF, DivF,
+                ONe, OEq, OGt, OLt, OGe, OLe
+            ],
+            bin_arm: OpData { lhs, rhs } => {
                 if *lhs == old {
                     *lhs = new.clone();
                 };
                 if *rhs == old {
                     *rhs = new.clone();
                 };
-            }
-
-            OpData::Sitofp { value }
-            | OpData::Fptosi { value }
-            | OpData::Uitofp { value }
-            | OpData::Zext { value } => {
+            },
+            un_ops: [Sitofp, Fptosi, Uitofp, Zext],
+            un_arm: OpData { value } => {
                 if *value == old {
                     *value = new.clone();
                 };
-            }
-            OpData::Store { addr, value } => {
-                if *addr == old {
-                    *addr = new.clone();
-                };
-                if *value == old {
-                    *value = new.clone();
-                };
-            }
-            OpData::Load { addr } => {
-                if *addr == old {
-                    *addr = new.clone();
-                };
-            }
-            OpData::Call { args, .. } => {
-                for arg in args.iter_mut() {
-                    if *arg == old {
-                        *arg = new.clone();
+            },
+            fallback: {
+                OpData::Store { addr, value } => {
+                    if *addr == old {
+                        *addr = new.clone();
+                    };
+                    if *value == old {
+                        *value = new.clone();
                     };
                 }
-            }
-            OpData::Br { cond, .. } => {
-                if *cond == old {
-                    *cond = new.clone();
-                };
-            }
-            OpData::Ret { value } => {
-                if let Some(val) = value {
-                    if *val == old {
-                        *val = new.clone();
+                OpData::Load { addr } => {
+                    if *addr == old {
+                        *addr = new.clone();
                     };
                 }
-            }
-            OpData::GEP { base, indices } => {
-                if *base == old {
-                    *base = new.clone();
-                };
-                for index in indices.iter_mut() {
-                    if *index == old {
-                        *index = new.clone();
-                    };
-                }
-            }
-            OpData::Phi { incomings } => {
-                for phi_incoming in incomings.iter_mut() {
-                    if let PhiIncoming::Data { value, .. } = phi_incoming {
-                        if *value == old {
-                            *value = new.clone();
+                OpData::Call { args, .. } => {
+                    for arg in args.iter_mut() {
+                        if *arg == old {
+                            *arg = new.clone();
                         };
                     }
                 }
+                OpData::Br { cond, .. } => {
+                    if *cond == old {
+                        *cond = new.clone();
+                    };
+                }
+                OpData::Ret { value } => {
+                    if let Some(val) = value {
+                        if *val == old {
+                            *val = new.clone();
+                        };
+                    }
+                }
+                OpData::GEP { base, indices } => {
+                    if *base == old {
+                        *base = new.clone();
+                    };
+                    for index in indices.iter_mut() {
+                        if *index == old {
+                            *index = new.clone();
+                        };
+                    }
+                }
+                OpData::Phi { incomings } => {
+                    for phi_incoming in incomings.iter_mut() {
+                        if let PhiIncoming::Data { value, .. } = phi_incoming {
+                            if *value == old {
+                                *value = new.clone();
+                            };
+                        }
+                    }
+                }
+                OpData::GlobalAlloca(_)
+                | OpData::Alloca(_)
+                | OpData::Jump { .. }
+                | OpData::Declare { .. } => { /* no operands to replace */ }
             }
-            OpData::GlobalAlloca(_)
-            | OpData::Alloca(_)
-            | OpData::Jump { .. }
-            | OpData::Declare { .. } => { /* no operands to replace */ }
         }
         // Delete old user
         self.remove_use(old, op_idx.clone());

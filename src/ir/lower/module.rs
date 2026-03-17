@@ -3,6 +3,7 @@
 use super::{LBuilder, LBuilderGuard, LOp, LOpData, LOperand, LCFG, LCG, LDFG};
 use crate::ir::machine::DataInfo;
 use crate::utils::arena::ArenaItem;
+use crate::utils::r#match::{match_minor, match_ops};
 
 pub struct LowerIR {
     pub data_info: DataInfo,
@@ -51,57 +52,39 @@ impl LowerIR {
         let dfg = self.dfg_mut_or_panic(current_function, "LowerIR add_uses: no current function");
         let data = dfg[op.get_inst_id()].data.clone();
 
-        match data {
-            LOpData::Load { addr, .. } => {
-                dfg.add_use(addr, op);
-            }
-            LOpData::Store { addr, value } => {
-                dfg.add_use(addr, op.clone());
-                dfg.add_use(value, op);
-            }
-            LOpData::Br { cond, .. } => {
-                dfg.add_use(cond, op);
-            }
-            LOpData::Move { src, .. } => {
-                dfg.add_use(src, op);
-            }
-            LOpData::AddI { lhs, rhs, .. }
-            | LOpData::SubI { lhs, rhs, .. }
-            | LOpData::MulI { lhs, rhs, .. }
-            | LOpData::DivI { lhs, rhs, .. }
-            | LOpData::ModI { lhs, rhs, .. }
-            | LOpData::SNe { lhs, rhs, .. }
-            | LOpData::SEq { lhs, rhs, .. }
-            | LOpData::SGt { lhs, rhs, .. }
-            | LOpData::SLt { lhs, rhs, .. }
-            | LOpData::SGe { lhs, rhs, .. }
-            | LOpData::SLe { lhs, rhs, .. }
-            | LOpData::Xor { lhs, rhs, .. }
-            | LOpData::Shl { lhs, rhs, .. }
-            | LOpData::Shr { lhs, rhs, .. }
-            | LOpData::Sar { lhs, rhs, .. }
-            | LOpData::AddF { lhs, rhs, .. }
-            | LOpData::SubF { lhs, rhs, .. }
-            | LOpData::MulF { lhs, rhs, .. }
-            | LOpData::DivF { lhs, rhs, .. }
-            | LOpData::ONe { lhs, rhs, .. }
-            | LOpData::OEq { lhs, rhs, .. }
-            | LOpData::OGt { lhs, rhs, .. }
-            | LOpData::OLt { lhs, rhs, .. }
-            | LOpData::OGe { lhs, rhs, .. }
-            | LOpData::OLe { lhs, rhs, .. } => {
+        match_ops! {
+            target: data,
+            bin_ops: [
+                AddI, SubI, MulI, DivI, ModI,
+                SNe, SEq, SGt, SLt, SGe, SLe,
+                Xor, Shl, Shr, Sar,
+                AddF, SubF, MulF, DivF,
+                ONe, OEq, OGt, OLt, OGe, OLe
+            ],
+            bin_arm: LOpData { lhs, rhs } => {
                 dfg.add_use(lhs, op.clone());
                 dfg.add_use(rhs, op);
-            }
-
-            LOpData::Sitofp { value, .. }
-            | LOpData::Fptosi { value, .. }
-            | LOpData::Uitofp { value, .. }
-            | LOpData::Zext { value, .. } => {
+            },
+            un_ops: [Sitofp, Fptosi, Uitofp, Zext],
+            un_arm: LOpData { value } => {
                 dfg.add_use(value, op);
+            },
+            fallback: {
+                LOpData::Load { addr, .. } => {
+                    dfg.add_use(addr, op);
+                }
+                LOpData::Store { addr, value } => {
+                    dfg.add_use(addr, op.clone());
+                    dfg.add_use(value, op);
+                }
+                LOpData::Br { cond, .. } => {
+                    dfg.add_use(cond, op);
+                }
+                LOpData::Move { src, .. } => {
+                    dfg.add_use(src, op);
+                }
+                LOpData::Call { .. } | LOpData::Jump { .. } | LOpData::Ret => {}
             }
-
-            LOpData::Call { .. } | LOpData::Jump { .. } | LOpData::Ret => {}
         }
     }
 
@@ -110,57 +93,39 @@ impl LowerIR {
             self.dfg_mut_or_panic(current_function, "LowerIR remove_uses: no current function");
         let data = dfg[op.get_inst_id()].data.clone();
 
-        match data {
-            LOpData::Load { addr, .. } => {
-                dfg.remove_use(addr, op);
-            }
-            LOpData::Store { addr, value } => {
-                dfg.remove_use(addr, op.clone());
-                dfg.remove_use(value, op);
-            }
-            LOpData::Br { cond, .. } => {
-                dfg.remove_use(cond, op);
-            }
-            LOpData::Move { src, .. } => {
-                dfg.remove_use(src, op);
-            }
-            LOpData::AddI { lhs, rhs, .. }
-            | LOpData::SubI { lhs, rhs, .. }
-            | LOpData::MulI { lhs, rhs, .. }
-            | LOpData::DivI { lhs, rhs, .. }
-            | LOpData::ModI { lhs, rhs, .. }
-            | LOpData::SNe { lhs, rhs, .. }
-            | LOpData::SEq { lhs, rhs, .. }
-            | LOpData::SGt { lhs, rhs, .. }
-            | LOpData::SLt { lhs, rhs, .. }
-            | LOpData::SGe { lhs, rhs, .. }
-            | LOpData::SLe { lhs, rhs, .. }
-            | LOpData::Xor { lhs, rhs, .. }
-            | LOpData::Shl { lhs, rhs, .. }
-            | LOpData::Shr { lhs, rhs, .. }
-            | LOpData::Sar { lhs, rhs, .. }
-            | LOpData::AddF { lhs, rhs, .. }
-            | LOpData::SubF { lhs, rhs, .. }
-            | LOpData::MulF { lhs, rhs, .. }
-            | LOpData::DivF { lhs, rhs, .. }
-            | LOpData::ONe { lhs, rhs, .. }
-            | LOpData::OEq { lhs, rhs, .. }
-            | LOpData::OGt { lhs, rhs, .. }
-            | LOpData::OLt { lhs, rhs, .. }
-            | LOpData::OGe { lhs, rhs, .. }
-            | LOpData::OLe { lhs, rhs, .. } => {
+        match_ops! {
+            target: data,
+            bin_ops: [
+                AddI, SubI, MulI, DivI, ModI,
+                SNe, SEq, SGt, SLt, SGe, SLe,
+                Xor, Shl, Shr, Sar,
+                AddF, SubF, MulF, DivF,
+                ONe, OEq, OGt, OLt, OGe, OLe
+            ],
+            bin_arm: LOpData { lhs, rhs } => {
                 dfg.remove_use(lhs, op.clone());
                 dfg.remove_use(rhs, op);
-            }
-
-            LOpData::Sitofp { value, .. }
-            | LOpData::Fptosi { value, .. }
-            | LOpData::Uitofp { value, .. }
-            | LOpData::Zext { value, .. } => {
+            },
+            un_ops: [Sitofp, Fptosi, Uitofp, Zext],
+            un_arm: LOpData { value } => {
                 dfg.remove_use(value, op);
+            },
+            fallback: {
+                LOpData::Load { addr, .. } => {
+                    dfg.remove_use(addr, op);
+                }
+                LOpData::Store { addr, value } => {
+                    dfg.remove_use(addr, op.clone());
+                    dfg.remove_use(value, op);
+                }
+                LOpData::Br { cond, .. } => {
+                    dfg.remove_use(cond, op);
+                }
+                LOpData::Move { src, .. } => {
+                    dfg.remove_use(src, op);
+                }
+                LOpData::Call { .. } | LOpData::Jump { .. } | LOpData::Ret => {}
             }
-
-            LOpData::Call { .. } | LOpData::Jump { .. } | LOpData::Ret => {}
         }
     }
 
@@ -192,55 +157,60 @@ impl LowerIR {
         );
         let data = dfg[op.get_inst_id()].data.clone();
 
-        match data {
-            LOpData::Br {
-                then_bb, else_bb, ..
-            } => {
-                cfg.add_pred(then_bb.clone(), bb.clone());
-                cfg.add_succ(bb.clone(), then_bb);
+        match_minor! {
+            target: data,
+            minor_arms: {
+                LOpData::Br {
+                    then_bb, else_bb, ..
+                } => {
+                    cfg.add_pred(then_bb.clone(), bb.clone());
+                    cfg.add_succ(bb.clone(), then_bb);
 
-                cfg.add_pred(else_bb.clone(), bb.clone());
-                cfg.add_succ(bb, else_bb);
-            }
-            LOpData::Jump { target_bb } => {
-                cfg.add_pred(target_bb.clone(), bb.clone());
-                cfg.add_succ(bb, target_bb);
-            }
-
-            LOpData::AddI { .. }
-            | LOpData::SubI { .. }
-            | LOpData::MulI { .. }
-            | LOpData::DivI { .. }
-            | LOpData::ModI { .. }
-            | LOpData::SNe { .. }
-            | LOpData::SEq { .. }
-            | LOpData::SGt { .. }
-            | LOpData::SLt { .. }
-            | LOpData::SGe { .. }
-            | LOpData::SLe { .. }
-            | LOpData::Xor { .. }
-            | LOpData::Shl { .. }
-            | LOpData::Shr { .. }
-            | LOpData::Sar { .. }
-            | LOpData::AddF { .. }
-            | LOpData::SubF { .. }
-            | LOpData::MulF { .. }
-            | LOpData::DivF { .. }
-            | LOpData::ONe { .. }
-            | LOpData::OEq { .. }
-            | LOpData::OGt { .. }
-            | LOpData::OLt { .. }
-            | LOpData::OGe { .. }
-            | LOpData::OLe { .. }
-            | LOpData::Sitofp { .. }
-            | LOpData::Fptosi { .. }
-            | LOpData::Move { .. }
-            | LOpData::Uitofp { .. }
-            | LOpData::Zext { .. }
-            | LOpData::Store { .. }
-            | LOpData::Load { .. }
-            | LOpData::Call { .. }
-            | LOpData::Ret => {}
+                    cfg.add_pred(else_bb.clone(), bb.clone());
+                    cfg.add_succ(bb, else_bb);
+                }
+                LOpData::Jump { target_bb } => {
+                    cfg.add_pred(target_bb.clone(), bb.clone());
+                    cfg.add_succ(bb, target_bb);
+                }
+            },
+            uni_ops: [
+                LOpData::AddI,
+                LOpData::SubI,
+                LOpData::MulI,
+                LOpData::DivI,
+                LOpData::ModI,
+                LOpData::SNe,
+                LOpData::SEq,
+                LOpData::SGt,
+                LOpData::SLt,
+                LOpData::SGe,
+                LOpData::SLe,
+                LOpData::Xor,
+                LOpData::Shl,
+                LOpData::Shr,
+                LOpData::Sar,
+                LOpData::AddF,
+                LOpData::SubF,
+                LOpData::MulF,
+                LOpData::DivF,
+                LOpData::ONe,
+                LOpData::OEq,
+                LOpData::OGt,
+                LOpData::OLt,
+                LOpData::OGe,
+                LOpData::OLe,
+                LOpData::Sitofp,
+                LOpData::Fptosi,
+                LOpData::Move,
+                LOpData::Uitofp,
+                LOpData::Zext,
+                LOpData::Store,
+                LOpData::Load,
+                LOpData::Call
+            ],
+            other_patterns: [LOpData::Ret],
+            uni_arm: {}
         }
     }
 
@@ -256,54 +226,59 @@ impl LowerIR {
         );
         let data = dfg[op.get_inst_id()].data.clone();
 
-        match data {
-            LOpData::Br {
-                then_bb, else_bb, ..
-            } => {
-                cfg.remove_pred(then_bb.clone(), bb.clone());
-                cfg.remove_succ(bb.clone(), then_bb);
-                cfg.remove_pred(else_bb.clone(), bb.clone());
-                cfg.remove_succ(bb, else_bb);
-            }
-            LOpData::Jump { target_bb } => {
-                cfg.remove_pred(target_bb.clone(), bb.clone());
-                cfg.remove_succ(bb, target_bb);
-            }
-
-            LOpData::AddI { .. }
-            | LOpData::SubI { .. }
-            | LOpData::MulI { .. }
-            | LOpData::DivI { .. }
-            | LOpData::ModI { .. }
-            | LOpData::SNe { .. }
-            | LOpData::SEq { .. }
-            | LOpData::SGt { .. }
-            | LOpData::SLt { .. }
-            | LOpData::SGe { .. }
-            | LOpData::SLe { .. }
-            | LOpData::Xor { .. }
-            | LOpData::Shl { .. }
-            | LOpData::Shr { .. }
-            | LOpData::Sar { .. }
-            | LOpData::AddF { .. }
-            | LOpData::SubF { .. }
-            | LOpData::MulF { .. }
-            | LOpData::DivF { .. }
-            | LOpData::ONe { .. }
-            | LOpData::OEq { .. }
-            | LOpData::OGt { .. }
-            | LOpData::OLt { .. }
-            | LOpData::OGe { .. }
-            | LOpData::OLe { .. }
-            | LOpData::Sitofp { .. }
-            | LOpData::Fptosi { .. }
-            | LOpData::Uitofp { .. }
-            | LOpData::Zext { .. }
-            | LOpData::Store { .. }
-            | LOpData::Load { .. }
-            | LOpData::Move { .. }
-            | LOpData::Call { .. }
-            | LOpData::Ret => {}
+        match_minor! {
+            target: data,
+            minor_arms: {
+                LOpData::Br {
+                    then_bb, else_bb, ..
+                } => {
+                    cfg.remove_pred(then_bb.clone(), bb.clone());
+                    cfg.remove_succ(bb.clone(), then_bb);
+                    cfg.remove_pred(else_bb.clone(), bb.clone());
+                    cfg.remove_succ(bb, else_bb);
+                }
+                LOpData::Jump { target_bb } => {
+                    cfg.remove_pred(target_bb.clone(), bb.clone());
+                    cfg.remove_succ(bb, target_bb);
+                }
+            },
+            uni_ops: [
+                LOpData::AddI,
+                LOpData::SubI,
+                LOpData::MulI,
+                LOpData::DivI,
+                LOpData::ModI,
+                LOpData::SNe,
+                LOpData::SEq,
+                LOpData::SGt,
+                LOpData::SLt,
+                LOpData::SGe,
+                LOpData::SLe,
+                LOpData::Xor,
+                LOpData::Shl,
+                LOpData::Shr,
+                LOpData::Sar,
+                LOpData::AddF,
+                LOpData::SubF,
+                LOpData::MulF,
+                LOpData::DivF,
+                LOpData::ONe,
+                LOpData::OEq,
+                LOpData::OGt,
+                LOpData::OLt,
+                LOpData::OGe,
+                LOpData::OLe,
+                LOpData::Sitofp,
+                LOpData::Fptosi,
+                LOpData::Uitofp,
+                LOpData::Zext,
+                LOpData::Store,
+                LOpData::Load,
+                LOpData::Move,
+                LOpData::Call
+            ],
+            other_patterns: [LOpData::Ret],
+            uni_arm: {}
         }
     }
 

@@ -4,6 +4,7 @@ use crate::base::Type;
 use crate::ir::machine::MType;
 use crate::ir::machine::Reg;
 use crate::utils::arena::*;
+use crate::utils::r#match::match_ops;
 
 use std::ops::{Index, IndexMut};
 use strum_macros::EnumDiscriminants;
@@ -349,73 +350,56 @@ impl IndexedArena<LOp> {
         };
 
         let op = &mut self[op_id];
-        match &mut op.data {
-            LOpData::AddI { lhs, rhs, .. }
-            | LOpData::SubI { lhs, rhs, .. }
-            | LOpData::MulI { lhs, rhs, .. }
-            | LOpData::DivI { lhs, rhs, .. }
-            | LOpData::ModI { lhs, rhs, .. }
-            | LOpData::SNe { lhs, rhs, .. }
-            | LOpData::SEq { lhs, rhs, .. }
-            | LOpData::SGt { lhs, rhs, .. }
-            | LOpData::SLt { lhs, rhs, .. }
-            | LOpData::SGe { lhs, rhs, .. }
-            | LOpData::SLe { lhs, rhs, .. }
-            | LOpData::Xor { lhs, rhs, .. }
-            | LOpData::Shl { lhs, rhs, .. }
-            | LOpData::Shr { lhs, rhs, .. }
-            | LOpData::Sar { lhs, rhs, .. }
-            | LOpData::AddF { lhs, rhs, .. }
-            | LOpData::SubF { lhs, rhs, .. }
-            | LOpData::MulF { lhs, rhs, .. }
-            | LOpData::DivF { lhs, rhs, .. }
-            | LOpData::ONe { lhs, rhs, .. }
-            | LOpData::OEq { lhs, rhs, .. }
-            | LOpData::OGt { lhs, rhs, .. }
-            | LOpData::OLt { lhs, rhs, .. }
-            | LOpData::OGe { lhs, rhs, .. }
-            | LOpData::OLe { lhs, rhs, .. } => {
+        match_ops! {
+            target: &mut op.data,
+            bin_ops: [
+                AddI, SubI, MulI, DivI, ModI,
+                SNe, SEq, SGt, SLt, SGe, SLe,
+                Xor, Shl, Shr, Sar,
+                AddF, SubF, MulF, DivF,
+                ONe, OEq, OGt, OLt, OGe, OLe
+            ],
+            bin_arm: LOpData { lhs, rhs } => {
                 if *lhs == old {
                     *lhs = new.clone();
                 }
                 if *rhs == old {
                     *rhs = new.clone();
                 }
-            }
-
-            LOpData::Sitofp { value, .. }
-            | LOpData::Fptosi { value, .. }
-            | LOpData::Uitofp { value, .. }
-            | LOpData::Zext { value, .. } => {
+            },
+            un_ops: [Sitofp, Fptosi, Uitofp, Zext],
+            un_arm: LOpData { value } => {
                 if *value == old {
                     *value = new.clone();
                 }
-            }
-            LOpData::Store { addr, value } => {
-                if *addr == old {
-                    *addr = new.clone();
+            },
+            fallback: {
+                LOpData::Store { addr, value } => {
+                    if *addr == old {
+                        *addr = new.clone();
+                    }
+                    if *value == old {
+                        *value = new.clone();
+                    }
                 }
-                if *value == old {
-                    *value = new.clone();
+                LOpData::Load { addr, .. } => {
+                    if *addr == old {
+                        *addr = new.clone();
+                    }
                 }
-            }
-            LOpData::Load { addr, .. } => {
-                if *addr == old {
-                    *addr = new.clone();
+                LOpData::Move { src, .. } => {
+                    if *src == old {
+                        *src = new.clone();
+                    }
                 }
-            }
-            LOpData::Move { src, .. } => {
-                if *src == old {
-                    *src = new.clone();
+                LOpData::Br { cond, .. } => {
+                    if *cond == old {
+                        *cond = new.clone();
+                    }
                 }
-            }
-            LOpData::Br { cond, .. } => {
-                if *cond == old {
-                    *cond = new.clone();
-                }
-            }
 
-            LOpData::Call { .. } | LOpData::Jump { .. } | LOpData::Ret => {}
+                LOpData::Call { .. } | LOpData::Jump { .. } | LOpData::Ret => {}
+            }
         }
 
         self.remove_use(old, op_idx.clone());
