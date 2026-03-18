@@ -11,10 +11,13 @@ pub struct Worklist<T, S> {
     in_list: S,
 }
 
+#[allow(unused)]
 pub trait WorklistTrait<T> {
     fn new() -> Self;
-    fn push(&mut self, item: T);
-    fn pop(&mut self) -> Option<T>;
+    fn push_back(&mut self, item: T);
+    fn pop_back(&mut self) -> Option<T>;
+    fn push_front(&mut self, item: T);
+    fn pop_front(&mut self) -> Option<T>;
     fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
     fn clear(&mut self);
@@ -30,13 +33,28 @@ impl<T: Eq + Hash + Clone> WorklistTrait<T> for Worklist<T, FxHashSet<T>> {
         }
     }
 
-    fn push(&mut self, item: T) {
+    fn push_back(&mut self, item: T) {
         if self.in_list.insert(item.clone()) {
             self.list.push_back(item);
         }
     }
 
-    fn pop(&mut self) -> Option<T> {
+    fn pop_back(&mut self) -> Option<T> {
+        if let Some(item) = self.list.pop_back() {
+            self.in_list.remove(&item);
+            Some(item)
+        } else {
+            None
+        }
+    }
+
+    fn push_front(&mut self, item: T) {
+        if self.in_list.insert(item.clone()) {
+            self.list.push_front(item);
+        }
+    }
+
+    fn pop_front(&mut self) -> Option<T> {
         if let Some(item) = self.list.pop_front() {
             self.in_list.remove(&item);
             Some(item)
@@ -72,7 +90,7 @@ impl<T: Into<usize> + Copy> WorklistTrait<T> for Worklist<T, BitSet> {
         }
     }
 
-    fn push(&mut self, item: T) {
+    fn push_back(&mut self, item: T) {
         let index = item.into();
         if !self.in_list.contains(index) {
             self.in_list.insert(index);
@@ -80,7 +98,25 @@ impl<T: Into<usize> + Copy> WorklistTrait<T> for Worklist<T, BitSet> {
         }
     }
 
-    fn pop(&mut self) -> Option<T> {
+    fn pop_back(&mut self) -> Option<T> {
+        if let Some(item) = self.list.pop_back() {
+            let index = item.into();
+            self.in_list.remove(index);
+            Some(item)
+        } else {
+            None
+        }
+    }
+
+    fn push_front(&mut self, item: T) {
+        let index = item.into();
+        if !self.in_list.contains(index) {
+            self.in_list.insert(index);
+            self.list.push_front(item);
+        }
+    }
+
+    fn pop_front(&mut self) -> Option<T> {
         if let Some(item) = self.list.pop_front() {
             let index = item.into();
             self.in_list.remove(index);

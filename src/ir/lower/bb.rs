@@ -2,6 +2,7 @@ use crate::ir::lower::LOperand;
 use crate::utils::arena::*;
 use std::ops::{Index, IndexMut};
 
+#[allow(clippy::upper_case_acronyms)]
 pub type LCFG = IndexedArena<LBasicBlock>;
 
 #[derive(Debug, Clone)]

@@ -96,7 +96,13 @@ def main():
     parser = argparse.ArgumentParser(description='Compiler Test Runner')
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--test', type=str, help='Test file name (excluding .sy suffix) or test number')
-    group.add_argument('--basic', action='store_true', help='Test all .sy source files (including hidden tests)')
+    group.add_argument(
+        '--basic',
+        nargs='?',
+        const='all',
+        default=None,
+        help='Test basic suites: no value means all; "00" means functional prefix; "h00" means hidden functional prefix',
+    )
     parser.add_argument('--clean', action='store_true', help='Clean test directories before running')
     parser.add_argument('--graph', action='store_true', help='Generate CFG graphs (.dot/.svg) from linked LLVM IR using opt + graphviz')
     parser.add_argument('--trace', action='store_true', help='Enable trace logging')
@@ -166,10 +172,35 @@ def main():
         if not found:
             print(f"Test file {args.test} not found.")
             sys.exit(1)
-    elif args.basic:
-        # Find all test files
-        for d in search_dirs:
-            test_files.extend(find_files(d, ".sy"))
+    elif args.basic is not None:
+        basic_selector = args.basic
+
+        if basic_selector == 'all':
+            # Find all test files
+            for d in search_dirs:
+                test_files.extend(find_files(d, ".sy"))
+        else:
+            # Prefix-filtered basic run.
+            if basic_selector.startswith('h'):
+                search_prefix = basic_selector[1:]
+                current_search_dirs = [h_functional_dir]
+            else:
+                search_prefix = basic_selector
+                current_search_dirs = [functional_dir]
+
+            all_sy = []
+            for d in current_search_dirs:
+                all_sy.extend(find_files(d, ".sy"))
+
+            for f in all_sy:
+                basename = os.path.basename(f)
+                if basename.startswith(search_prefix):
+                    test_files.append(f)
+
+            if not test_files:
+                print(f"No test files matched basic selector: {basic_selector}")
+                sys.exit(1)
+
         # Sort for consistent order
         test_files.sort()
     else:

@@ -1,7 +1,7 @@
 //! Definition of registers for Lower IR (LIR).
 
 #[repr(u8)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum XReg {
     Zero = 0, // hardwired zero
     Ra = 1,   // return address
@@ -249,7 +249,7 @@ impl From<FReg> for u8 {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Reg {
     X(XReg),
     F(FReg),

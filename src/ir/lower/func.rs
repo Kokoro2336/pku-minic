@@ -14,7 +14,6 @@ pub type VRegs = IndexedArena<VirtReg>;
 #[derive(Debug, Clone)]
 pub struct LFunction {
     pub name: String,
-    pub typ: MType,
     pub cfg: LCFG,
     pub dfg: LDFG,
     /// Virtual registers used in this function.
@@ -26,10 +25,9 @@ pub struct LFunction {
 }
 
 impl LFunction {
-    pub fn new(name: String, typ: MType) -> Self {
+    pub fn new(name: String) -> Self {
         Self {
             name,
-            typ,
             cfg: LCFG::new(),
             dfg: LDFG::new(),
             vregs: VRegs::new(),

@@ -74,7 +74,7 @@ fn type_alignment(typ: &Type) -> u32 {
         Type::Pointer { .. } => Type::Pointer {
             base: Box::new(Type::Int),
         }
-        .size_in_bytes(),
+        .size(),
         Type::Array { base, .. } => type_alignment(base),
         Type::Function { .. } => 1,
     }

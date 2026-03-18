@@ -9,14 +9,16 @@ pub type DataInfo = IndexedArena<Data>;
 
 #[derive(Debug, Clone)]
 pub struct Data {
-    offset: u32,
     size: u32,
     align: u32,
 }
 
 impl Data {
     pub fn new(typ: Type) -> Self {
-        todo!()
+        Data {
+            size: typ.size(),
+            align: typ.align(),
+        }
     }
 }
 
@@ -24,15 +26,9 @@ pub type FrameInfo = IndexedArena<Slot>;
 
 #[derive(Debug, Clone)]
 pub enum Slot {
-    Param { size: u32, align: u32, offset: i32 },
-    Local { size: u32, align: u32, offset: i32 },
-    CalleeSaved { size: u32, align: u32, offset: i32 },
-}
-
-impl Slot {
-    pub fn new(typ: Type) -> Self {
-        todo!()
-    }
+    Param { size: u32, align: u32 },
+    Local { size: u32, align: u32 },
+    CalleeSaved { size: u32, align: u32 },
 }
 
 /// TODO: implement stack frame layout and management.

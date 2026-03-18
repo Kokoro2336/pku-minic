@@ -4,6 +4,7 @@ use crate::ir::mid::{
     BasicBlock, Builder, BuilderGuard, Op, OpData, OpType, Operand, PhiIncoming, CFG, CG, DFG,
 };
 use crate::utils::arena::{Arena, ArenaItem};
+use crate::utils::r#match::{match_minor, match_ops};
 
 #[derive(Debug, Clone)]
 pub struct IR {
@@ -51,97 +52,77 @@ impl IR {
         let dfg = self.dfg_mut_or_panic(current_function, "IR add_uses: no current function");
         let data = dfg[op.get_op_id()].data.clone();
 
-        match data {
-            OpData::Load { addr } => {
-                if matches!(addr, Operand::Global(_)) {
-                } else if matches!(addr, Operand::Value(_)) {
-                    dfg.add_use(addr, op);
-                } else {
-                    panic!("IR add_uses: Load address operand is not Value or Global");
-                }
-            }
-            OpData::Store { addr, value } => {
-                if matches!(addr, Operand::Global(_)) {
-                } else if matches!(addr, Operand::Value(_)) {
-                    dfg.add_use(addr, op.clone());
-                } else {
-                    panic!("IR add_uses: Store address operand is not Value or Global");
-                }
-                dfg.add_use(value, op);
-            }
-            OpData::Br { cond, .. } => {
-                dfg.add_use(cond, op);
-            }
-            OpData::Call { args, .. } => {
-                for arg in args {
-                    dfg.add_use(arg, op.clone());
-                }
-            }
-            OpData::Ret { value } => {
-                if let Some(val) = value {
-                    dfg.add_use(val, op);
-                }
-            }
-            OpData::Phi { incomings } => {
-                for phi_incoming in incomings {
-                    if let PhiIncoming::Data { value, .. } = phi_incoming {
-                        dfg.add_use(value, op.clone());
-                    }
-                }
-            }
-
-            OpData::AddI { lhs, rhs }
-            | OpData::SubI { lhs, rhs }
-            | OpData::MulI { lhs, rhs }
-            | OpData::DivI { lhs, rhs }
-            | OpData::ModI { lhs, rhs }
-            | OpData::SNe { lhs, rhs }
-            | OpData::SEq { lhs, rhs }
-            | OpData::SGt { lhs, rhs }
-            | OpData::SLt { lhs, rhs }
-            | OpData::SGe { lhs, rhs }
-            | OpData::SLe { lhs, rhs }
-            | OpData::Xor { lhs, rhs }
-            | OpData::Shl { lhs, rhs }
-            | OpData::Shr { lhs, rhs }
-            | OpData::Sar { lhs, rhs }
-            | OpData::AddF { lhs, rhs }
-            | OpData::SubF { lhs, rhs }
-            | OpData::MulF { lhs, rhs }
-            | OpData::DivF { lhs, rhs }
-            | OpData::ONe { lhs, rhs }
-            | OpData::OEq { lhs, rhs }
-            | OpData::OGt { lhs, rhs }
-            | OpData::OLt { lhs, rhs }
-            | OpData::OGe { lhs, rhs }
-            | OpData::OLe { lhs, rhs } => {
+        match_ops! {
+            target: data,
+            bin_ops: [
+                AddI, SubI, MulI, DivI, ModI,
+                SNe, SEq, SGt, SLt, SGe, SLe,
+                Xor, Shl, Shr, Sar,
+                AddF, SubF, MulF, DivF,
+                ONe, OEq, OGt, OLt, OGe, OLe
+            ],
+            bin_arm: OpData { lhs, rhs } => {
                 dfg.add_use(lhs, op.clone());
                 dfg.add_use(rhs, op);
-            }
-
-            OpData::Sitofp { value }
-            | OpData::Fptosi { value }
-            | OpData::Uitofp { value }
-            | OpData::Zext { value } => {
+            },
+            un_ops: [Sitofp, Fptosi, Uitofp, Zext],
+            un_arm: OpData { value } => {
                 dfg.add_use(value, op);
-            }
-
-            OpData::GEP { base, indices } => {
-                if matches!(base, Operand::Global(_)) {
-                } else if matches!(base, Operand::Value(_)) {
-                    dfg.add_use(base, op.clone());
-                } else {
-                    panic!("IR add_uses: GEP base operand is not Value or Global");
+            },
+            fallback: {
+                OpData::Load { addr } => {
+                    if matches!(addr, Operand::Global(_)) {
+                    } else if matches!(addr, Operand::Value(_)) {
+                        dfg.add_use(addr, op);
+                    } else {
+                        panic!("IR add_uses: Load address operand is not Value or Global");
+                    }
                 }
-                for index in indices {
-                    dfg.add_use(index, op.clone());
+                OpData::Store { addr, value } => {
+                    if matches!(addr, Operand::Global(_)) {
+                    } else if matches!(addr, Operand::Value(_)) {
+                        dfg.add_use(addr, op.clone());
+                    } else {
+                        panic!("IR add_uses: Store address operand is not Value or Global");
+                    }
+                    dfg.add_use(value, op);
                 }
+                OpData::Br { cond, .. } => {
+                    dfg.add_use(cond, op);
+                }
+                OpData::Call { args, .. } => {
+                    for arg in args {
+                        dfg.add_use(arg, op.clone());
+                    }
+                }
+                OpData::Ret { value } => {
+                    if let Some(val) = value {
+                        dfg.add_use(val, op);
+                    }
+                }
+                OpData::Phi { incomings } => {
+                    for phi_incoming in incomings {
+                        if let PhiIncoming::Data { value, .. } = phi_incoming {
+                            dfg.add_use(value, op.clone());
+                        }
+                    }
+                }
+                OpData::GEP { base, indices } => {
+                    if matches!(base, Operand::Global(_)) {
+                    } else if matches!(base, Operand::Value(_)) {
+                        dfg.add_use(base, op.clone());
+                    } else {
+                        panic!("IR add_uses: GEP base operand is not Value or Global");
+                    }
+                    for index in indices {
+                        dfg.add_use(index, op.clone());
+                    }
+                }
+                OpData::GlobalAlloca(_)
+                | OpData::Alloca(_)
+                | OpData::Jump { .. }
+                | OpData::Declare { .. } => {}
             }
-
-            OpData::GlobalAlloca(_)
-            | OpData::Alloca(_)
-            | OpData::Jump { .. }
-            | OpData::Declare { .. } => {}
         }
     }
 
@@ -149,103 +130,83 @@ impl IR {
         let dfg = self.dfg_mut_or_panic(current_function, "IR remove_uses: no current function");
         let data = dfg[op.get_op_id()].data.clone();
 
-        match data {
-            OpData::Load { addr } => {
-                if matches!(addr, Operand::Global(_)) {
-                } else if matches!(addr, Operand::Value(_)) {
-                    dfg.remove_use(addr, op);
-                } else {
-                    panic!("IR remove_uses: Load address operand is not Value or Global");
-                }
-            }
-            OpData::Store { addr, value } => {
-                if matches!(addr, Operand::Global(_)) {
-                } else if matches!(addr, Operand::Value(_)) {
-                    dfg.remove_use(addr, op.clone());
-                } else {
-                    panic!("IR remove_uses: Store address operand is not Value or Global");
-                }
-                dfg.remove_use(value, op);
-            }
-            OpData::Br { cond, .. } => {
-                dfg.remove_use(cond, op);
-            }
-            OpData::Call { args, .. } => {
-                for arg in args {
-                    dfg.remove_use(arg, op.clone());
-                }
-            }
-            OpData::Ret { value } => {
-                if let Some(val) = value {
-                    dfg.remove_use(val, op);
-                }
-            }
-            OpData::Phi { incomings } => {
-                let mut removed = vec![];
-                for phi_incoming in incomings {
-                    if let PhiIncoming::Data { value, .. } = phi_incoming {
-                        if !removed.contains(&value) {
-                            removed.push(value.clone());
-                        } else {
-                            continue;
-                        }
-                        dfg.remove_use(value, op.clone());
-                    }
-                }
-            }
-
-            OpData::AddI { lhs, rhs }
-            | OpData::SubI { lhs, rhs }
-            | OpData::MulI { lhs, rhs }
-            | OpData::DivI { lhs, rhs }
-            | OpData::ModI { lhs, rhs }
-            | OpData::SNe { lhs, rhs }
-            | OpData::SEq { lhs, rhs }
-            | OpData::SGt { lhs, rhs }
-            | OpData::SLt { lhs, rhs }
-            | OpData::SGe { lhs, rhs }
-            | OpData::SLe { lhs, rhs }
-            | OpData::Xor { lhs, rhs }
-            | OpData::Shl { lhs, rhs }
-            | OpData::Shr { lhs, rhs }
-            | OpData::Sar { lhs, rhs }
-            | OpData::AddF { lhs, rhs }
-            | OpData::SubF { lhs, rhs }
-            | OpData::MulF { lhs, rhs }
-            | OpData::DivF { lhs, rhs }
-            | OpData::ONe { lhs, rhs }
-            | OpData::OEq { lhs, rhs }
-            | OpData::OGt { lhs, rhs }
-            | OpData::OLt { lhs, rhs }
-            | OpData::OGe { lhs, rhs }
-            | OpData::OLe { lhs, rhs } => {
+        match_ops! {
+            target: data,
+            bin_ops: [
+                AddI, SubI, MulI, DivI, ModI,
+                SNe, SEq, SGt, SLt, SGe, SLe,
+                Xor, Shl, Shr, Sar,
+                AddF, SubF, MulF, DivF,
+                ONe, OEq, OGt, OLt, OGe, OLe
+            ],
+            bin_arm: OpData { lhs, rhs } => {
                 dfg.remove_use(lhs, op.clone());
                 dfg.remove_use(rhs, op);
-            }
-
-            OpData::Sitofp { value }
-            | OpData::Fptosi { value }
-            | OpData::Uitofp { value }
-            | OpData::Zext { value } => {
+            },
+            un_ops: [Sitofp, Fptosi, Uitofp, Zext],
+            un_arm: OpData { value } => {
                 dfg.remove_use(value, op);
-            }
-
-            OpData::GEP { base, indices } => {
-                if matches!(base, Operand::Global(_)) {
-                } else if matches!(base, Operand::Value(_)) {
-                    dfg.remove_use(base, op.clone());
-                } else {
-                    panic!("IR remove_uses: GEP base operand is not Value or Global");
+            },
+            fallback: {
+                OpData::Load { addr } => {
+                    if matches!(addr, Operand::Global(_)) {
+                    } else if matches!(addr, Operand::Value(_)) {
+                        dfg.remove_use(addr, op);
+                    } else {
+                        panic!("IR remove_uses: Load address operand is not Value or Global");
+                    }
                 }
-                for index in indices {
-                    dfg.remove_use(index, op.clone());
+                OpData::Store { addr, value } => {
+                    if matches!(addr, Operand::Global(_)) {
+                    } else if matches!(addr, Operand::Value(_)) {
+                        dfg.remove_use(addr, op.clone());
+                    } else {
+                        panic!("IR remove_uses: Store address operand is not Value or Global");
+                    }
+                    dfg.remove_use(value, op);
                 }
+                OpData::Br { cond, .. } => {
+                    dfg.remove_use(cond, op);
+                }
+                OpData::Call { args, .. } => {
+                    for arg in args {
+                        dfg.remove_use(arg, op.clone());
+                    }
+                }
+                OpData::Ret { value } => {
+                    if let Some(val) = value {
+                        dfg.remove_use(val, op);
+                    }
+                }
+                OpData::Phi { incomings } => {
+                    let mut removed = vec![];
+                    for phi_incoming in incomings {
+                        if let PhiIncoming::Data { value, .. } = phi_incoming {
+                            if !removed.contains(&value) {
+                                removed.push(value.clone());
+                            } else {
+                                continue;
+                            }
+                            dfg.remove_use(value, op.clone());
+                        }
+                    }
+                }
+                OpData::GEP { base, indices } => {
+                    if matches!(base, Operand::Global(_)) {
+                    } else if matches!(base, Operand::Value(_)) {
+                        dfg.remove_use(base, op.clone());
+                    } else {
+                        panic!("IR remove_uses: GEP base operand is not Value or Global");
+                    }
+                    for index in indices {
+                        dfg.remove_use(index, op.clone());
+                    }
+                }
+                OpData::GlobalAlloca(_)
+                | OpData::Alloca(_)
+                | OpData::Jump { .. }
+                | OpData::Declare { .. } => {}
             }
-
-            OpData::GlobalAlloca(_)
-            | OpData::Alloca(_)
-            | OpData::Jump { .. }
-            | OpData::Declare { .. } => {}
         }
     }
 
@@ -268,59 +229,64 @@ impl IR {
             self.cfg_dfg_mut_or_panic(current_function, "IR add_control_flow: no current function");
         let data = dfg[op.get_op_id()].data.clone();
 
-        match data {
-            OpData::Br {
-                then_bb, else_bb, ..
-            } => {
-                cfg.add_pred(then_bb.clone(), bb.clone());
-                cfg.add_succ(bb.clone(), then_bb);
+        match_minor! {
+            target: data,
+            minor_arms: {
+                OpData::Br {
+                    then_bb, else_bb, ..
+                } => {
+                    cfg.add_pred(then_bb.clone(), bb.clone());
+                    cfg.add_succ(bb.clone(), then_bb);
 
-                cfg.add_pred(else_bb.clone(), bb.clone());
-                cfg.add_succ(bb, else_bb);
-            }
-            OpData::Jump { target_bb } => {
-                cfg.add_pred(target_bb.clone(), bb.clone());
-                cfg.add_succ(bb, target_bb);
-            }
-
-            OpData::AddF { .. }
-            | OpData::SubF { .. }
-            | OpData::MulF { .. }
-            | OpData::DivF { .. }
-            | OpData::AddI { .. }
-            | OpData::SubI { .. }
-            | OpData::MulI { .. }
-            | OpData::DivI { .. }
-            | OpData::ModI { .. }
-            | OpData::Load { .. }
-            | OpData::Store { .. }
-            | OpData::Alloca(_)
-            | OpData::Phi { .. }
-            | OpData::GlobalAlloca(_)
-            | OpData::Call { .. }
-            | OpData::GEP { .. }
-            | OpData::Sitofp { .. }
-            | OpData::Fptosi { .. }
-            | OpData::Uitofp { .. }
-            | OpData::Zext { .. }
-            | OpData::Ret { .. }
-            | OpData::Shl { .. }
-            | OpData::Shr { .. }
-            | OpData::Sar { .. }
-            | OpData::SNe { .. }
-            | OpData::SEq { .. }
-            | OpData::Xor { .. }
-            | OpData::SGt { .. }
-            | OpData::SLt { .. }
-            | OpData::SGe { .. }
-            | OpData::SLe { .. }
-            | OpData::ONe { .. }
-            | OpData::OEq { .. }
-            | OpData::OGt { .. }
-            | OpData::OLt { .. }
-            | OpData::OGe { .. }
-            | OpData::OLe { .. }
-            | OpData::Declare { .. } => {}
+                    cfg.add_pred(else_bb.clone(), bb.clone());
+                    cfg.add_succ(bb, else_bb);
+                }
+                OpData::Jump { target_bb } => {
+                    cfg.add_pred(target_bb.clone(), bb.clone());
+                    cfg.add_succ(bb, target_bb);
+                }
+            },
+            uni_ops: [
+                OpData::AddF,
+                OpData::SubF,
+                OpData::MulF,
+                OpData::DivF,
+                OpData::AddI,
+                OpData::SubI,
+                OpData::MulI,
+                OpData::DivI,
+                OpData::ModI,
+                OpData::Load,
+                OpData::Store,
+                OpData::Alloca,
+                OpData::Phi,
+                OpData::GlobalAlloca,
+                OpData::Call,
+                OpData::GEP,
+                OpData::Sitofp,
+                OpData::Fptosi,
+                OpData::Uitofp,
+                OpData::Zext,
+                OpData::Ret,
+                OpData::Shl,
+                OpData::Shr,
+                OpData::Sar,
+                OpData::SNe,
+                OpData::SEq,
+                OpData::Xor,
+                OpData::SGt,
+                OpData::SLt,
+                OpData::SGe,
+                OpData::SLe,
+                OpData::ONe,
+                OpData::OEq,
+                OpData::OGt,
+                OpData::OLt,
+                OpData::OGe,
+                OpData::OLe,
+                OpData::Declare
+            ],
+            uni_arm: {}
         }
     }
 
@@ -336,58 +302,63 @@ impl IR {
         );
         let data = dfg[op.get_op_id()].data.clone();
 
-        match data {
-            OpData::Br {
-                then_bb, else_bb, ..
-            } => {
-                cfg.remove_pred(then_bb.clone(), bb.clone());
-                cfg.remove_succ(bb.clone(), then_bb);
-                cfg.remove_pred(else_bb.clone(), bb.clone());
-                cfg.remove_succ(bb, else_bb);
-            }
-            OpData::Jump { target_bb } => {
-                cfg.remove_pred(target_bb.clone(), bb.clone());
-                cfg.remove_succ(bb, target_bb);
-            }
-
-            OpData::AddF { .. }
-            | OpData::SubF { .. }
-            | OpData::MulF { .. }
-            | OpData::DivF { .. }
-            | OpData::AddI { .. }
-            | OpData::SubI { .. }
-            | OpData::MulI { .. }
-            | OpData::DivI { .. }
-            | OpData::ModI { .. }
-            | OpData::Load { .. }
-            | OpData::Store { .. }
-            | OpData::Alloca(_)
-            | OpData::Phi { .. }
-            | OpData::GlobalAlloca(_)
-            | OpData::Call { .. }
-            | OpData::GEP { .. }
-            | OpData::Sitofp { .. }
-            | OpData::Fptosi { .. }
-            | OpData::Uitofp { .. }
-            | OpData::Zext { .. }
-            | OpData::Ret { .. }
-            | OpData::Shl { .. }
-            | OpData::Shr { .. }
-            | OpData::Sar { .. }
-            | OpData::SNe { .. }
-            | OpData::SEq { .. }
-            | OpData::Xor { .. }
-            | OpData::SGt { .. }
-            | OpData::SLt { .. }
-            | OpData::SGe { .. }
-            | OpData::SLe { .. }
-            | OpData::ONe { .. }
-            | OpData::OEq { .. }
-            | OpData::OGt { .. }
-            | OpData::OLt { .. }
-            | OpData::OGe { .. }
-            | OpData::OLe { .. }
-            | OpData::Declare { .. } => {}
+        match_minor! {
+            target: data,
+            minor_arms: {
+                OpData::Br {
+                    then_bb, else_bb, ..
+                } => {
+                    cfg.remove_pred(then_bb.clone(), bb.clone());
+                    cfg.remove_succ(bb.clone(), then_bb);
+                    cfg.remove_pred(else_bb.clone(), bb.clone());
+                    cfg.remove_succ(bb, else_bb);
+                }
+                OpData::Jump { target_bb } => {
+                    cfg.remove_pred(target_bb.clone(), bb.clone());
+                    cfg.remove_succ(bb, target_bb);
+                }
+            },
+            uni_ops: [
+                OpData::AddF,
+                OpData::SubF,
+                OpData::MulF,
+                OpData::DivF,
+                OpData::AddI,
+                OpData::SubI,
+                OpData::MulI,
+                OpData::DivI,
+                OpData::ModI,
+                OpData::Load,
+                OpData::Store,
+                OpData::Alloca,
+                OpData::Phi,
+                OpData::GlobalAlloca,
+                OpData::Call,
+                OpData::GEP,
+                OpData::Sitofp,
+                OpData::Fptosi,
+                OpData::Uitofp,
+                OpData::Zext,
+                OpData::Ret,
+                OpData::Shl,
+                OpData::Shr,
+                OpData::Sar,
+                OpData::SNe,
+                OpData::SEq,
+                OpData::Xor,
+                OpData::SGt,
+                OpData::SLt,
+                OpData::SGe,
+                OpData::SLe,
+                OpData::ONe,
+                OpData::OEq,
+                OpData::OGt,
+                OpData::OLt,
+                OpData::OGe,
+                OpData::OLe,
+                OpData::Declare
+            ],
+            uni_arm: {}
         }
     }
 
