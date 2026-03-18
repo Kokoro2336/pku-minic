@@ -2,20 +2,42 @@
 
 use crate::base::Type;
 use crate::ir::lower::LOperand;
+use crate::ir::machine::MOperand;
 use crate::utils::arena::*;
 use std::ops::{Index, IndexMut};
+
+pub type RoDataInfo = IndexedArena<RoData>;
+
+#[derive(Debug, Clone)]
+pub struct RoData {
+    inner: Vec<MOperand>,
+    size: u32,
+    align: u32,
+}
+
+impl RoData {
+    pub fn new(typ: Type, inner: Vec<MOperand>) -> Self {
+        RoData {
+            inner,
+            size: typ.size(),
+            align: typ.align(),
+        }
+    }
+}
 
 pub type DataInfo = IndexedArena<Data>;
 
 #[derive(Debug, Clone)]
 pub struct Data {
+    inner: Vec<MOperand>,
     size: u32,
     align: u32,
 }
 
 impl Data {
-    pub fn new(typ: Type) -> Self {
+    pub fn new(typ: Type, inner: Vec<MOperand>) -> Self {
         Data {
+            inner,
             size: typ.size(),
             align: typ.align(),
         }

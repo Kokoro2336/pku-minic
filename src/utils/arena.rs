@@ -74,6 +74,13 @@ where
         self.map.insert(name, idx);
     }
 
+    /// Allocate a new item with its name and return its index.
+    pub fn insert(&mut self, data: T, name: String) -> usize {
+        let idx = self.alloc(data);
+        self.add_name(name, idx);
+        idx
+    }
+
     pub fn set_entry(&mut self, idx: usize) {
         if idx >= self.storage.len() {
             panic!(

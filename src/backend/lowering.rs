@@ -4,7 +4,7 @@ use super::config::PARAM_REG_MAX_NUM;
 use crate::base::Type;
 use crate::frontend::ast::Literal;
 use crate::ir::lower::*;
-use crate::ir::machine::{Data, FReg, MType, Reg, Slot, XReg};
+use crate::ir::machine::{Data, FReg, MOperand, MType, Reg, RoData, Slot, XReg};
 use crate::ir::mid::*;
 use crate::utils::bitset::BitSet;
 use crate::utils::r#match::match_minor;
@@ -77,8 +77,63 @@ impl Lowering {
         }
     }
 
+    fn legalize_imm(&mut self, imm: LOperand) -> LOperand {
+        const INT_IMM_MAX: i32 = 2047;
+        const INT_IMM_MIN: i32 = -2048;
+
+        match_minor!(
+            target: imm,
+            minor_arms: {
+                LOperand::IntImm(imm) => {
+                    if !(INT_IMM_MIN..=INT_IMM_MAX).contains(&imm) {
+                        // create a new LoadIntImm instruction and return the LOpId.
+                        let vreg_id = self.alloc_vreg(VirtReg {
+                            defs: vec![],
+                            phys: None,
+                        });
+                        let lop_id = self.create(LOp::new(
+                            Type::Int.into(),
+                            vec![],
+                            LOpData::LoadIntImm {
+                                rd: LOperand::Undef,
+                                imm,
+                            },
+                        ));
+                        self.bind(lop_id, vreg_id.clone());
+                        vreg_id
+                    } else {
+                        LOperand::IntImm(imm)
+                    }
+                },
+                LOperand::FloatImm(imm) => {
+                    // Float can never reside in immediate field of any instrucitons,
+                    // So we always create a new LoadFloatImm instruction and return the LOpId.
+                    let vreg_id = self.alloc_vreg(VirtReg {
+                        defs: vec![],
+                        phys: None,
+                    });
+                    let lop_id = self.create(LOp::new(
+                        Type::Float.into(),
+                        vec![],
+                        LOpData::LoadFloatImm {
+                            rd: LOperand::Undef,
+                            imm,
+                        },
+                    ));
+                    self.bind(lop_id, vreg_id.clone());
+                    vreg_id
+                }
+            },
+            uni_ops: [LOperand::Undef, LOperand::Virt, LOperand::Phys, LOperand::Func, LOperand::BB, LOperand::Inst, LOperand::Data, LOperand::Slot, LOperand::RoData],
+            other_patterns: [],
+            uni_arm: {
+                unreachable!("Only IntImm and FloatImm can be immediats, but got {:?}", imm)
+            }
+        )
+    }
+
     /// Getter
-    fn get(&self, operand: Operand) -> LOperand {
+    fn get(&mut self, operand: Operand) -> LOperand {
         crate::debug::info!("get {:?}", operand);
         match operand {
             Operand::Global(id) => self.global_map[id].clone(),
@@ -87,7 +142,12 @@ impl Lowering {
             // When getting an IR value, we get Vreg of LOp.
             Operand::Value(id) => {
                 let lop_id = self.value_map[id].clone();
-                if matches!(lop_id, LOperand::Data(_) | LOperand::Slot(_)) {
+
+                // If the operand is a data or slot operand, return it directly.
+                if matches!(
+                    lop_id,
+                    LOperand::Data(_) | LOperand::Slot(_) | LOperand::RoData(_)
+                ) {
                     return lop_id;
                 }
 
@@ -96,7 +156,7 @@ impl Lowering {
 
                 match_rd! {
                     target: &lop.data,
-                    op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Uitofp, Zext, Load, Move],
+                    op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Uitofp, Zext, Load, LoadFloatImm, LoadIntImm, Move],
                     rd_arm: LOpData(rd) => {
                         rd.clone()
                     },
@@ -112,9 +172,10 @@ impl Lowering {
             }
             Operand::Param { idx, .. } => self.param_map[idx].clone(),
 
-            Operand::Bool(imm) => LOperand::IntImm(imm as i32),
-            Operand::Int(imm) => LOperand::IntImm(imm),
-            Operand::Float(imm) => LOperand::FloatImm(imm),
+            // Legalize immediats when getting 'em.
+            Operand::Bool(imm) => self.legalize_imm(LOperand::IntImm(imm as i32)),
+            Operand::Int(imm) => self.legalize_imm(LOperand::IntImm(imm)),
+            Operand::Float(imm) => self.legalize_imm(LOperand::FloatImm(imm)),
             Operand::Undefined => LOperand::Undef,
         }
     }
@@ -185,10 +246,33 @@ impl Lowering {
     }
 
     #[inline(always)]
-    fn alloc_and_map_data(&mut self, global_id: Operand, typ: Type) -> LOperand {
-        let data_id = self.lower_ir.data_info.alloc(Data::new(typ));
+    fn alloc_and_map_data(
+        &mut self,
+        global_id: Operand,
+        name: Option<String>,
+        data: Data,
+    ) -> LOperand {
+        let data_id = match name {
+            Some(name) => self.lower_ir.data_info.insert(data, name),
+            None => self.lower_ir.data_info.alloc(data),
+        };
         self.set(global_id, LOperand::Data(data_id));
         LOperand::Data(data_id)
+    }
+
+    #[inline(always)]
+    fn alloc_and_map_rodata(
+        &mut self,
+        global_id: Operand,
+        name: Option<String>,
+        rodata: RoData,
+    ) -> LOperand {
+        let rodata_id = match name {
+            Some(name) => self.lower_ir.rodata_info.insert(rodata, name),
+            None => self.lower_ir.rodata_info.alloc(rodata),
+        };
+        self.set(global_id, LOperand::Data(rodata_id));
+        LOperand::Data(rodata_id)
     }
 
     #[inline(always)]
@@ -244,6 +328,12 @@ impl Lowering {
         LOperand::Slot(slot_id)
     }
 
+    #[inline(always)]
+    fn alloc_rodata(&mut self, rodata: RoData) -> LOperand {
+        let rodata_id = self.lower_ir.rodata_info.alloc(rodata);
+        LOperand::Data(rodata_id)
+    }
+
     fn bind(&mut self, lop_id: LOperand, vreg_id: LOperand) {
         let data = &mut self.lower_ir.funcs
             [self.builder.current_function.expect("No current function")]
@@ -252,7 +342,7 @@ impl Lowering {
 
         match_rd! {
             target: data,
-            op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Uitofp, Zext, Load, Move],
+            op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Uitofp, Zext, Load, Move, LoadFloatImm, LoadIntImm],
             rd_arm: LOpData(rd) => {
                 *rd = vreg_id.clone();
             },
@@ -307,30 +397,9 @@ impl Lowering {
         let lattr = attrs
             .iter()
             .filter_map(|attr| match attr {
-                Attr::Name(_)
-                | Attr::FuncName(_)
-                | Attr::GlobalArray { .. } => {
-                    match attr {
-                        Attr::FuncName(name)
-                        | Attr::Name(name) => Some(LAttr::Name(name.clone())),
-                        Attr::GlobalArray {
-                            name,
-                            mutable,
-                            typ,
-                            values,
-                        } => Some(LAttr::GlobalArray {
-                            name: name.clone(),
-                            mutable: *mutable,
-                            typ: typ.clone(),
-                            values: values.as_ref().map(|vals| vals.iter().map(|v| match v {
-                                Literal::Int(i) => LOperand::IntImm(*i),
-                                Literal::Float(f) => LOperand::FloatImm(*f),
-                                Literal::String(_) => unreachable!("String literal should not be in the global array initializer"),
-                            }).collect()),
-                        }),
-                        Attr::OldIdx(_)
-                        | Attr::Promotion => None,
-                    }
+                Attr::Name(_) | Attr::FuncName(_) | Attr::GlobalArray { .. } => match attr {
+                    Attr::FuncName(name) | Attr::Name(name) => Some(LAttr::Name(name.clone())),
+                    Attr::GlobalArray { .. } | Attr::OldIdx(_) | Attr::Promotion => None,
                 },
                 Attr::OldIdx(_) | Attr::Promotion => None,
             })
@@ -353,25 +422,28 @@ impl Lowering {
                 match $target {
                     $(
                         OpData::$bin_op { lhs, rhs } => {
+                            let lhs = self.get(lhs.clone());
+                            let rhs = self.get(rhs.clone());
                             self.alloc_and_map_lop(op_id.clone(), LOp::new(
                                 typ.clone().into(),
                                 lattr,
                                 LOpData::$bin_op {
                                     rd: LOperand::Undef,
-                                    lhs: self.get(lhs.clone()),
-                                    rhs: self.get(rhs.clone()),
+                                    lhs,
+                                    rhs,
                                 },
                             ));
                         },
                     )*
                     $(
                         OpData::$un_op { value } => {
+                            let value = self.get(value.clone());
                             self.alloc_and_map_lop(op_id.clone(), LOp::new(
                                 typ.clone().into(),
                                 lattr,
                                 LOpData::$un_op {
                                     rd: LOperand::Undef,
-                                    value: self.get(value.clone()),
+                                    value,
                                 },
                             ));
                         },
@@ -391,31 +463,36 @@ impl Lowering {
                     then_bb,
                     else_bb,
                 } => {
+                    let cond = self.get(cond.clone());
+                    let then_bb = self.get(then_bb.clone());
+                    let else_bb = self.get(else_bb.clone());
                     self.alloc_and_map_lop(op_id.clone(),
                         LOp::new(
                             Type::Void.into(),
                             lattr,
                             LOpData::Br {
-                                cond: self.get(cond.clone()),
-                                then_bb: self.get(then_bb.clone()),
-                                else_bb: self.get(else_bb.clone()),
+                                cond,
+                                then_bb,
+                                else_bb,
                             }
                         )
                     );
                 },
                 OpData::Jump { target_bb } => {
+                    let target_bb = self.get(target_bb.clone());
                     self.alloc_and_map_lop(
                         op_id.clone(),
                         LOp::new(
                             Type::Void.into(),
                             lattr,
                             LOpData::Jump {
-                                target_bb: self.get(target_bb.clone()),
+                                target_bb,
                             },
                         ),
                     );
                 },
                 OpData::Load { addr } => {
+                    let addr = self.get(addr.clone());
                     let vreg_id = self.alloc_vreg(VirtReg {
                         defs: vec![],
                         phys: None,
@@ -427,21 +504,23 @@ impl Lowering {
                             lattr,
                             LOpData::Load {
                                 rd: LOperand::Undef,
-                                addr: self.get(addr.clone()),
+                                addr,
                             },
                         ),
                     );
                     self.bind(lop_id, vreg_id);
                 },
                 OpData::Store { addr, value } => {
+                    let addr = self.get(addr.clone());
+                    let value = self.get(value.clone());
                     self.alloc_and_map_lop(
                         op_id.clone(),
                         LOp::new(
                             Type::Void.into(),
                             lattr,
                             LOpData::Store {
-                                addr: self.get(addr.clone()),
-                                value: self.get(value.clone()),
+                                addr,
+                                value,
                             },
                         ),
                     );
@@ -463,12 +542,13 @@ impl Lowering {
                                 defs: vec![],
                                 phys: Some(param_regs.remove(0)),
                             });
+                            let arg = self.get(arg.clone());
                             let move_lop_id = self.create(LOp::new(
                                 arg_typ.clone().into(),
                                 vec![],
                                 LOpData::Move {
                                     rd: LOperand::Undef,
-                                    src: self.get(arg.clone()),
+                                    src: arg,
                                 },
                             ));
                             self.bind(move_lop_id, vreg_id);
@@ -477,24 +557,26 @@ impl Lowering {
                                 size: arg_typ.size(),
                                 align: arg_typ.align(),
                             });
+                            let arg = self.get(arg.clone());
                             self.create(LOp::new(
                                 Type::Void.into(),
                                 vec![],
                                 LOpData::Store {
                                     addr: slot_id.clone(),
-                                    value: self.get(arg.clone()),
+                                    value: arg,
                                 },
                             ));
                         }
                     }
                     // Create call instruction
 
+                    let func = self.get(func.clone());
                     self.create(LOp::new(
                         // Since call doesn't produce a value in Lower IR, the type should be void.
                         Type::Void.into(),
                         vec![],
                         LOpData::Call {
-                            func: self.get(func.clone()),
+                            func,
                         },
                     ));
 
@@ -594,6 +676,7 @@ impl Lowering {
                                 }
                             }
                             _ => {
+                                let rhs = self.get(index.clone());
                                 let mul_op = self.create(
                                     LOp::new(
                                         MType::U64,
@@ -601,7 +684,7 @@ impl Lowering {
                                         LOpData::MulI {
                                             rd: LOperand::Undef,
                                             lhs: LOperand::IntImm(base_typ.size() as i32),
-                                            rhs: self.get(index.clone()),
+                                            rhs,
                                         },
                                     ),
                                 );
@@ -632,7 +715,7 @@ impl Lowering {
                             minor_arms: {
                                 LOperand::Virt(id) => self.lower_ir.funcs[func_id].vregs[id].defs[0].clone(),
                             },
-                            uni_ops: [LOperand::Data, LOperand::Phys, LOperand::Slot, LOperand::BB, LOperand::Func, LOperand::Inst, LOperand::Undef, LOperand::IntImm, LOperand::FloatImm],
+                            uni_ops: [LOperand::Data, LOperand::Phys, LOperand::Slot, LOperand::BB, LOperand::Func, LOperand::Inst, LOperand::Undef, LOperand::IntImm, LOperand::FloatImm, LOperand::RoData],
                             other_patterns: [],
                             uni_arm: {
                                 current_lop_id
@@ -643,12 +726,13 @@ impl Lowering {
                 }
                 OpData::Ret { value } => {
                     if let Some(value) = value {
+                        let value = self.get(value.clone());
                         self.create(LOp::new(
                             typ.into(),
                             vec![],
                             LOpData::Move {
                                 rd: LOperand::Undef,
-                                src: self.get(value.clone()),
+                                src: value,
                             },
                         ));
                     }
@@ -963,8 +1047,57 @@ impl Lowering {
         for global in self.ir.globals.ids() {
             let global_op = &self.ir.globals[global];
             match global_op.data.clone() {
-                OpData::GlobalAlloca(typ) => {
-                    self.alloc_and_map_data(Operand::Global(global), typ);
+                OpData::GlobalAlloca(_) => {
+                    let res = global_op.attrs.iter().find_map(|attr| match attr {
+                        Attr::GlobalArray {
+                            name,
+                            mutable,
+                            typ,
+                            values,
+                        } => Some((name.clone(), *mutable, typ.clone(), values.clone())),
+                        _ => None,
+                    });
+                    if let Some((name, mutable, typ, values)) = res {
+                        let values = match values {
+                            Some(values) => values.iter().map(|v| match v {
+                                Literal::Int(i) => MOperand::IntImm(*i),
+                                Literal::Float(f) => MOperand::FloatImm(*f),
+                                Literal::String(s) => unimplemented!(
+                                    "String literal in global array initializer is not supported yet: {}",
+                                    s
+                                ),
+                            }).collect(),
+                            // If global array has no initializer, we need to fill it with default values according to the type.
+                            None => match &typ {
+                                Type::Int
+                                | Type::Bool => vec![MOperand::IntImm(0)],
+                                Type::Float => vec![MOperand::FloatImm(0.0)],
+                                Type::Pointer { .. } => unimplemented!("Uninitialized global pointer is not supported yet"),
+                                Type::Array { base, dims } => {
+                                    let base_value = match &**base {
+                                        Type::Int
+                                        | Type::Bool => MOperand::IntImm(0),
+                                        Type::Float => MOperand::FloatImm(0.0),
+                                        Type::Pointer { .. } => unimplemented!("Uninitialized global pointer is not supported yet"),
+                                        Type::Array { .. } => unimplemented!("Multi-dimensional array without initializer is not supported yet"),
+                                        Type::Function { .. } | Type::Void | Type::Char => unreachable!("Function, Void and Char type should not be in the global array"),
+                                    };
+                                    vec![base_value.clone(); dims.iter().product::<u32>() as usize]
+                                }
+                                Type::Function {..}
+                                | Type::Void
+                                | Type::Char => unreachable!("Function type should not be in the global array"),
+                            }
+                        };
+
+                        if mutable {
+                            let data = Data::new(typ, values);
+                            self.alloc_and_map_data(Operand::Global(global), Some(name), data);
+                        } else {
+                            let rodata = RoData::new(typ, values);
+                            self.alloc_and_map_rodata(Operand::Global(global), Some(name), rodata);
+                        }
+                    }
                 }
                 OpData::Declare { .. } => { /*Ignore it*/ }
                 _ => unreachable!("Only global alloca and declare should be in the global arena"),

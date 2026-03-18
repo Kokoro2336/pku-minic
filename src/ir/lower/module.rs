@@ -1,12 +1,13 @@
 //! Lower IR module defintion.
 
 use super::{LBuilder, LBuilderGuard, LOp, LOpData, LOperand, LCFG, LCG, LDFG};
-use crate::ir::machine::DataInfo;
+use crate::ir::machine::{DataInfo, RoDataInfo};
 use crate::utils::arena::ArenaItem;
 use crate::utils::r#match::{match_minor, match_ops};
 
 pub struct LowerIR {
     pub data_info: DataInfo,
+    pub rodata_info: RoDataInfo,
     pub funcs: LCG,
 }
 
@@ -20,6 +21,7 @@ impl LowerIR {
     pub fn new() -> Self {
         Self {
             data_info: DataInfo::new(),
+            rodata_info: RoDataInfo::new(),
             funcs: LCG::new(),
         }
     }
@@ -83,7 +85,7 @@ impl LowerIR {
                 LOpData::Move { src, .. } => {
                     dfg.add_use(src, op);
                 }
-                LOpData::Call { .. } | LOpData::Jump { .. } | LOpData::Ret => {}
+                LOpData::Call { .. } | LOpData::Jump { .. } | LOpData::Ret | LOpData::LoadIntImm {..} | LOpData::LoadFloatImm {..} => {}
             }
         }
     }
@@ -124,7 +126,7 @@ impl LowerIR {
                 LOpData::Move { src, .. } => {
                     dfg.remove_use(src, op);
                 }
-                LOpData::Call { .. } | LOpData::Jump { .. } | LOpData::Ret => {}
+                LOpData::Call { .. } | LOpData::Jump { .. } | LOpData::Ret | LOpData::LoadIntImm {..} | LOpData::LoadFloatImm {..} => {}
             }
         }
     }
@@ -207,7 +209,9 @@ impl LowerIR {
                 LOpData::Zext,
                 LOpData::Store,
                 LOpData::Load,
-                LOpData::Call
+                LOpData::Call,
+                LOpData::LoadIntImm,
+                LOpData::LoadFloatImm
             ],
             other_patterns: [LOpData::Ret],
             uni_arm: {}
@@ -275,7 +279,9 @@ impl LowerIR {
                 LOpData::Store,
                 LOpData::Load,
                 LOpData::Move,
-                LOpData::Call
+                LOpData::Call,
+                LOpData::LoadIntImm,
+                LOpData::LoadFloatImm
             ],
             other_patterns: [LOpData::Ret],
             uni_arm: {}

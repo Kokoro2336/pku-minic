@@ -4,7 +4,7 @@ use crate::base::Type;
 use crate::ir::machine::MType;
 use crate::ir::machine::Reg;
 use crate::utils::arena::*;
-use crate::utils::r#match::match_ops;
+use crate::utils::r#match::{match_minor, match_ops};
 
 use std::ops::{Index, IndexMut};
 use strum_macros::EnumDiscriminants;
@@ -31,6 +31,8 @@ pub enum LOperand {
     Slot(usize),
     /// Id of .data arena.
     Data(usize),
+    /// Id of .rodata arena.
+    RoData(usize),
 
     Undef,
 }
@@ -60,6 +62,12 @@ impl LOperand {
             LOperand::Func(id) => *id,
             _ => panic!("Not a function operand"),
         }
+    }
+    pub fn hi(imm: i32) -> Self {
+        LOperand::IntImm(imm >> 16)
+    }
+    pub fn lo(imm: i32) -> Self {
+        LOperand::IntImm(imm & 0xFFFF)
     }
 }
 
@@ -243,6 +251,18 @@ pub enum LOpData {
         src: LOperand,
     },
 
+    // Immediate Loading
+    /// Int immediate
+    LoadIntImm {
+        rd: LOperand,
+        imm: i32,
+    },
+    /// Float immediate
+    LoadFloatImm {
+        rd: LOperand,
+        imm: f32,
+    },
+
     /// Control flow
     /// Call has no return value in Lower IR.
     Call {
@@ -262,14 +282,6 @@ pub enum LOpData {
 #[derive(Debug, Clone)]
 pub enum LAttr {
     Name(String),
-    GlobalArray {
-        // if mutable -> .data; else .rodata
-        name: String,
-        mutable: bool,
-        typ: Type,
-        // None: zeroinitializer; Some: initializer list
-        values: Option<Vec<LOperand>>,
-    },
 }
 
 #[derive(Debug, Clone)]
@@ -295,17 +307,25 @@ pub type LDFG = IndexedArena<LOp>;
 
 impl IndexedArena<LOp> {
     pub fn add_use(&mut self, op_idx: LOperand, use_idx: LOperand) {
-        let op_id = match op_idx {
-            LOperand::Inst(op_id) => op_id,
-            LOperand::Virt(_)
-            | LOperand::IntImm(_)
-            | LOperand::FloatImm(_)
-            | LOperand::Func(_)
-            | LOperand::Phys(_)
-            | LOperand::Slot(_)
-            | LOperand::Data(_)
-            | LOperand::BB(_)
-            | LOperand::Undef => return,
+        let op_id = match_minor! {
+            target: op_idx,
+            minor_arms: {
+                LOperand::Inst(op_id) => op_id,
+            },
+            uni_ops: [
+                LOperand::Virt,
+                LOperand::IntImm,
+                LOperand::FloatImm,
+                LOperand::Func,
+                LOperand::Phys,
+                LOperand::Slot,
+                LOperand::Data,
+                LOperand::RoData,
+                LOperand::BB,
+                LOperand::Undef
+            ],
+            other_patterns: [],
+            uni_arm: return
         };
         let node = &mut self[op_id];
         if node.users.contains(&use_idx) {
@@ -315,17 +335,25 @@ impl IndexedArena<LOp> {
     }
 
     pub fn remove_use(&mut self, op_idx: LOperand, use_idx: LOperand) {
-        let op_id = match op_idx {
-            LOperand::Inst(op_id) => op_id,
-            LOperand::Virt(_)
-            | LOperand::IntImm(_)
-            | LOperand::FloatImm(_)
-            | LOperand::Phys(_)
-            | LOperand::Func(_)
-            | LOperand::Slot(_)
-            | LOperand::Data(_)
-            | LOperand::BB(_)
-            | LOperand::Undef => return,
+        let op_id = match_minor! {
+            target: op_idx,
+            minor_arms: {
+                LOperand::Inst(op_id) => op_id,
+            },
+            uni_ops: [
+                LOperand::Virt,
+                LOperand::IntImm,
+                LOperand::FloatImm,
+                LOperand::Phys,
+                LOperand::Func,
+                LOperand::Slot,
+                LOperand::Data,
+                LOperand::RoData,
+                LOperand::BB,
+                LOperand::Undef
+            ],
+            other_patterns: [],
+            uni_arm: return
         };
         let node = &mut self[op_id];
         if let Some(pos) = node.users.iter().position(|x| *x == use_idx) {
@@ -336,17 +364,25 @@ impl IndexedArena<LOp> {
     }
 
     pub fn replace_use(&mut self, op_idx: LOperand, old: LOperand, new: LOperand) {
-        let op_id = match op_idx {
-            LOperand::Inst(op_id) => op_id,
-            LOperand::Virt(_)
-            | LOperand::IntImm(_)
-            | LOperand::FloatImm(_)
-            | LOperand::Func(_)
-            | LOperand::Phys(_)
-            | LOperand::Slot(_)
-            | LOperand::Data(_)
-            | LOperand::BB(_)
-            | LOperand::Undef => return,
+        let op_id = match_minor! {
+            target: op_idx,
+            minor_arms: {
+                LOperand::Inst(op_id) => op_id,
+            },
+            uni_ops: [
+                LOperand::Virt,
+                LOperand::IntImm,
+                LOperand::FloatImm,
+                LOperand::Func,
+                LOperand::Phys,
+                LOperand::Slot,
+                LOperand::Data,
+                LOperand::RoData,
+                LOperand::BB,
+                LOperand::Undef
+            ],
+            other_patterns: [],
+            uni_arm: return
         };
 
         let op = &mut self[op_id];
@@ -398,7 +434,7 @@ impl IndexedArena<LOp> {
                     }
                 }
 
-                LOpData::Call { .. } | LOpData::Jump { .. } | LOpData::Ret => {}
+                LOpData::Call { .. } | LOpData::Jump { .. } | LOpData::Ret | LOpData::LoadIntImm {..} | LOpData::LoadFloatImm {..} => {}
             }
         }
 

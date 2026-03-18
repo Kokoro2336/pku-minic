@@ -95,7 +95,7 @@ fn main() -> Result<()> {
 
     // Start Lowering
     info!("Start Lowering.");
-    let mut lower_ir = Lowering::new(ir).run();
+    let _ = Lowering::new(ir).run();
     info!("Finish Lowering.");
 
     Ok(())
