@@ -3,15 +3,14 @@
 use crate::ir::machine::MType;
 use crate::ir::machine::Reg;
 use crate::utils::arena::*;
-use crate::utils::r#match::{match_minor, match_ops};
 
 use std::ops::{Index, IndexMut};
 use strum_macros::EnumDiscriminants;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct VirtReg {
     pub defs: Vec<LOperand>,
-    pub phys: Option<Reg>,
+    pub uses: Vec<LOperand>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -19,8 +18,7 @@ pub enum LOperand {
     Func(usize),
     BB(usize),
     Inst(usize),
-    Virt(usize),
-    Phys(Reg),
+    Reg(Reg),
 
     // Immediate
     IntImm(i32),
@@ -52,7 +50,7 @@ impl LOperand {
     }
     pub fn get_virt_id(&self) -> usize {
         match self {
-            LOperand::Virt(id) => *id,
+            LOperand::Reg(Reg::Virt(id)) => *id,
             _ => panic!("Not a virtual register operand"),
         }
     }
@@ -288,158 +286,17 @@ pub struct LOp {
     pub typ: MType,
     pub attrs: Vec<LAttr>,
     pub data: LOpData,
-    pub users: Vec<LOperand>,
 }
 
 impl LOp {
     pub fn new(typ: MType, attrs: Vec<LAttr>, data: LOpData) -> Self {
-        Self {
-            typ,
-            attrs,
-            data,
-            users: vec![],
-        }
+        Self { typ, attrs, data }
     }
 }
 
 pub type LDFG = IndexedArena<LOp>;
 
 impl IndexedArena<LOp> {
-    pub fn add_use(&mut self, op_idx: LOperand, use_idx: LOperand) {
-        let op_id = match_minor! {
-            target: op_idx,
-            minor_arms: {
-                LOperand::Inst(op_id) => op_id,
-            },
-            uni_ops: [
-                LOperand::Virt,
-                LOperand::IntImm,
-                LOperand::FloatImm,
-                LOperand::Func,
-                LOperand::Phys,
-                LOperand::Slot,
-                LOperand::Data,
-                LOperand::RoData,
-                LOperand::BB,
-                LOperand::Undef
-            ],
-            other_patterns: [],
-            uni_arm: return
-        };
-        let node = &mut self[op_id];
-        if node.users.contains(&use_idx) {
-            return;
-        }
-        node.users.push(use_idx);
-    }
-
-    pub fn remove_use(&mut self, op_idx: LOperand, use_idx: LOperand) {
-        let op_id = match_minor! {
-            target: op_idx,
-            minor_arms: {
-                LOperand::Inst(op_id) => op_id,
-            },
-            uni_ops: [
-                LOperand::Virt,
-                LOperand::IntImm,
-                LOperand::FloatImm,
-                LOperand::Phys,
-                LOperand::Func,
-                LOperand::Slot,
-                LOperand::Data,
-                LOperand::RoData,
-                LOperand::BB,
-                LOperand::Undef
-            ],
-            other_patterns: [],
-            uni_arm: return
-        };
-        let node = &mut self[op_id];
-        if let Some(pos) = node.users.iter().position(|x| *x == use_idx) {
-            node.users.swap_remove(pos);
-        } else {
-            panic!("Use {:?}: not found in users of op {:?}", use_idx, op_idx);
-        }
-    }
-
-    pub fn replace_use(&mut self, op_idx: LOperand, old: LOperand, new: LOperand) {
-        let op_id = match_minor! {
-            target: op_idx,
-            minor_arms: {
-                LOperand::Inst(op_id) => op_id,
-            },
-            uni_ops: [
-                LOperand::Virt,
-                LOperand::IntImm,
-                LOperand::FloatImm,
-                LOperand::Func,
-                LOperand::Phys,
-                LOperand::Slot,
-                LOperand::Data,
-                LOperand::RoData,
-                LOperand::BB,
-                LOperand::Undef
-            ],
-            other_patterns: [],
-            uni_arm: return
-        };
-
-        let op = &mut self[op_id];
-        match_ops! {
-            target: &mut op.data,
-            bin_ops: [
-                AddI, SubI, MulI, DivI, ModI,
-                SNe, SEq, SGt, SLt, SGe, SLe,
-                Xor, Shl, Shr, Sar,
-                AddF, SubF, MulF, DivF,
-                ONe, OEq, OGt, OLt, OGe, OLe
-            ],
-            bin_arm: LOpData { lhs, rhs } => {
-                if *lhs == old {
-                    *lhs = new.clone();
-                }
-                if *rhs == old {
-                    *rhs = new.clone();
-                }
-            },
-            un_ops: [Sitofp, Fptosi, Uitofp, Zext],
-            un_arm: LOpData { value } => {
-                if *value == old {
-                    *value = new.clone();
-                }
-            },
-            fallback: {
-                LOpData::Store { addr, value } => {
-                    if *addr == old {
-                        *addr = new.clone();
-                    }
-                    if *value == old {
-                        *value = new.clone();
-                    }
-                }
-                LOpData::Load { addr, .. } => {
-                    if *addr == old {
-                        *addr = new.clone();
-                    }
-                }
-                LOpData::Move { src, .. } => {
-                    if *src == old {
-                        *src = new.clone();
-                    }
-                }
-                LOpData::Br { cond, .. } => {
-                    if *cond == old {
-                        *cond = new.clone();
-                    }
-                }
-
-                LOpData::Call { .. } | LOpData::Jump { .. } | LOpData::Ret | LOpData::LoadIntImm {..} | LOpData::LoadFloatImm {..} => {}
-            }
-        }
-
-        self.remove_use(old, op_idx.clone());
-        self.add_use(new, op_idx);
-    }
 }
 
 impl Index<LOperand> for LDFG {

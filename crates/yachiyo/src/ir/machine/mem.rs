@@ -13,6 +13,7 @@ pub struct RoData {
     inner: Vec<MOperand>,
     size: u32,
     align: u32,
+    offset: i32,
 }
 
 impl RoData {
@@ -21,6 +22,7 @@ impl RoData {
             inner,
             size: typ.size(),
             align: typ.align(),
+            offset: 0,
         }
     }
 }
@@ -32,6 +34,7 @@ pub struct Data {
     inner: Vec<MOperand>,
     size: u32,
     align: u32,
+    offset: i32,
 }
 
 impl Data {
@@ -40,6 +43,7 @@ impl Data {
             inner,
             size: typ.size(),
             align: typ.align(),
+            offset: 0,
         }
     }
 }
@@ -48,9 +52,9 @@ pub type FrameInfo = IndexedArena<Slot>;
 
 #[derive(Debug, Clone)]
 pub enum Slot {
-    Param { size: u32, align: u32 },
-    Local { size: u32, align: u32 },
-    CalleeSaved { size: u32, align: u32 },
+    Param { size: u32, align: u32, offset: i32 },
+    Local { size: u32, align: u32, offset: i32 },
+    CalleeSaved { size: u32, align: u32, offset: i32 },
 }
 
 /// TODO: implement stack frame layout and management.

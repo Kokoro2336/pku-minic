@@ -300,8 +300,9 @@ impl std::fmt::Display for MOp {
 /// Operand definition for Lower IR instructions.
 #[derive(Debug, Clone)]
 pub enum MOperand {
-    Virt(usize),
-    Phys(Reg),
+    Func(usize),
+    BB(usize),
+    Reg(Reg),
     IntImm(i32),
     FloatImm(f32),
 }
@@ -310,14 +311,18 @@ pub enum MOperand {
 impl MOperand {
     pub fn get_virt(&self) -> usize {
         match self {
-            MOperand::Virt(id) => *id,
+            MOperand::Reg(Reg::Virt(id)) => *id,
             _ => panic!("Expected Virt operand, found {:?}", self),
         }
     }
 
     pub fn get_phys(&self) -> Reg {
         match self {
-            MOperand::Phys(reg) => reg.clone(),
+            MOperand::Reg(reg) => match reg {
+                Reg::X(xreg) => Reg::X(*xreg),
+                Reg::F(freg) => Reg::F(*freg),
+                Reg::Virt(_) => panic!("Expected Phys operand, found Virt {:?}", self),
+            },
             _ => panic!("Expected Phys operand, found {:?}", self),
         }
     }
@@ -340,8 +345,11 @@ impl MOperand {
 impl std::fmt::Display for MOperand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MOperand::Virt(id) => write!(f, "v{id}"),
-            MOperand::Phys(reg) => write!(f, "{reg}"),
+            MOperand::Func(id) => write!(f, "func_{id}"),
+            MOperand::BB(id) => write!(f, "bb_{id}"),
+            MOperand::Reg(Reg::Virt(id)) => write!(f, "v{id}"),
+            MOperand::Reg(Reg::X(xreg)) => write!(f, "{xreg}"),
+            MOperand::Reg(Reg::F(freg)) => write!(f, "{freg}"),
             MOperand::IntImm(v) => write!(f, "{v}"),
             MOperand::FloatImm(v) => write!(f, "{v}"),
         }

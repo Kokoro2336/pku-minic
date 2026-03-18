@@ -251,6 +251,7 @@ impl From<FReg> for u8 {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Reg {
+    Virt(usize),
     X(XReg),
     F(FReg),
 }
@@ -258,6 +259,7 @@ pub enum Reg {
 impl std::fmt::Display for Reg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Reg::Virt(id) => write!(f, "v{id}"),
             Reg::X(xreg) => write!(f, "{xreg}"),
             Reg::F(freg) => write!(f, "{freg}"),
         }

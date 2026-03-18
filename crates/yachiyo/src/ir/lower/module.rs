@@ -54,6 +54,7 @@ impl LowerIR {
         let dfg = self.dfg_mut_or_panic(current_function, "LowerIR add_uses: no current function");
         let data = dfg[op.get_inst_id()].data.clone();
 
+        let vregs = &mut self.funcs[current_function.unwrap()].vregs;
         match_ops! {
             target: data,
             bin_ops: [
@@ -64,37 +65,39 @@ impl LowerIR {
                 ONe, OEq, OGt, OLt, OGe, OLe
             ],
             bin_arm: LOpData { lhs, rhs } => {
-                dfg.add_use(lhs, op.clone());
-                dfg.add_use(rhs, op);
+                vregs.add_use(lhs, op.clone());
+                vregs.add_use(rhs, op);
             },
             un_ops: [Sitofp, Fptosi, Uitofp, Zext],
             un_arm: LOpData { value } => {
-                dfg.add_use(value, op);
+                vregs.add_use(value, op);
             },
             fallback: {
                 LOpData::Load { addr, .. } => {
-                    dfg.add_use(addr, op);
+                    vregs.add_use(addr, op);
                 }
                 LOpData::Store { addr, value } => {
-                    dfg.add_use(addr, op.clone());
-                    dfg.add_use(value, op);
+                    vregs.add_use(addr, op.clone());
+                    vregs.add_use(value, op);
                 }
                 LOpData::Br { cond, .. } => {
-                    dfg.add_use(cond, op);
+                    vregs.add_use(cond, op);
                 }
                 LOpData::Move { src, .. } => {
-                    dfg.add_use(src, op);
+                    vregs.add_use(src, op);
                 }
                 LOpData::Call { .. } | LOpData::Jump { .. } | LOpData::Ret | LOpData::LoadIntImm {..} | LOpData::LoadFloatImm {..} => {}
             }
         }
     }
 
+    /// Remove the use of the operand's vreg.
     pub fn remove_uses(&mut self, current_function: Option<usize>, op: LOperand) {
         let dfg =
             self.dfg_mut_or_panic(current_function, "LowerIR remove_uses: no current function");
         let data = dfg[op.get_inst_id()].data.clone();
 
+        let vregs = &mut self.funcs[current_function.unwrap()].vregs;
         match_ops! {
             target: data,
             bin_ops: [
@@ -105,26 +108,26 @@ impl LowerIR {
                 ONe, OEq, OGt, OLt, OGe, OLe
             ],
             bin_arm: LOpData { lhs, rhs } => {
-                dfg.remove_use(lhs, op.clone());
-                dfg.remove_use(rhs, op);
+                vregs.remove_use(lhs, op.clone());
+                vregs.remove_use(rhs, op);
             },
             un_ops: [Sitofp, Fptosi, Uitofp, Zext],
             un_arm: LOpData { value } => {
-                dfg.remove_use(value, op);
+                vregs.remove_use(value, op);
             },
             fallback: {
                 LOpData::Load { addr, .. } => {
-                    dfg.remove_use(addr, op);
+                    vregs.remove_use(addr, op);
                 }
                 LOpData::Store { addr, value } => {
-                    dfg.remove_use(addr, op.clone());
-                    dfg.remove_use(value, op);
+                    vregs.remove_use(addr, op.clone());
+                    vregs.remove_use(value, op);
                 }
                 LOpData::Br { cond, .. } => {
-                    dfg.remove_use(cond, op);
+                    vregs.remove_use(cond, op);
                 }
                 LOpData::Move { src, .. } => {
-                    dfg.remove_use(src, op);
+                    vregs.remove_use(src, op);
                 }
                 LOpData::Call { .. } | LOpData::Jump { .. } | LOpData::Ret | LOpData::LoadIntImm {..} | LOpData::LoadFloatImm {..} => {}
             }
@@ -137,13 +140,90 @@ impl LowerIR {
         old: LOperand,
         new: LOperand,
     ) {
-        let dfg = self.dfg_mut_or_panic(
-            current_function,
-            "LowerIR replace_all_uses: no current function",
-        );
-        let uses = dfg[old.get_inst_id()].users.clone();
+        let vregs = &mut self.funcs[current_function.unwrap()].vregs;
+        let uses = vregs[old.clone()].uses.clone();
+
         for use_op in uses {
-            dfg.replace_use(use_op, old.clone(), new.clone());
+            let op_id = match_minor! {
+                target: use_op,
+                minor_arms: {
+                    LOperand::Inst(op_id) => op_id,
+                },
+                uni_ops: [
+                    LOperand::Reg,
+                    LOperand::IntImm,
+                    LOperand::FloatImm,
+                    LOperand::Func,
+                    LOperand::Slot,
+                    LOperand::Data,
+                    LOperand::RoData,
+                    LOperand::BB,
+                    LOperand::Undef
+                ],
+                other_patterns: [],
+                uni_arm: return
+            };
+
+            let dfg = self.dfg_mut_or_panic(
+                current_function,
+                "LowerIR replace_all_uses: no current function",
+            );
+            let op = &mut dfg[op_id];
+            match_ops! {
+                target: &mut op.data,
+                bin_ops: [
+                    AddI, SubI, MulI, DivI, ModI,
+                    SNe, SEq, SGt, SLt, SGe, SLe,
+                    Xor, Shl, Shr, Sar,
+                    AddF, SubF, MulF, DivF,
+                    ONe, OEq, OGt, OLt, OGe, OLe
+                ],
+                bin_arm: LOpData { lhs, rhs } => {
+                    if *lhs == old {
+                        *lhs = new.clone();
+                    }
+                    if *rhs == old {
+                        *rhs = new.clone();
+                    }
+                },
+                un_ops: [Sitofp, Fptosi, Uitofp, Zext],
+                un_arm: LOpData { value } => {
+                    if *value == old {
+                        *value = new.clone();
+                    }
+                },
+                fallback: {
+                    LOpData::Store { addr, value } => {
+                        if *addr == old {
+                            *addr = new.clone();
+                        }
+                        if *value == old {
+                            *value = new.clone();
+                        }
+                    }
+                    LOpData::Load { addr, .. } => {
+                        if *addr == old {
+                            *addr = new.clone();
+                        }
+                    }
+                    LOpData::Move { src, .. } => {
+                        if *src == old {
+                            *src = new.clone();
+                        }
+                    }
+                    LOpData::Br { cond, .. } => {
+                        if *cond == old {
+                            *cond = new.clone();
+                        }
+                    }
+
+                    LOpData::Call { .. } | LOpData::Jump { .. } | LOpData::Ret | LOpData::LoadIntImm {..} | LOpData::LoadFloatImm {..} => {}
+                }
+            }
+
+            let vregs = &mut self.funcs[current_function.unwrap()].vregs;
+            vregs.remove_use(old.clone(), use_op.clone());
+            vregs.add_use(new.clone(), use_op);
         }
     }
 
@@ -409,12 +489,7 @@ impl LowerIR {
             ArenaItem::Data(data) => data,
             _ => panic!("LowerIR remove_op: dfg slot {} is not data", op_id),
         };
-        if !removed_op.users.is_empty() {
-            panic!(
-                "LowerIR remove_op: instruction still has users after removal: {:#?}",
-                removed_op.users
-            );
-        }
+        // We don't check whether the vreg defined by the removed instruction is empty, since we are not in SSA form anymore.
         removed_op
     }
 

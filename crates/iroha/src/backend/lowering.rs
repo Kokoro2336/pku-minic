@@ -1,8 +1,8 @@
 //! IR Lowering from Mid IR to Lower IR.
 
-use yachiyo::config::PARAM_REG_MAX_NUM;
-use yachiyo::base::Type;
 use yachiyo::ast::Literal;
+use yachiyo::base::Type;
+use yachiyo::config::PARAM_REG_MAX_NUM;
 use yachiyo::ir::lower::*;
 use yachiyo::ir::machine::{Data, FReg, MOperand, MType, Reg, RoData, Slot, XReg};
 use yachiyo::ir::mid::*;
@@ -87,10 +87,7 @@ impl Lowering {
                 LOperand::IntImm(imm) => {
                     if !(INT_IMM_MIN..=INT_IMM_MAX).contains(&imm) {
                         // create a new LoadIntImm instruction and return the LOpId.
-                        let vreg_id = self.alloc_vreg(VirtReg {
-                            defs: vec![],
-                            phys: None,
-                        });
+                        let vreg_id = self.alloc_vreg(VirtReg::default());
                         let lop_id = self.create(LOp::new(
                             Type::Int.into(),
                             vec![],
@@ -108,10 +105,7 @@ impl Lowering {
                 LOperand::FloatImm(imm) => {
                     // Float can never reside in immediate field of any instrucitons,
                     // So we always create a new LoadFloatImm instruction and return the LOpId.
-                    let vreg_id = self.alloc_vreg(VirtReg {
-                        defs: vec![],
-                        phys: None,
-                    });
+                    let vreg_id = self.alloc_vreg(VirtReg::default());
                     let lop_id = self.create(LOp::new(
                         Type::Float.into(),
                         vec![],
@@ -124,7 +118,7 @@ impl Lowering {
                     vreg_id
                 }
             },
-            uni_ops: [LOperand::Undef, LOperand::Virt, LOperand::Phys, LOperand::Func, LOperand::BB, LOperand::Inst, LOperand::Data, LOperand::Slot, LOperand::RoData],
+            uni_ops: [LOperand::Undef, LOperand::Reg, LOperand::Func, LOperand::BB, LOperand::Inst, LOperand::Data, LOperand::Slot, LOperand::RoData],
             other_patterns: [],
             uni_arm: {
                 unreachable!("Only IntImm and FloatImm can be immediats, but got {:?}", imm)
@@ -318,7 +312,7 @@ impl Lowering {
     fn alloc_vreg(&mut self, vreg: VirtReg) -> LOperand {
         let func_id = self.builder.current_function.expect("No current function");
         let vreg_id = self.lower_ir.funcs[func_id].vregs.alloc(vreg);
-        LOperand::Virt(vreg_id)
+        LOperand::Reg(Reg::Virt(vreg_id))
     }
 
     #[inline(always)]
@@ -334,7 +328,7 @@ impl Lowering {
         LOperand::Data(rodata_id)
     }
 
-    fn bind(&mut self, lop_id: LOperand, vreg_id: LOperand) {
+    fn bind(&mut self, lop_id: LOperand, reg: LOperand) {
         let data = &mut self.lower_ir.funcs
             [self.builder.current_function.expect("No current function")]
         .dfg[lop_id.clone()]
@@ -344,7 +338,7 @@ impl Lowering {
             target: data,
             op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Uitofp, Zext, Load, Move, LoadFloatImm, LoadIntImm],
             rd_arm: LOpData(rd) => {
-                *rd = vreg_id.clone();
+                *rd = reg.clone();
             },
             fallback: {
                 // Only Move can be binded with vreg, since other LOp with rd field are not created for temp values.
@@ -356,10 +350,12 @@ impl Lowering {
             }
         }
 
-        let vreg = &mut self.lower_ir.funcs
-            [self.builder.current_function.expect("No current function")]
-        .vregs[vreg_id];
-        vreg.defs.push(lop_id);
+        if matches!(reg, LOperand::Reg(Reg::Virt(_))) {
+            let vreg = &mut self.lower_ir.funcs
+                [self.builder.current_function.expect("No current function")]
+            .vregs[reg];
+            vreg.defs.push(lop_id);
+        }
     }
 
     fn get_param_regs(param_types: &[Type]) -> Vec<Reg> {
@@ -493,10 +489,7 @@ impl Lowering {
                 },
                 OpData::Load { addr } => {
                     let addr = self.get(addr.clone());
-                    let vreg_id = self.alloc_vreg(VirtReg {
-                        defs: vec![],
-                        phys: None,
-                    });
+                    let vreg_id = self.alloc_vreg(VirtReg::default());
                     let lop_id = self.alloc_and_map_lop(
                         op_id.clone(),
                         LOp::new(
@@ -538,10 +531,7 @@ impl Lowering {
                     for (idx, arg) in args.iter().enumerate() {
                         let arg_typ = self.get_op_type(arg.clone());
                         if idx < PARAM_REG_MAX_NUM as usize {
-                            let vreg_id = self.alloc_vreg(VirtReg {
-                                defs: vec![],
-                                phys: Some(param_regs.remove(0)),
-                            });
+                            let phys_reg = param_regs.remove(0);
                             let arg = self.get(arg.clone());
                             let move_lop_id = self.create(LOp::new(
                                 arg_typ.clone().into(),
@@ -551,11 +541,13 @@ impl Lowering {
                                     src: arg,
                                 },
                             ));
-                            self.bind(move_lop_id, vreg_id);
+                            // Bind to physical register directly.
+                            self.bind(move_lop_id, LOperand::Reg(phys_reg));
                         } else {
                             let slot_id = self.alloc_slot(Slot::Param {
                                 size: arg_typ.size(),
                                 align: arg_typ.align(),
+                                offset: 0, // We will calculate the offset in the stack frame layout phase.
                             });
                             let arg = self.get(arg.clone());
                             self.create(LOp::new(
@@ -582,10 +574,7 @@ impl Lowering {
 
                     // If the function returns a value, we create a move and bind the original VReg.
                     if typ != Type::Void {
-                        let vreg_id = self.alloc_vreg(VirtReg {
-                            defs: vec![],
-                            phys: None,
-                        });
+                        let vreg_id = self.alloc_vreg(VirtReg::default());
                         let move_lop_id = self.alloc_and_map_lop(
                             op_id.clone(),
                             LOp::new(
@@ -611,6 +600,7 @@ impl Lowering {
                     self.alloc_and_map_slot(Operand::Value(op_id.get_op_id()), Slot::Local {
                         size: typ.size(),
                         align: typ.align(),
+                        offset: 0, // We will calculate the offset in the stack frame layout phase.
                     });
                 }
                 OpData::GEP { base, indices } => {
@@ -632,10 +622,7 @@ impl Lowering {
                     for (dim, index) in indices.iter().enumerate() {
                         match &base_typ {
                             Type::Array { .. } => {
-                                let mul_vreg_id = self.alloc_vreg(VirtReg {
-                                    defs: vec![],
-                                    phys: None,
-                                });
+                                let mul_vreg_id = self.alloc_vreg(VirtReg::default());
 
                                 let mul_lop = LOp::new(
                                     MType::U64,
@@ -713,9 +700,10 @@ impl Lowering {
                         let target_id = match_minor!(
                             target: current_lop_id,
                             minor_arms: {
-                                LOperand::Virt(id) => self.lower_ir.funcs[func_id].vregs[id].defs[0].clone(),
+                                LOperand::Reg(Reg::Virt(id)) => self.lower_ir.funcs[func_id].vregs[id].defs[0].clone(),
+                                LOperand::Reg(_) => unreachable!("Only VirtReg can be the source of GEP, but got physical register"),
                             },
-                            uni_ops: [LOperand::Data, LOperand::Phys, LOperand::Slot, LOperand::BB, LOperand::Func, LOperand::Inst, LOperand::Undef, LOperand::IntImm, LOperand::FloatImm, LOperand::RoData],
+                            uni_ops: [LOperand::Data, LOperand::Slot, LOperand::BB, LOperand::Func, LOperand::Inst, LOperand::Undef, LOperand::IntImm, LOperand::FloatImm, LOperand::RoData],
                             other_patterns: [],
                             uni_arm: {
                                 current_lop_id
@@ -788,10 +776,7 @@ impl Lowering {
                 // Create moves and stack slots for parameters.
                 for (idx, param_typ) in param_types.iter().enumerate() {
                     if idx < PARAM_REG_MAX_NUM as usize {
-                        let vreg_id = self.alloc_vreg(VirtReg {
-                            defs: vec![],
-                            phys: None,
-                        });
+                        let vreg_id = self.alloc_vreg(VirtReg::default());
 
                         let lop_id = self.create(LOp::new(
                             (*param_typ).clone().into(),
@@ -799,7 +784,7 @@ impl Lowering {
                             LOpData::Move {
                                 // The rd will be filled by LBuilder::create().
                                 rd: LOperand::Undef,
-                                src: LOperand::Phys(params_reg.remove(0)),
+                                src: LOperand::Reg(params_reg.remove(0)),
                             },
                         ));
                         self.bind(lop_id, vreg_id.clone());
@@ -818,7 +803,11 @@ impl Lowering {
                                 unreachable!("Void type should not be passed as parameter")
                             }
                         };
-                        let slot_id = self.alloc_slot(Slot::Param { size, align });
+                        let slot_id = self.alloc_slot(Slot::Param {
+                            size,
+                            align,
+                            offset: 0,
+                        });
                         // Manually map the param to the slot.
                         self.param_map[idx] = slot_id;
                     }
@@ -857,8 +846,10 @@ impl Lowering {
             .dfg[move_lop_id.clone()];
             let edge = match move_lop.data.clone() {
                 LOpData::Move { src, rd } => {
-                    if let (LOperand::Virt(_), LOperand::Virt(_)) = (src.clone(), rd.clone()) {
-                        (src.get_virt_id(), rd.get_virt_id())
+                    if let (LOperand::Reg(Reg::Virt(src_id)), LOperand::Reg(Reg::Virt(rd_id))) =
+                        (src.clone(), rd.clone())
+                    {
+                        (src_id, rd_id)
                     } else {
                         continue;
                     }
@@ -878,8 +869,10 @@ impl Lowering {
                 .dfg[move_lop_id.clone()];
                 let edge = match move_lop.data.clone() {
                     LOpData::Move { src, rd } => {
-                        if let (LOperand::Virt(_), LOperand::Virt(_)) = (src.clone(), rd.clone()) {
-                            (src.get_virt_id(), rd.get_virt_id())
+                        if let (LOperand::Reg(Reg::Virt(src_id)), LOperand::Reg(Reg::Virt(rd_id))) =
+                            (src.clone(), rd.clone())
+                        {
+                            (src_id, rd_id)
                         } else {
                             continue;
                         }
@@ -900,10 +893,7 @@ impl Lowering {
                 let temp_vreg_id = self.lower_ir.funcs
                     [self.builder.current_function.expect("No current function")]
                 .vregs
-                .alloc(VirtReg {
-                    defs: vec![],
-                    phys: None,
-                });
+                .alloc(VirtReg::default());
                 let temp_lop_id = self.builder.create(
                     &mut self.lower_ir,
                     self.builder.current_function,
@@ -911,8 +901,8 @@ impl Lowering {
                         MType::U64,
                         vec![],
                         LOpData::Move {
-                            rd: LOperand::Virt(temp_vreg_id),
-                            src: LOperand::Virt(from),
+                            rd: LOperand::Reg(Reg::Virt(temp_vreg_id)),
+                            src: LOperand::Reg(Reg::Virt(from)),
                         },
                     ),
                 );
@@ -924,10 +914,10 @@ impl Lowering {
                         [self.builder.current_function.expect("No current function")]
                     .dfg[move_lop_id.clone()];
                     if let LOpData::Move { src, .. } = move_lop.data.clone() {
-                        if src == LOperand::Virt(from) {
+                        if src == LOperand::Reg(Reg::Virt(from)) {
                             match &mut move_lop.data {
                                 LOpData::Move { src, .. } => {
-                                    *src = LOperand::Virt(temp_vreg_id);
+                                    *src = LOperand::Reg(Reg::Virt(temp_vreg_id));
                                 }
                                 _ => unreachable!("Only Move LOp should be in the move_lop_ids"),
                             }
