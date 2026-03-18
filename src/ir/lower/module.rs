@@ -3,7 +3,7 @@
 use super::{LBuilder, LBuilderGuard, LOp, LOpData, LOperand, LCFG, LCG, LDFG};
 use crate::ir::machine::DataInfo;
 use crate::utils::arena::ArenaItem;
-use crate::utils::r#match::{match_minor_ops, match_ops};
+use crate::utils::r#match::{match_minor, match_ops};
 
 pub struct LowerIR {
     pub data_info: DataInfo,
@@ -157,7 +157,7 @@ impl LowerIR {
         );
         let data = dfg[op.get_inst_id()].data.clone();
 
-        match_minor_ops! {
+        match_minor! {
             target: data,
             minor_arms: {
                 LOpData::Br {
@@ -226,7 +226,7 @@ impl LowerIR {
         );
         let data = dfg[op.get_inst_id()].data.clone();
 
-        match_minor_ops! {
+        match_minor! {
             target: data,
             minor_arms: {
                 LOpData::Br {

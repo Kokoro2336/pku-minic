@@ -7,6 +7,7 @@ use crate::ir::lower::*;
 use crate::ir::machine::{Data, FReg, MType, Reg, Slot, XReg};
 use crate::ir::mid::*;
 use crate::utils::bitset::BitSet;
+use crate::utils::r#match::match_minor;
 use crate::utils::worklist::*;
 
 use rustc_hash::FxHashMap;
@@ -78,6 +79,7 @@ impl Lowering {
 
     /// Getter
     fn get(&self, operand: Operand) -> LOperand {
+        crate::debug::info!("get {:?}", operand);
         match operand {
             Operand::Global(id) => self.global_map[id].clone(),
             Operand::BB(id) => self.block_map[id].clone(),
@@ -114,6 +116,27 @@ impl Lowering {
             Operand::Int(imm) => LOperand::IntImm(imm),
             Operand::Float(imm) => LOperand::FloatImm(imm),
             Operand::Undefined => LOperand::Undef,
+        }
+    }
+
+    fn get_op_type(&self, operand: Operand) -> Type {
+        let current_function = self.builder.current_function.expect("No current function");
+        match operand {
+            Operand::Global(id) => self.ir.globals[id].typ.clone(),
+            Operand::BB(_) => unreachable!("BB operand should not be used in get_op_type"),
+            Operand::Func(id) => self.ir.funcs[id].typ.clone(),
+            Operand::Value(id) => {
+                let op = &self.ir.funcs[current_function].dfg[id];
+                op.typ.clone()
+            }
+            Operand::Param { idx, .. } => match &self.ir.funcs[current_function].typ {
+                Type::Function { param_types, .. } => param_types[idx].clone(),
+                _ => unreachable!("Only function type should be in the function arena"),
+            },
+            Operand::Bool(_) => Type::Bool,
+            Operand::Int(_) => Type::Int,
+            Operand::Float(_) => Type::Float,
+            Operand::Undefined => Type::Void,
         }
     }
 
@@ -170,6 +193,7 @@ impl Lowering {
 
     #[inline(always)]
     fn alloc_and_map_slot(&mut self, alloc_id: Operand, slot: Slot) -> LOperand {
+        crate::debug::info!("Map alloc {:?} to slot {:?}]", alloc_id, slot);
         let func_id = self.builder.current_function.expect("No current function");
         let lfunc = &mut self.lower_ir.funcs[func_id];
         let slot_id = lfunc.frame_info.alloc(slot);
@@ -271,8 +295,13 @@ impl Lowering {
         let func_id = self.builder.current_function.expect("No current function");
         let (typ, attrs, data) = {
             let op = &self.ir.funcs[func_id].dfg[op_id.clone()];
-            (op.typ.clone(), op.attrs.clone(), op.data.clone())
+            (
+                self.get_op_type(op_id.clone()),
+                op.attrs.clone(),
+                op.data.clone(),
+            )
         };
+        crate::debug::info!("Lowering {:?} {:?}", op_id, data);
 
         // Translate attrs first.
         let lattr = attrs
@@ -387,7 +416,11 @@ impl Lowering {
                     );
                 },
                 OpData::Load { addr } => {
-                    self.alloc_and_map_lop(
+                    let vreg_id = self.alloc_vreg(VirtReg {
+                        defs: vec![],
+                        phys: None,
+                    });
+                    let lop_id = self.alloc_and_map_lop(
                         op_id.clone(),
                         LOp::new(
                             typ.clone().into(),
@@ -398,6 +431,7 @@ impl Lowering {
                             },
                         ),
                     );
+                    self.bind(lop_id, vreg_id);
                 },
                 OpData::Store { addr, value } => {
                     self.alloc_and_map_lop(
@@ -414,12 +448,16 @@ impl Lowering {
                 },
                 OpData::Call { func, args } => {
                     // Create move instructions for args
-                    let mut param_regs = Self::get_param_regs(match &self.ir.funcs[func_id].typ {
-                        Type::Function { param_types, .. } => param_types,
-                        _ => unreachable!("Only function type should be in the function arena"),
-                    });
+                    let func_type = self.get_op_type(func.clone());
+                    let param_types = match &func_type {
+                        Type::Function { param_types, .. } => param_types.clone(),
+                        _ => unreachable!("Only function type can be called"),
+                    };
+                    let mut param_regs = Self::get_param_regs(
+                        &param_types[..param_types.len().min(PARAM_REG_MAX_NUM as usize)]
+                    );
                     for (idx, arg) in args.iter().enumerate() {
-                        let arg_typ = self.ir.funcs[func_id].dfg[arg.clone()].typ.clone();
+                        let arg_typ = self.get_op_type(arg.clone());
                         if idx < PARAM_REG_MAX_NUM as usize {
                             let vreg_id = self.alloc_vreg(VirtReg {
                                 defs: vec![],
@@ -495,22 +533,16 @@ impl Lowering {
                 }
                 OpData::GEP { base, indices } => {
                     // GEP is only used for array in SysY.
-                    let typ = match base {
-                        Operand::Value(id) => {
-                            let value = &self.ir.funcs[func_id].dfg[id];
-                            value.typ.clone()
-                        }
-                        Operand::Global(id) => {
-                            let global_op = &self.ir.globals[id];
-                            global_op.typ.clone()
-                        }
-                        _ => {
-                            unreachable!("Only Value and Global can be the base of GEP")
-                        }
-                    };
+                    let typ = self.get_op_type(base.clone());
                     let base_typ = match &typ {
                         Type::Pointer { base } => (**base).clone(),
                         _ => unreachable!("Only array type can be the base of GEP"),
+                    };
+                    // Truncate the first index of indices
+                    let indices = if indices.len() > 1 {
+                        indices[1..].to_vec()
+                    } else {
+                        vec![]
                     };
 
                     // Initialize the current base address with the base pointer.
@@ -548,17 +580,17 @@ impl Lowering {
                                                 rhs: mul_lop_id.clone(),
                                             },
                                         );
-                                if dim == indices.len() - 1 {
-                                    let add_lop_id = self.create(
-                                        add_lop,
-                                    );
 
-                                    // Update current base address.
-                                    current_lop_id = add_lop_id;
-                                } else {
+                                if dim == indices.len() - 1 {
                                     self.alloc_and_map_lop(
                                         op_id.clone(), add_lop
                                     );
+                                } else {
+                                    let add_lop_id = self.create(
+                                        add_lop,
+                                    );
+                                    // Update current base address.
+                                    current_lop_id = add_lop_id;
                                 }
                             }
                             _ => {
@@ -590,6 +622,23 @@ impl Lowering {
                                 );
                             }
                         }
+                    }
+
+                    // If the truncated indices is empty, we need to map the GEP to the base pointer's LOp InstId directly.
+                    if indices.is_empty() {
+                        crate::debug::info!("current_op_id: {:?}", current_lop_id);
+                        let target_id = match_minor!(
+                            target: current_lop_id,
+                            minor_arms: {
+                                LOperand::Virt(id) => self.lower_ir.funcs[func_id].vregs[id].defs[0].clone(),
+                            },
+                            uni_ops: [LOperand::Data, LOperand::Phys, LOperand::Slot, LOperand::BB, LOperand::Func, LOperand::Inst, LOperand::Undef, LOperand::IntImm, LOperand::FloatImm],
+                            other_patterns: [],
+                            uni_arm: {
+                                current_lop_id
+                            }
+                        );
+                        self.set(Operand::Value(op_id.get_op_id()), target_id);
                     }
                 }
                 OpData::Ret { value } => {
@@ -954,7 +1003,7 @@ impl Lowering {
             for (phi_id, phi_bb_id) in std::mem::take(&mut self.phis) {
                 let (typ, phi_op_data) = {
                     let op = &self.ir.funcs[func_id].dfg[Operand::Value(phi_id)];
-                    (op.typ.clone(), op.data.clone())
+                    (self.get_op_type(Operand::Value(phi_id)), op.data.clone())
                 };
 
                 if let OpData::Phi { incomings } = phi_op_data {

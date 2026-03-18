@@ -4,7 +4,7 @@ use crate::ir::mid::{
     BasicBlock, Builder, BuilderGuard, Op, OpData, OpType, Operand, PhiIncoming, CFG, CG, DFG,
 };
 use crate::utils::arena::{Arena, ArenaItem};
-use crate::utils::r#match::{match_minor_ops, match_ops};
+use crate::utils::r#match::{match_minor, match_ops};
 
 #[derive(Debug, Clone)]
 pub struct IR {
@@ -229,7 +229,7 @@ impl IR {
             self.cfg_dfg_mut_or_panic(current_function, "IR add_control_flow: no current function");
         let data = dfg[op.get_op_id()].data.clone();
 
-        match_minor_ops! {
+        match_minor! {
             target: data,
             minor_arms: {
                 OpData::Br {
@@ -302,7 +302,7 @@ impl IR {
         );
         let data = dfg[op.get_op_id()].data.clone();
 
-        match_minor_ops! {
+        match_minor! {
             target: data,
             minor_arms: {
                 OpData::Br {

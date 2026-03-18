@@ -92,7 +92,7 @@ impl Type {
         match self {
             Type::Array { base, dims } => {
                 if dim_idx >= dims.len() {
-                    panic!("Dimension index out of bounds");
+                    panic!("Dimension index out of bounds. Array has only {} dimensions, but got index {}.", dims.len(), dim_idx);
                 }
                 base.size() * dims[dim_idx..].iter().product::<u32>()
             }

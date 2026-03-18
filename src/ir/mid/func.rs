@@ -2,7 +2,7 @@ use crate::base::Type;
 use crate::debug::info;
 use crate::ir::mid::{BasicBlock, Op, OpData, Operand, PhiIncoming, CFG, DFG};
 use crate::utils::arena::*;
-use crate::utils::r#match::match_minor_ops;
+use crate::utils::r#match::match_minor;
 use std::ops::{Index, IndexMut};
 
 pub type CG = IndexedArena<Function>;
@@ -112,7 +112,7 @@ impl Arena<Function> for IndexedArena<Function> {
                 // rewrite BBId in dfg ops
                 func.dfg.storage.iter_mut().for_each(|item| {
                     if let ArenaItem::Data(op) = item {
-                        match_minor_ops! {
+                        match_minor! {
                             target: &mut op.data,
                             minor_arms: {
                                 OpData::Jump { target_bb } => {
