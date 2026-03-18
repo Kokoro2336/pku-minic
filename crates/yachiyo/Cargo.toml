@@ -1,0 +1,22 @@
+[package]
+name = "yachiyo"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+rustc-hash = { workspace = true }
+
+# Generating enums
+strum = "0.28"
+strum_macros = "0.28"
+
+# logging
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.17", features = ["fmt", "env-filter"] }
+tracing-appender = "0.2.1"
+
+# for printing graphs
+graphviz-rust = "0.9.6"
