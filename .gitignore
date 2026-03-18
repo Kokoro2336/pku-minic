@@ -10,3 +10,4 @@ graphs/
 functional_recover/
 perf/
 dump_llvm/
+crates/iroha/src/sysy.rs

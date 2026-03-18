@@ -1,34 +1,11 @@
-[package]
-name = "compiler"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = [
+    "crates/kaguya",
+    "crates/iroha",
+    "crates/yachiyo",
+]
+resolver = "2"
 
-[build-dependencies]
-lalrpop = "0.22.2"
-
-[dependencies]
-lalrpop-util = { version = "0.22.2", features = ["lexer"] }
-clap = { version = "4.4.18", features = ["derive"] }
-clap_builder = "4.4.18"
-clap_derive = "4.4.7"
-clap_lex = "0.7.7"
-libc = "0.2"
-chrono = "0.4.41"
-textwrap = "0.16.2"
-tool = "0.2.1"
-regex = "1.11.0"
-
-# Generating enums
-strum = "0.27"
-strum_macros = "0.27"
-
-# logging
-tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.17", features = ["fmt", "env-filter"] }
-tracing-appender = "0.2.1"
-
-# for printing graphs
-graphviz-rust = "0.9.6"
-
+[workspace.dependencies]
 # for hashing
-rustc-hash = "1.1.0"
+rustc-hash = "2.1.1"
