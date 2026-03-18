@@ -1,6 +1,7 @@
 //! Lower LowerIR Builder definition.
 
-use crate::ir::lower::{LOp, LOperand, LowerIR};
+use crate::ir::lower::{LOp, LowerIR};
+use crate::ir::machine::MOperand;
 
 use std::ops::{Deref, DerefMut};
 
@@ -9,15 +10,15 @@ pub struct LBuilder {
     /// current function
     pub current_function: Option<usize>,
     /// current basic block
-    pub current_block: Option<LOperand>,
+    pub current_block: Option<MOperand>,
     /// insertion point: insert before this instruction; None means append at block end.
-    pub current_inst: Option<LOperand>,
+    pub current_inst: Option<MOperand>,
 }
 
 pub struct LBuilderGuard<'a> {
     pub builder: &'a mut LBuilder,
-    current_block: Option<LOperand>,
-    current_inst: Option<LOperand>,
+    current_block: Option<MOperand>,
+    current_inst: Option<MOperand>,
 }
 
 impl<'a> LBuilderGuard<'a> {
@@ -61,12 +62,12 @@ impl LBuilder {
         self.current_inst = None;
     }
     #[inline(always)]
-    pub fn set_current_block(&mut self, block_id: LOperand) {
+    pub fn set_current_block(&mut self, block_id: MOperand) {
         self.current_block = Some(block_id);
         self.current_inst = None;
     }
     #[inline(always)]
-    pub fn set_current_inst(&mut self, inst_id: LOperand) {
+    pub fn set_current_inst(&mut self, inst_id: MOperand) {
         self.current_inst = Some(inst_id);
     }
     // set insertion point before inst
@@ -76,7 +77,7 @@ impl LBuilder {
         &mut self,
         program: &mut LowerIR,
         current_function: Option<usize>,
-        inst_id: Option<LOperand>,
+        inst_id: Option<MOperand>,
     ) {
         let cfg = program.cfg_mut_or_panic(
             current_function,
@@ -106,7 +107,7 @@ impl LBuilder {
         &mut self,
         program: &mut LowerIR,
         current_function: Option<usize>,
-        inst_id: Option<LOperand>,
+        inst_id: Option<MOperand>,
     ) {
         let cfg = program.cfg_mut_or_panic(
             current_function,
@@ -151,7 +152,7 @@ impl LBuilder {
         program: &mut LowerIR,
         current_function: Option<usize>,
         op: LOp,
-    ) -> LOperand {
+    ) -> MOperand {
         program.create(self, current_function, op)
     }
 
@@ -160,7 +161,7 @@ impl LBuilder {
         program: &mut LowerIR,
         current_function: Option<usize>,
         op: LOp,
-    ) -> LOperand {
+    ) -> MOperand {
         program.create_at_head(self, current_function, op)
     }
 
@@ -168,7 +169,7 @@ impl LBuilder {
         &mut self,
         program: &mut LowerIR,
         current_function: Option<usize>,
-    ) -> LOperand {
+    ) -> MOperand {
         program.create_new_block(current_function)
     }
 }

@@ -1,4 +1,4 @@
-use crate::ir::lower::LOperand;
+use crate::ir::machine::MOperand;
 use crate::utils::arena::*;
 use std::ops::{Index, IndexMut};
 
@@ -7,25 +7,25 @@ pub type LCFG = IndexedArena<LBasicBlock>;
 
 #[derive(Debug, Clone, Default)]
 pub struct LBasicBlock {
-    pub prev: Vec<LOperand>,
-    pub cur: Vec<LOperand>,
-    pub succs: Vec<LOperand>,
+    pub prev: Vec<MOperand>,
+    pub cur: Vec<MOperand>,
+    pub succs: Vec<MOperand>,
 }
 
 impl LCFG {
-    pub fn add_succ(&mut self, bb_idx: LOperand, succ_idx: LOperand) {
+    pub fn add_succ(&mut self, bb_idx: MOperand, succ_idx: MOperand) {
         if !self[bb_idx.get_bb_id()].succs.contains(&succ_idx) {
             self[bb_idx.get_bb_id()].succs.push(succ_idx);
         }
     }
 
-    pub fn add_pred(&mut self, bb_idx: LOperand, pred_idx: LOperand) {
+    pub fn add_pred(&mut self, bb_idx: MOperand, pred_idx: MOperand) {
         if !self[bb_idx.get_bb_id()].prev.contains(&pred_idx) {
             self[bb_idx.get_bb_id()].prev.push(pred_idx);
         }
     }
 
-    pub fn remove_succ(&mut self, bb_idx: LOperand, succ_idx: LOperand) {
+    pub fn remove_succ(&mut self, bb_idx: MOperand, succ_idx: MOperand) {
         if let Some(pos) = self[bb_idx.get_bb_id()]
             .succs
             .iter()
@@ -42,7 +42,7 @@ impl LCFG {
         }
     }
 
-    pub fn remove_pred(&mut self, bb_idx: LOperand, pred_idx: LOperand) {
+    pub fn remove_pred(&mut self, bb_idx: MOperand, pred_idx: MOperand) {
         if let Some(pos) = self[bb_idx.get_bb_id()]
             .prev
             .iter()
@@ -60,22 +60,22 @@ impl LCFG {
     }
 }
 
-impl Index<LOperand> for LCFG {
+impl Index<MOperand> for LCFG {
     type Output = LBasicBlock;
 
-    fn index(&self, index: LOperand) -> &Self::Output {
+    fn index(&self, index: MOperand) -> &Self::Output {
         match index {
-            LOperand::BB(id) => self.get(id).unwrap(),
-            _ => panic!("LCFG index: expected LOperand::BB, got {:?}", index),
+            MOperand::BB(id) => self.get(id).unwrap(),
+            _ => panic!("LCFG index: expected MOperand::BB, got {:?}", index),
         }
     }
 }
 
-impl IndexMut<LOperand> for LCFG {
-    fn index_mut(&mut self, index: LOperand) -> &mut Self::Output {
+impl IndexMut<MOperand> for LCFG {
+    fn index_mut(&mut self, index: MOperand) -> &mut Self::Output {
         match index {
-            LOperand::BB(id) => self.get_mut(id).unwrap(),
-            _ => panic!("LCFG index_mut: expected LOperand::BB, got {:?}", index),
+            MOperand::BB(id) => self.get_mut(id).unwrap(),
+            _ => panic!("LCFG index_mut: expected MOperand::BB, got {:?}", index),
         }
     }
 }

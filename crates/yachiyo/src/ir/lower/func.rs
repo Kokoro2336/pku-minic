@@ -1,7 +1,7 @@
 //! LFunction definition.
 
-use crate::ir::lower::{LOperand, VirtReg, LCFG, LDFG};
-use crate::ir::machine::{FrameInfo, Reg};
+use crate::ir::lower::{LCFG, LDFG};
+use crate::ir::machine::{FrameInfo, Reg, MOperand, VirtReg};
 use crate::utils::arena::*;
 use crate::utils::r#match::match_minor;
 
@@ -36,44 +36,44 @@ impl LFunction {
     }
 }
 
-impl Index<LOperand> for LCG {
+impl Index<MOperand> for LCG {
     type Output = LFunction;
 
-    fn index(&self, index: LOperand) -> &Self::Output {
+    fn index(&self, index: MOperand) -> &Self::Output {
         match index {
-            LOperand::Func(id) => self.get(id).unwrap(),
-            _ => panic!("LCG index: expected LOperand::Func, got {:?}", index),
+            MOperand::Func(id) => self.get(id).unwrap(),
+            _ => panic!("LCG index: expected MOperand::Func, got {:?}", index),
         }
     }
 }
 
-impl IndexMut<LOperand> for LCG {
-    fn index_mut(&mut self, index: LOperand) -> &mut Self::Output {
+impl IndexMut<MOperand> for LCG {
+    fn index_mut(&mut self, index: MOperand) -> &mut Self::Output {
         match index {
-            LOperand::Func(id) => self.get_mut(id).unwrap(),
-            _ => panic!("LCG index_mut: expected LOperand::Func, got {:?}", index),
+            MOperand::Func(id) => self.get_mut(id).unwrap(),
+            _ => panic!("LCG index_mut: expected MOperand::Func, got {:?}", index),
         }
     }
 }
 
 impl VRegs {
-    pub fn add_use(&mut self, vreg_id: LOperand, use_op_id: LOperand) {
+    pub fn add_use(&mut self, vreg_id: MOperand, use_op_id: MOperand) {
         let op_id = match_minor! {
             target: vreg_id,
             minor_arms: {
-                LOperand::Reg(Reg::Virt(id)) => id,
-                LOperand::Reg(_) => panic!("Expected VirtReg operand, found PhysReg {:?}", vreg_id),
+                MOperand::Reg(Reg::Virt(id)) => id,
+                MOperand::Reg(_) => panic!("Expected VirtReg operand, found PhysReg {:?}", vreg_id),
             },
             uni_ops: [
-                LOperand::IntImm,
-                LOperand::FloatImm,
-                LOperand::Func,
-                LOperand::Inst,
-                LOperand::Slot,
-                LOperand::Data,
-                LOperand::RoData,
-                LOperand::BB,
-                LOperand::Undef
+                MOperand::IntImm,
+                MOperand::FloatImm,
+                MOperand::Func,
+                MOperand::Inst,
+                MOperand::Slot,
+                MOperand::Data,
+                MOperand::RoData,
+                MOperand::BB,
+                MOperand::Undef
             ],
             other_patterns: [],
             uni_arm: return
@@ -86,23 +86,23 @@ impl VRegs {
     }
 
     /// op_idx: VReg, use_idx: Inst that uses the VReg.
-    pub fn remove_use(&mut self, vreg_id: LOperand, use_op_id: LOperand) {
+    pub fn remove_use(&mut self, vreg_id: MOperand, use_op_id: MOperand) {
         let op_id = match_minor! {
             target: vreg_id,
             minor_arms: {
-                LOperand::Reg(Reg::Virt(id)) => id,
-                LOperand::Reg(_) => panic!("Expected VirtReg operand, found PhysReg {:?}", vreg_id),
+                MOperand::Reg(Reg::Virt(id)) => id,
+                MOperand::Reg(_) => panic!("Expected VirtReg operand, found PhysReg {:?}", vreg_id),
             },
             uni_ops: [
-                LOperand::IntImm,
-                LOperand::FloatImm,
-                LOperand::Inst,
-                LOperand::Func,
-                LOperand::Slot,
-                LOperand::Data,
-                LOperand::RoData,
-                LOperand::BB,
-                LOperand::Undef
+                MOperand::IntImm,
+                MOperand::FloatImm,
+                MOperand::Inst,
+                MOperand::Func,
+                MOperand::Slot,
+                MOperand::Data,
+                MOperand::RoData,
+                MOperand::BB,
+                MOperand::Undef
             ],
             other_patterns: [],
             uni_arm: return
@@ -119,26 +119,26 @@ impl VRegs {
     }
 }
 
-impl Index<LOperand> for VRegs {
+impl Index<MOperand> for VRegs {
     type Output = VirtReg;
 
-    fn index(&self, index: LOperand) -> &Self::Output {
+    fn index(&self, index: MOperand) -> &Self::Output {
         match index {
-            LOperand::Reg(Reg::Virt(id)) => self.get(id).unwrap(),
+            MOperand::Reg(Reg::Virt(id)) => self.get(id).unwrap(),
             _ => panic!(
-                "VRegs index: expected LOperand::Reg(Reg::Virt), got {:?}",
+                "VRegs index: expected MOperand::Reg(Reg::Virt), got {:?}",
                 index
             ),
         }
     }
 }
 
-impl IndexMut<LOperand> for VRegs {
-    fn index_mut(&mut self, index: LOperand) -> &mut Self::Output {
+impl IndexMut<MOperand> for VRegs {
+    fn index_mut(&mut self, index: MOperand) -> &mut Self::Output {
         match index {
-            LOperand::Reg(Reg::Virt(id)) => self.get_mut(id).unwrap(),
+            MOperand::Reg(Reg::Virt(id)) => self.get_mut(id).unwrap(),
             _ => panic!(
-                "VRegs index_mut: expected LOperand::Reg(Reg::Virt), got {:?}",
+                "VRegs index_mut: expected MOperand::Reg(Reg::Virt), got {:?}",
                 index
             ),
         }

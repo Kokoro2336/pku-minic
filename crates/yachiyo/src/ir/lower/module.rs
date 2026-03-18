@@ -1,6 +1,7 @@
 //! Lower IR module defintion.
 
-use super::{LBuilder, LBuilderGuard, LOp, LOpData, LOperand, LCFG, LCG, LDFG};
+use super::{LBuilder, LBuilderGuard, LOp, LOpData, LCFG, LCG, LDFG};
+use crate::ir::machine::MOperand;
 use crate::ir::machine::{DataInfo, RoDataInfo};
 use crate::utils::arena::ArenaItem;
 use crate::utils::r#match::{match_minor, match_ops};
@@ -50,7 +51,7 @@ impl LowerIR {
         (&mut func.cfg, &mut func.dfg)
     }
 
-    pub fn add_uses(&mut self, current_function: Option<usize>, op: LOperand) {
+    pub fn add_uses(&mut self, current_function: Option<usize>, op: MOperand) {
         let dfg = self.dfg_mut_or_panic(current_function, "LowerIR add_uses: no current function");
         let data = dfg[op.get_inst_id()].data.clone();
 
@@ -92,7 +93,7 @@ impl LowerIR {
     }
 
     /// Remove the use of the operand's vreg.
-    pub fn remove_uses(&mut self, current_function: Option<usize>, op: LOperand) {
+    pub fn remove_uses(&mut self, current_function: Option<usize>, op: MOperand) {
         let dfg =
             self.dfg_mut_or_panic(current_function, "LowerIR remove_uses: no current function");
         let data = dfg[op.get_inst_id()].data.clone();
@@ -137,8 +138,8 @@ impl LowerIR {
     pub fn replace_all_uses(
         &mut self,
         current_function: Option<usize>,
-        old: LOperand,
-        new: LOperand,
+        old: MOperand,
+        new: MOperand,
     ) {
         let vregs = &mut self.funcs[current_function.unwrap()].vregs;
         let uses = vregs[old.clone()].uses.clone();
@@ -147,18 +148,18 @@ impl LowerIR {
             let op_id = match_minor! {
                 target: use_op,
                 minor_arms: {
-                    LOperand::Inst(op_id) => op_id,
+                    MOperand::Inst(op_id) => op_id,
                 },
                 uni_ops: [
-                    LOperand::Reg,
-                    LOperand::IntImm,
-                    LOperand::FloatImm,
-                    LOperand::Func,
-                    LOperand::Slot,
-                    LOperand::Data,
-                    LOperand::RoData,
-                    LOperand::BB,
-                    LOperand::Undef
+                    MOperand::Reg,
+                    MOperand::IntImm,
+                    MOperand::FloatImm,
+                    MOperand::Func,
+                    MOperand::Slot,
+                    MOperand::Data,
+                    MOperand::RoData,
+                    MOperand::BB,
+                    MOperand::Undef
                 ],
                 other_patterns: [],
                 uni_arm: return
@@ -230,8 +231,8 @@ impl LowerIR {
     pub fn add_control_flow(
         &mut self,
         current_function: Option<usize>,
-        op: LOperand,
-        bb: LOperand,
+        op: MOperand,
+        bb: MOperand,
     ) {
         let (cfg, dfg) = self.cfg_dfg_mut_or_panic(
             current_function,
@@ -301,8 +302,8 @@ impl LowerIR {
     pub fn remove_control_flow(
         &mut self,
         current_function: Option<usize>,
-        op: LOperand,
-        bb: LOperand,
+        op: MOperand,
+        bb: MOperand,
     ) {
         let (cfg, dfg) = self.cfg_dfg_mut_or_panic(
             current_function,
@@ -373,7 +374,7 @@ impl LowerIR {
         builder: &LBuilder,
         current_function: Option<usize>,
         op: LOp,
-    ) -> LOperand {
+    ) -> MOperand {
         let (cfg, dfg) =
             self.cfg_dfg_mut_or_panic(current_function, "LowerIR create: no current function");
 
@@ -396,11 +397,11 @@ impl LowerIR {
                         current_inst, builder.current_block
                     )
                 });
-            let op_id = LOperand::Inst(new_id);
+            let op_id = MOperand::Inst(new_id);
             bb.cur.insert(pos, op_id.clone());
             op_id
         } else {
-            let op_id = LOperand::Inst(new_id);
+            let op_id = MOperand::Inst(new_id);
             bb.cur.push(op_id.clone());
             op_id
         };
@@ -419,7 +420,7 @@ impl LowerIR {
         builder: &mut LBuilder,
         current_function: Option<usize>,
         op: LOp,
-    ) -> LOperand {
+    ) -> MOperand {
         let bb_id = match &builder.current_block {
             Some(block) => block.get_bb_id(),
             None => panic!("LowerIR create_at_head: current_block is None"),
@@ -442,20 +443,20 @@ impl LowerIR {
         self.create(builder, current_function, op)
     }
 
-    pub fn create_new_block(&mut self, current_function: Option<usize>) -> LOperand {
+    pub fn create_new_block(&mut self, current_function: Option<usize>) -> MOperand {
         let cfg = self.cfg_mut_or_panic(
             current_function,
             "LowerIR create_new_block: no current function",
         );
         let bb_id = cfg.alloc(super::LBasicBlock::default());
-        LOperand::BB(bb_id)
+        MOperand::BB(bb_id)
     }
 
     pub fn remove_op(
         &mut self,
         current_function: Option<usize>,
-        op: LOperand,
-        bb: Option<LOperand>,
+        op: MOperand,
+        bb: Option<MOperand>,
     ) -> LOp {
         self.remove_uses(current_function, op.clone());
         if let Some(bb_id) = bb.clone() {
@@ -497,10 +498,10 @@ impl LowerIR {
         &mut self,
         builder: &mut LBuilder,
         current_function: Option<usize>,
-        op_id: LOperand,
-        bb_id: LOperand,
+        op_id: MOperand,
+        bb_id: MOperand,
         new_op: LOp,
-    ) -> LOperand {
+    ) -> MOperand {
         let pos = {
             let cfg =
                 self.cfg_mut_or_panic(current_function, "LowerIR replace_op: no current function");
@@ -533,10 +534,10 @@ impl LowerIR {
     pub fn move_op_to_bb_at(
         &mut self,
         current_function: Option<usize>,
-        op: LOperand,
-        old_bb: LOperand,
-        new_bb: LOperand,
-        pos: Option<LOperand>,
+        op: MOperand,
+        old_bb: MOperand,
+        new_bb: MOperand,
+        pos: Option<MOperand>,
     ) {
         let cfg = self.cfg_mut_or_panic(
             current_function,

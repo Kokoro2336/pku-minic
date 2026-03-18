@@ -1,11 +1,12 @@
-use yachiyo::base::Type;
-use yachiyo::base::SYSY_LIB;
+//! Emit basic IR.
+
 use crate::frontend::ast;
 use crate::frontend::ast::*;
 use crate::frontend::semantic::decay;
+use yachiyo::base::Type;
+use yachiyo::base::SYSY_LIB;
 use yachiyo::ir::mid;
 use yachiyo::ir::mid::*;
-use yachiyo::ir::mid::{Builder, LoopInfo};
 use yachiyo::utils::table::SymbolTable;
 
 use std::collections::HashMap;

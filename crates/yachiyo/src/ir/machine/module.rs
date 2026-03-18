@@ -103,11 +103,6 @@ impl MachineIR {
         &mut self.funcs[idx].cfg
     }
 
-    fn dfg_mut_or_panic(&mut self, current_function: Option<usize>, msg: &str) -> &mut MDFG {
-        let idx = current_function.unwrap_or_else(|| panic!("{}", msg));
-        &mut self.funcs[idx].dfg
-    }
-
     fn cfg_dfg_mut_or_panic(
         &mut self,
         current_function: Option<usize>,

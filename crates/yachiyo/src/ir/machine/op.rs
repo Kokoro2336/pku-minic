@@ -297,61 +297,80 @@ impl std::fmt::Display for MOp {
     }
 }
 
-/// Operand definition for Lower IR instructions.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
+pub struct VirtReg {
+    pub defs: Vec<MOperand>,
+    pub uses: Vec<MOperand>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum MOperand {
     Func(usize),
     BB(usize),
+    Inst(usize),
     Reg(Reg),
+
+    // Immediate
     IntImm(i32),
     FloatImm(f32),
-}
 
-#[allow(unused)]
-impl MOperand {
-    pub fn get_virt(&self) -> usize {
-        match self {
-            MOperand::Reg(Reg::Virt(id)) => *id,
-            _ => panic!("Expected Virt operand, found {:?}", self),
-        }
-    }
+    /// Id of frame slot
+    Slot(usize),
+    /// Id of .data arena.
+    Data(usize),
+    /// Id of .rodata arena.
+    RoData(usize),
 
-    pub fn get_phys(&self) -> Reg {
-        match self {
-            MOperand::Reg(reg) => match reg {
-                Reg::X(xreg) => Reg::X(*xreg),
-                Reg::F(freg) => Reg::F(*freg),
-                Reg::Virt(_) => panic!("Expected Phys operand, found Virt {:?}", self),
-            },
-            _ => panic!("Expected Phys operand, found {:?}", self),
-        }
-    }
-
-    pub fn get_int_imm(&self) -> i32 {
-        match self {
-            MOperand::IntImm(imm) => *imm,
-            _ => panic!("Expected IntImm operand, found {:?}", self),
-        }
-    }
-
-    pub fn get_float_imm(&self) -> f32 {
-        match self {
-            MOperand::FloatImm(imm) => *imm,
-            _ => panic!("Expected FloatImm operand, found {:?}", self),
-        }
-    }
+    Undef,
 }
 
 impl std::fmt::Display for MOperand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MOperand::Func(id) => write!(f, "func_{id}"),
-            MOperand::BB(id) => write!(f, "bb_{id}"),
-            MOperand::Reg(Reg::Virt(id)) => write!(f, "v{id}"),
-            MOperand::Reg(Reg::X(xreg)) => write!(f, "{xreg}"),
-            MOperand::Reg(Reg::F(freg)) => write!(f, "{freg}"),
-            MOperand::IntImm(v) => write!(f, "{v}"),
-            MOperand::FloatImm(v) => write!(f, "{v}"),
+            MOperand::Func(id) => write!(f, "fn.{id}"),
+            MOperand::BB(id) => write!(f, "bb.{id}"),
+            MOperand::Inst(id) => write!(f, "inst.{id}"),
+            MOperand::Reg(reg) => write!(f, "{reg}"),
+            MOperand::IntImm(imm) => write!(f, "{imm}"),
+            MOperand::FloatImm(imm) => write!(f, "{imm}"),
+            MOperand::Slot(id) => write!(f, "slot.{id}"),
+            MOperand::Data(id) => write!(f, "data.{id}"),
+            MOperand::RoData(id) => write!(f, "rodata.{id}"),
+            MOperand::Undef => write!(f, "undef"),
         }
+    }
+}
+
+#[allow(unused)]
+impl MOperand {
+    pub fn get_bb_id(&self) -> usize {
+        match self {
+            MOperand::BB(id) => *id,
+            _ => panic!("Not a basic block operand"),
+        }
+    }
+    pub fn get_inst_id(&self) -> usize {
+        match self {
+            MOperand::Inst(id) => *id,
+            _ => panic!("Not an instruction operand"),
+        }
+    }
+    pub fn get_virt_id(&self) -> usize {
+        match self {
+            MOperand::Reg(Reg::Virt(id)) => *id,
+            _ => panic!("Not a virtual register operand"),
+        }
+    }
+    pub fn get_func_id(&self) -> usize {
+        match self {
+            MOperand::Func(id) => *id,
+            _ => panic!("Not a function operand"),
+        }
+    }
+    pub fn hi(imm: i32) -> Self {
+        MOperand::IntImm(imm >> 16)
+    }
+    pub fn lo(imm: i32) -> Self {
+        MOperand::IntImm(imm & 0xFFFF)
     }
 }

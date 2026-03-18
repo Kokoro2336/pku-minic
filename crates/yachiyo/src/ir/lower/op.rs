@@ -1,72 +1,10 @@
 //! Operand definition for Lower IR instructions.
 
-use crate::ir::machine::MType;
-use crate::ir::machine::Reg;
+use crate::ir::machine::{MOperand, MType};
 use crate::utils::arena::*;
 
 use std::ops::{Index, IndexMut};
 use strum_macros::EnumDiscriminants;
-
-#[derive(Debug, Clone, Default)]
-pub struct VirtReg {
-    pub defs: Vec<LOperand>,
-    pub uses: Vec<LOperand>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum LOperand {
-    Func(usize),
-    BB(usize),
-    Inst(usize),
-    Reg(Reg),
-
-    // Immediate
-    IntImm(i32),
-    FloatImm(f32),
-
-    /// Id of frame slot
-    Slot(usize),
-    /// Id of .data arena.
-    Data(usize),
-    /// Id of .rodata arena.
-    RoData(usize),
-
-    Undef,
-}
-
-#[allow(unused)]
-impl LOperand {
-    pub fn get_bb_id(&self) -> usize {
-        match self {
-            LOperand::BB(id) => *id,
-            _ => panic!("Not a basic block operand"),
-        }
-    }
-    pub fn get_inst_id(&self) -> usize {
-        match self {
-            LOperand::Inst(id) => *id,
-            _ => panic!("Not an instruction operand"),
-        }
-    }
-    pub fn get_virt_id(&self) -> usize {
-        match self {
-            LOperand::Reg(Reg::Virt(id)) => *id,
-            _ => panic!("Not a virtual register operand"),
-        }
-    }
-    pub fn get_func_id(&self) -> usize {
-        match self {
-            LOperand::Func(id) => *id,
-            _ => panic!("Not a function operand"),
-        }
-    }
-    pub fn hi(imm: i32) -> Self {
-        LOperand::IntImm(imm >> 16)
-    }
-    pub fn lo(imm: i32) -> Self {
-        LOperand::IntImm(imm & 0xFFFF)
-    }
-}
 
 #[derive(Debug, Clone, EnumDiscriminants)]
 // Specify the type enum's name
@@ -77,107 +15,107 @@ pub enum LOpData {
     /* regular instructions */
     /// Integer
     AddI {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     SubI {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     MulI {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     DivI {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     ModI {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
 
     // The comparisons are logical.
     Xor {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
 
     // Comparison(S: Signed. And SysY only has signed comparison)
     SNe {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     SEq {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     SGt {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     SLt {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     SGe {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     SLe {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
 
     // Bitwise shift
     Shl {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     Shr {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     Sar {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
 
     /// Float
     AddF {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     SubF {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     MulF {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     DivF {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     // Mod is invalid for float in SysY
 
@@ -185,93 +123,93 @@ pub enum LOpData {
 
     // Comparison. SysY doesn't support NaN, so we only have one type of comparison here.
     ONe {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     OEq {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     OGt {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     OLt {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     OGe {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
     OLe {
-        rd: LOperand,
-        lhs: LOperand,
-        rhs: LOperand,
+        rd: MOperand,
+        lhs: MOperand,
+        rhs: MOperand,
     },
 
     /// Cast operations
     Sitofp {
-        rd: LOperand,
-        value: LOperand,
+        rd: MOperand,
+        value: MOperand,
     }, // int to float
     Fptosi {
-        rd: LOperand,
-        value: LOperand,
+        rd: MOperand,
+        value: MOperand,
     }, // float to int
     Uitofp {
-        rd: LOperand,
-        value: LOperand,
+        rd: MOperand,
+        value: MOperand,
     }, // bool to float
     Zext {
-        rd: LOperand,
-        value: LOperand,
+        rd: MOperand,
+        value: MOperand,
     }, // bool to int
 
     // SysY doesn't support bitwise shift for float
     /// Memory operations
     Store {
-        addr: LOperand,
-        value: LOperand,
+        addr: MOperand,
+        value: MOperand,
     },
     Load {
-        rd: LOperand,
-        addr: LOperand,
+        rd: MOperand,
+        addr: MOperand,
     },
     Move {
-        rd: LOperand,
-        src: LOperand,
+        rd: MOperand,
+        src: MOperand,
     },
 
     // Immediate Loading
     /// Int immediate
     LoadIntImm {
-        rd: LOperand,
+        rd: MOperand,
         imm: i32,
     },
     /// Float immediate
     LoadFloatImm {
-        rd: LOperand,
+        rd: MOperand,
         imm: f32,
     },
 
     /// Control flow
     /// Call has no return value in Lower IR.
     Call {
-        func: LOperand,
+        func: MOperand,
     },
     Br {
-        cond: LOperand,
-        then_bb: LOperand,
-        else_bb: LOperand,
+        cond: MOperand,
+        then_bb: MOperand,
+        else_bb: MOperand,
     },
     Jump {
-        target_bb: LOperand,
+        target_bb: MOperand,
     },
     Ret,
 }
@@ -296,24 +234,23 @@ impl LOp {
 
 pub type LDFG = IndexedArena<LOp>;
 
-impl IndexedArena<LOp> {
-}
+impl IndexedArena<LOp> {}
 
-impl Index<LOperand> for LDFG {
+impl Index<MOperand> for LDFG {
     type Output = LOp;
 
-    fn index(&self, index: LOperand) -> &Self::Output {
+    fn index(&self, index: MOperand) -> &Self::Output {
         match index {
-            LOperand::Inst(id) => &self[id],
+            MOperand::Inst(id) => &self[id],
             _ => panic!("Invalid operand index: {:?}", index),
         }
     }
 }
 
-impl IndexMut<LOperand> for LDFG {
-    fn index_mut(&mut self, index: LOperand) -> &mut Self::Output {
+impl IndexMut<MOperand> for LDFG {
+    fn index_mut(&mut self, index: MOperand) -> &mut Self::Output {
         match index {
-            LOperand::Inst(id) => &mut self[id],
+            MOperand::Inst(id) => &mut self[id],
             _ => panic!("Invalid operand index: {:?}", index),
         }
     }
