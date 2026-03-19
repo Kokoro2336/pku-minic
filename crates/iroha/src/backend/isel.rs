@@ -19,5 +19,21 @@ impl ISel {
         }
     }
 
-    pub fn trans_globals(&mut self) {}
+    pub fn init(&mut self, func_id: usize) {
+        self.builder.set_current_func(Some(func_id));
+    }
+
+    pub fn select(&mut self) {
+        todo!()
+    }
+
+    pub fn run(&mut self) -> MachineIR {
+        // Transport DataInfo and RoDataInfo.
+        self.machine_ir.rodata_info = std::mem::take(&mut self.lower_ir.rodata_info);
+        self.machine_ir.data_info = std::mem::take(&mut self.lower_ir.data_info);
+
+        // Pre-allocate functions
+
+        std::mem::take(&mut self.machine_ir)
+    }
 }

@@ -89,5 +89,7 @@ fn main() -> Result<()> {
     let _ = Lowering::new(ir).run();
     info!("Finish Lowering.");
 
+    // Dump the asm.
+
     Ok(())
 }

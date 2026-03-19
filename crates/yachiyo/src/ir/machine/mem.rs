@@ -39,6 +39,18 @@ impl RoData {
             align: typ.align(),
         }
     }
+
+    pub fn inner(&self) -> &[MOperand] {
+        &self.inner
+    }
+
+    pub fn size(&self) -> u32 {
+        self.size
+    }
+
+    pub fn align(&self) -> u32 {
+        self.align
+    }
 }
 
 impl MemInfo for RoDataInfo {
@@ -69,6 +81,18 @@ impl Data {
             size: typ.size(),
             align: typ.align(),
         }
+    }
+
+    pub fn inner(&self) -> &[MOperand] {
+        &self.inner
+    }
+
+    pub fn size(&self) -> u32 {
+        self.size
+    }
+
+    pub fn align(&self) -> u32 {
+        self.align
     }
 }
 

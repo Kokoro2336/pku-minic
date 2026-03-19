@@ -303,7 +303,7 @@ pub struct VirtReg {
     pub uses: Vec<MOperand>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum MOperand {
     Func(usize),
     BB(usize),
@@ -321,6 +321,7 @@ pub enum MOperand {
     /// Id of .rodata arena.
     RoData(usize),
 
+    #[default]
     Undef,
 }
 
