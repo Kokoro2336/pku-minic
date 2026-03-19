@@ -1,25 +1,25 @@
 //! Definition of Machine IR builder.
 
-use crate::ir::machine::{MOp, MOperand, MachineIR};
+use crate::ir::back::{BOp, BOperand, BackIR};
 
 use std::ops::{Deref, DerefMut};
 
 #[derive(Default)]
-pub struct MBuilder {
+pub struct BBuilder {
     pub current_function: Option<usize>,
-    pub current_block: Option<MOperand>,
-    pub current_inst: Option<MOperand>,
+    pub current_block: Option<BOperand>,
+    pub current_inst: Option<BOperand>,
 }
 
-pub struct MBuilderGuard<'a> {
-    pub builder: &'a mut MBuilder,
+pub struct BBuilderGuard<'a> {
+    pub builder: &'a mut BBuilder,
     current_function: Option<usize>,
-    current_block: Option<MOperand>,
-    current_inst: Option<MOperand>,
+    current_block: Option<BOperand>,
+    current_inst: Option<BOperand>,
 }
 
-impl<'a> MBuilderGuard<'a> {
-    pub fn new(builder: &'a mut MBuilder) -> Self {
+impl<'a> BBuilderGuard<'a> {
+    pub fn new(builder: &'a mut BBuilder) -> Self {
         let current_function = builder.current_function;
         let current_block = builder.current_block.clone();
         let current_inst = builder.current_inst.clone();
@@ -32,21 +32,21 @@ impl<'a> MBuilderGuard<'a> {
     }
 }
 
-impl Deref for MBuilderGuard<'_> {
-    type Target = MBuilder;
+impl Deref for BBuilderGuard<'_> {
+    type Target = BBuilder;
 
     fn deref(&self) -> &Self::Target {
         self.builder
     }
 }
 
-impl DerefMut for MBuilderGuard<'_> {
+impl DerefMut for BBuilderGuard<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.builder
     }
 }
 
-impl Drop for MBuilderGuard<'_> {
+impl Drop for BBuilderGuard<'_> {
     fn drop(&mut self) {
         self.builder.current_function = self.current_function;
         self.builder.current_block = self.current_block.clone();
@@ -54,7 +54,7 @@ impl Drop for MBuilderGuard<'_> {
     }
 }
 
-impl MBuilder {
+impl BBuilder {
     pub fn new() -> Self {
         Self::default()
     }
@@ -67,28 +67,28 @@ impl MBuilder {
     }
 
     #[inline(always)]
-    pub fn set_current_block(&mut self, block_id: MOperand) {
+    pub fn set_current_block(&mut self, block_id: BOperand) {
         self.current_block = Some(block_id);
         self.current_inst = None;
     }
 
     #[inline(always)]
-    pub fn set_current_inst(&mut self, inst_id: MOperand) {
+    pub fn set_current_inst(&mut self, inst_id: BOperand) {
         self.current_inst = Some(inst_id);
     }
 
     pub fn set_before_inst(
         &mut self,
-        program: &mut MachineIR,
+        program: &mut BackIR,
         current_function: Option<usize>,
-        inst_id: Option<MOperand>,
+        inst_id: Option<BOperand>,
     ) {
         let cfg = program.cfg_mut_or_panic(
             current_function,
-            "MBuilder set_before_inst: no current function",
+            "BBuilder set_before_inst: no current function",
         );
         if self.current_block.is_none() {
-            panic!("MBuilder set_before_inst: current_block is None");
+            panic!("BBuilder set_before_inst: current_block is None");
         }
 
         let current_block = self.current_block.as_ref().unwrap().get_bb_id();
@@ -101,7 +101,7 @@ impl MBuilder {
             self.current_inst = inst_id;
         } else {
             panic!(
-                "MBuilder set_before_inst: inst {:?} not in current_block {:?}",
+                "BBuilder set_before_inst: inst {:?} not in current_block {:?}",
                 inst_id, self.current_block
             );
         }
@@ -109,16 +109,16 @@ impl MBuilder {
 
     pub fn set_after_inst(
         &mut self,
-        program: &mut MachineIR,
+        program: &mut BackIR,
         current_function: Option<usize>,
-        inst_id: Option<MOperand>,
+        inst_id: Option<BOperand>,
     ) {
         let cfg = program.cfg_mut_or_panic(
             current_function,
-            "MBuilder set_after_inst: no current function",
+            "BBuilder set_after_inst: no current function",
         );
         if self.current_block.is_none() {
-            panic!("MBuilder set_after_inst: current_block is None");
+            panic!("BBuilder set_after_inst: current_block is None");
         }
 
         let current_block = self.current_block.as_ref().unwrap().get_bb_id();
@@ -135,7 +135,7 @@ impl MBuilder {
                 .position(|id| id == &inst_id.clone().unwrap())
                 .unwrap_or_else(|| {
                     panic!(
-                        "MBuilder set_after_inst: inst {:?} not found in current_block {:?}",
+                        "BBuilder set_after_inst: inst {:?} not found in current_block {:?}",
                         inst_id, self.current_block
                     )
                 });
@@ -146,7 +146,7 @@ impl MBuilder {
             }
         } else {
             panic!(
-                "MBuilder set_after_inst: inst {:?} not in current_block {:?}",
+                "BBuilder set_after_inst: inst {:?} not in current_block {:?}",
                 inst_id, self.current_block
             );
         }
@@ -154,27 +154,27 @@ impl MBuilder {
 
     pub fn create(
         &mut self,
-        program: &mut MachineIR,
+        program: &mut BackIR,
         current_function: Option<usize>,
-        op: MOp,
-    ) -> MOperand {
+        op: BOp,
+    ) -> BOperand {
         program.create(self, current_function, op)
     }
 
     pub fn create_at_head(
         &mut self,
-        program: &mut MachineIR,
+        program: &mut BackIR,
         current_function: Option<usize>,
-        op: MOp,
-    ) -> MOperand {
+        op: BOp,
+    ) -> BOperand {
         program.create_at_head(self, current_function, op)
     }
 
     pub fn create_new_block(
         &mut self,
-        program: &mut MachineIR,
+        program: &mut BackIR,
         current_function: Option<usize>,
-    ) -> MOperand {
+    ) -> BOperand {
         program.create_new_block(current_function)
     }
 }

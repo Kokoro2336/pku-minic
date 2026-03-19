@@ -1,10 +1,10 @@
 //! Dump Machine IR to RISC-V Assembly.
 
-use crate::ir::machine::{MOp, MOperand, MachineIR};
+use crate::ir::back::{BOp, BOpData, BOperand, BackIR};
 
 use std::collections::HashMap;
 
-impl MachineIR {
+impl BackIR {
     pub fn dump(&self) -> String {
         self.dump_riscv_asm()
     }
@@ -119,7 +119,7 @@ impl MachineIR {
                     let inst_id = inst.get_inst_id();
                     let op = &func.dfg[inst_id];
                     out.push_str("  ");
-                    out.push_str(&format_mop(&func.name, op));
+                    out.push_str(&format_mop(op));
                     out.push('\n');
                 }
             }
@@ -146,7 +146,7 @@ fn symbol_name(name_map: &HashMap<usize, String>, id: usize, fallback_prefix: &s
 
 fn dump_initializer(
     out: &mut String,
-    inner: &[MOperand],
+    inner: &[BOperand],
     total_size: u32,
     data_name_map: &HashMap<usize, String>,
     rodata_name_map: &HashMap<usize, String>,
@@ -156,34 +156,34 @@ fn dump_initializer(
 
     for op in inner {
         match op {
-            MOperand::IntImm(v) => {
+            BOperand::IntImm(v) => {
                 out.push_str(&format!("  .word {}\n", *v));
                 written += 4;
             }
-            MOperand::FloatImm(v) => {
+            BOperand::FloatImm(v) => {
                 out.push_str(&format!("  .word 0x{:08x}\n", v.to_bits()));
                 written += 4;
             }
-            MOperand::Undef => {
+            BOperand::Undef => {
                 out.push_str("  .zero 4\n");
                 written += 4;
             }
-            MOperand::Data(id) => {
+            BOperand::Data(id) => {
                 let label = symbol_name(data_name_map, *id, ".Ldata");
                 out.push_str(&format!("  .dword {}\n", label));
                 written += 8;
             }
-            MOperand::RoData(id) => {
+            BOperand::RoData(id) => {
                 let label = symbol_name(rodata_name_map, *id, ".Lrodata");
                 out.push_str(&format!("  .dword {}\n", label));
                 written += 8;
             }
-            MOperand::Func(id) => {
+            BOperand::Func(id) => {
                 let label = symbol_name(func_name_map, *id, ".Lfunc");
                 out.push_str(&format!("  .dword {}\n", label));
                 written += 8;
             }
-            MOperand::Reg(_) | MOperand::BB(_) | MOperand::Inst(_) | MOperand::Slot(_) => {
+            BOperand::Reg(_) | BOperand::BB(_) | BOperand::Inst(_) | BOperand::Slot(_) => {
                 panic!(
                     "dump_initializer: unsupported operand in global initializer: {:?}",
                     op
@@ -197,36 +197,12 @@ fn dump_initializer(
     }
 }
 
-fn format_mop(func_name: &str, op: &MOp) -> String {
-    match op {
-        MOp::J { offset } => match offset {
-            MOperand::BB(id) => format!("j .L{}_bb{}", func_name, id),
-            _ => format!("j {offset}"),
-        },
-        MOp::Beq { rs1, rs2, offset } => match offset {
-            MOperand::BB(id) => format!("beq {rs1}, {rs2}, .L{}_bb{}", func_name, id),
-            _ => format!("beq {rs1}, {rs2}, {offset}"),
-        },
-        MOp::Bne { rs1, rs2, offset } => match offset {
-            MOperand::BB(id) => format!("bne {rs1}, {rs2}, .L{}_bb{}", func_name, id),
-            _ => format!("bne {rs1}, {rs2}, {offset}"),
-        },
-        MOp::Blt { rs1, rs2, offset } => match offset {
-            MOperand::BB(id) => format!("blt {rs1}, {rs2}, .L{}_bb{}", func_name, id),
-            _ => format!("blt {rs1}, {rs2}, {offset}"),
-        },
-        MOp::Bge { rs1, rs2, offset } => match offset {
-            MOperand::BB(id) => format!("bge {rs1}, {rs2}, .L{}_bb{}", func_name, id),
-            _ => format!("bge {rs1}, {rs2}, {offset}"),
-        },
-        MOp::Bltu { rs1, rs2, offset } => match offset {
-            MOperand::BB(id) => format!("bltu {rs1}, {rs2}, .L{}_bb{}", func_name, id),
-            _ => format!("bltu {rs1}, {rs2}, {offset}"),
-        },
-        MOp::Bgeu { rs1, rs2, offset } => match offset {
-            MOperand::BB(id) => format!("bgeu {rs1}, {rs2}, .L{}_bb{}", func_name, id),
-            _ => format!("bgeu {rs1}, {rs2}, {offset}"),
-        },
-        _ => op.to_string(),
+fn format_mop(op: &BOp) -> String {
+    match &op.data {
+        BOpData::M(mop) => mop.to_string(),
+        other => panic!(
+            "dump_riscv_asm: expected BOpData::M for machine dump, got {:?}",
+            other
+        ),
     }
 }

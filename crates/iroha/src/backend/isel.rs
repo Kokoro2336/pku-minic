@@ -1,21 +1,18 @@
 //! Instruction Selection (ISel).
 //! Translating Lower IR to Machine IR.
 
-use yachiyo::ir::lower::*;
-use yachiyo::ir::machine::*;
+use yachiyo::ir::back::*;
 
 pub struct ISel {
-    lower_ir: LowerIR,
-    machine_ir: MachineIR,
-    builder: MBuilder,
+    ir: BackIR,
+    builder: BBuilder,
 }
 
 impl ISel {
-    pub fn new(lower_ir: LowerIR) -> Self {
+    pub fn new(ir: BackIR) -> Self {
         Self {
-            lower_ir,
-            builder: MBuilder::new(),
-            machine_ir: MachineIR::new(),
+            ir,
+            builder: BBuilder::new(),
         }
     }
 
@@ -27,13 +24,7 @@ impl ISel {
         todo!()
     }
 
-    pub fn run(&mut self) -> MachineIR {
-        // Transport DataInfo and RoDataInfo.
-        self.machine_ir.rodata_info = std::mem::take(&mut self.lower_ir.rodata_info);
-        self.machine_ir.data_info = std::mem::take(&mut self.lower_ir.data_info);
-
-        // Pre-allocate functions
-
-        std::mem::take(&mut self.machine_ir)
+    pub fn run(&mut self) -> BackIR {
+        todo!()
     }
 }

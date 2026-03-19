@@ -1,7 +1,8 @@
 //! Memory management for Machine IR.
 
 use crate::base::Type;
-use crate::ir::machine::MOperand;
+use crate::ir::back::BOperand;
+use crate::config::STK_FRM_ALIGN;
 use crate::utils::arena::*;
 
 use std::ops::{Index, IndexMut};
@@ -26,13 +27,13 @@ fn align_up(value: u32, align: u32) -> u32 {
 pub type RoDataInfo = IndexedArena<RoData>;
 #[derive(Debug, Clone)]
 pub struct RoData {
-    inner: Vec<MOperand>,
+    inner: Vec<BOperand>,
     size: u32,
     align: u32,
 }
 
 impl RoData {
-    pub fn new(typ: Type, inner: Vec<MOperand>) -> Self {
+    pub fn new(typ: Type, inner: Vec<BOperand>) -> Self {
         RoData {
             inner,
             size: typ.size(),
@@ -40,7 +41,7 @@ impl RoData {
         }
     }
 
-    pub fn inner(&self) -> &[MOperand] {
+    pub fn inner(&self) -> &[BOperand] {
         &self.inner
     }
 
@@ -69,13 +70,13 @@ pub type DataInfo = IndexedArena<Data>;
 
 #[derive(Debug, Clone)]
 pub struct Data {
-    inner: Vec<MOperand>,
+    inner: Vec<BOperand>,
     size: u32,
     align: u32,
 }
 
 impl Data {
-    pub fn new(typ: Type, inner: Vec<MOperand>) -> Self {
+    pub fn new(typ: Type, inner: Vec<BOperand>) -> Self {
         Data {
             inner,
             size: typ.size(),
@@ -83,7 +84,7 @@ impl Data {
         }
     }
 
-    pub fn inner(&self) -> &[MOperand] {
+    pub fn inner(&self) -> &[BOperand] {
         &self.inner
     }
 
@@ -179,76 +180,76 @@ impl MemInfo for FrameInfo {
             }
         }
 
-        align_up(total, 16)
+        align_up(total, STK_FRM_ALIGN)
     }
 }
 
-impl Index<MOperand> for DataInfo {
+impl Index<BOperand> for DataInfo {
     type Output = Data;
 
-    fn index(&self, index: MOperand) -> &Self::Output {
+    fn index(&self, index: BOperand) -> &Self::Output {
         match index {
-            MOperand::Data(id) => self.get(id).unwrap(),
-            _ => panic!("DataInfo index: expected MOperand::Data, got {:?}", index),
+            BOperand::Data(id) => self.get(id).unwrap(),
+            _ => panic!("DataInfo index: expected BOperand::Data, got {:?}", index),
         }
     }
 }
 
-impl IndexMut<MOperand> for DataInfo {
-    fn index_mut(&mut self, index: MOperand) -> &mut Self::Output {
+impl IndexMut<BOperand> for DataInfo {
+    fn index_mut(&mut self, index: BOperand) -> &mut Self::Output {
         match index {
-            MOperand::Data(id) => self.get_mut(id).unwrap(),
+            BOperand::Data(id) => self.get_mut(id).unwrap(),
             _ => panic!(
-                "DataInfo index_mut: expected MOperand::Data, got {:?}",
+                "DataInfo index_mut: expected BOperand::Data, got {:?}",
                 index
             ),
         }
     }
 }
 
-impl Index<MOperand> for RoDataInfo {
+impl Index<BOperand> for RoDataInfo {
     type Output = RoData;
 
-    fn index(&self, index: MOperand) -> &Self::Output {
+    fn index(&self, index: BOperand) -> &Self::Output {
         match index {
-            MOperand::RoData(id) => self.get(id).unwrap(),
+            BOperand::RoData(id) => self.get(id).unwrap(),
             _ => panic!(
-                "RoDataInfo index: expected MOperand::RoData, got {:?}",
+                "RoDataInfo index: expected BOperand::RoData, got {:?}",
                 index
             ),
         }
     }
 }
 
-impl IndexMut<MOperand> for RoDataInfo {
-    fn index_mut(&mut self, index: MOperand) -> &mut Self::Output {
+impl IndexMut<BOperand> for RoDataInfo {
+    fn index_mut(&mut self, index: BOperand) -> &mut Self::Output {
         match index {
-            MOperand::RoData(id) => self.get_mut(id).unwrap(),
+            BOperand::RoData(id) => self.get_mut(id).unwrap(),
             _ => panic!(
-                "RoDataInfo index_mut: expected MOperand::RoData, got {:?}",
+                "RoDataInfo index_mut: expected BOperand::RoData, got {:?}",
                 index
             ),
         }
     }
 }
 
-impl Index<MOperand> for FrameInfo {
+impl Index<BOperand> for FrameInfo {
     type Output = Slot;
 
-    fn index(&self, index: MOperand) -> &Self::Output {
+    fn index(&self, index: BOperand) -> &Self::Output {
         match index {
-            MOperand::Slot(id) => self.get(id).unwrap(),
-            _ => panic!("FrameInfo index: expected MOperand::Slot, got {:?}", index),
+            BOperand::Slot(id) => self.get(id).unwrap(),
+            _ => panic!("FrameInfo index: expected BOperand::Slot, got {:?}", index),
         }
     }
 }
 
-impl IndexMut<MOperand> for FrameInfo {
-    fn index_mut(&mut self, index: MOperand) -> &mut Self::Output {
+impl IndexMut<BOperand> for FrameInfo {
+    fn index_mut(&mut self, index: BOperand) -> &mut Self::Output {
         match index {
-            MOperand::Slot(id) => self.get_mut(id).unwrap(),
+            BOperand::Slot(id) => self.get_mut(id).unwrap(),
             _ => panic!(
-                "FrameInfo index_mut: expected MOperand::Slot, got {:?}",
+                "FrameInfo index_mut: expected BOperand::Slot, got {:?}",
                 index
             ),
         }

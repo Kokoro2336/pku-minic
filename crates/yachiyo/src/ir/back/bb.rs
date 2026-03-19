@@ -1,32 +1,32 @@
-use crate::ir::machine::MOperand;
+use crate::ir::back::BOperand;
 use crate::utils::arena::IndexedArena;
 
 use std::ops::{Index, IndexMut};
 
 #[allow(clippy::upper_case_acronyms)]
-pub type MCFG = IndexedArena<MBasicBlock>;
+pub type BCFG = IndexedArena<BBasicBlock>;
 
 #[derive(Debug, Clone, Default)]
-pub struct MBasicBlock {
-    pub prev: Vec<MOperand>,
-    pub cur: Vec<MOperand>,
-    pub succs: Vec<MOperand>,
+pub struct BBasicBlock {
+    pub prev: Vec<BOperand>,
+    pub cur: Vec<BOperand>,
+    pub succs: Vec<BOperand>,
 }
 
-impl MCFG {
-    pub fn add_succ(&mut self, bb_idx: MOperand, succ_idx: MOperand) {
+impl BCFG {
+    pub fn add_succ(&mut self, bb_idx: BOperand, succ_idx: BOperand) {
         if !self[bb_idx.get_bb_id()].succs.contains(&succ_idx) {
             self[bb_idx.get_bb_id()].succs.push(succ_idx);
         }
     }
 
-    pub fn add_pred(&mut self, bb_idx: MOperand, pred_idx: MOperand) {
+    pub fn add_pred(&mut self, bb_idx: BOperand, pred_idx: BOperand) {
         if !self[bb_idx.get_bb_id()].prev.contains(&pred_idx) {
             self[bb_idx.get_bb_id()].prev.push(pred_idx);
         }
     }
 
-    pub fn remove_succ(&mut self, bb_idx: MOperand, succ_idx: MOperand) {
+    pub fn remove_succ(&mut self, bb_idx: BOperand, succ_idx: BOperand) {
         if let Some(pos) = self[bb_idx.get_bb_id()]
             .succs
             .iter()
@@ -43,7 +43,7 @@ impl MCFG {
         }
     }
 
-    pub fn remove_pred(&mut self, bb_idx: MOperand, pred_idx: MOperand) {
+    pub fn remove_pred(&mut self, bb_idx: BOperand, pred_idx: BOperand) {
         if let Some(pos) = self[bb_idx.get_bb_id()]
             .prev
             .iter()
@@ -61,22 +61,22 @@ impl MCFG {
     }
 }
 
-impl Index<MOperand> for MCFG {
-    type Output = MBasicBlock;
+impl Index<BOperand> for BCFG {
+    type Output = BBasicBlock;
 
-    fn index(&self, index: MOperand) -> &Self::Output {
+    fn index(&self, index: BOperand) -> &Self::Output {
         match index {
-            MOperand::BB(id) => self.get(id).unwrap(),
-            _ => panic!("MCFG index: expected MOperand::BB, got {:?}", index),
+            BOperand::BB(id) => self.get(id).unwrap(),
+            _ => panic!("BCFG index: expected BOperand::BB, got {:?}", index),
         }
     }
 }
 
-impl IndexMut<MOperand> for MCFG {
-    fn index_mut(&mut self, index: MOperand) -> &mut Self::Output {
+impl IndexMut<BOperand> for BCFG {
+    fn index_mut(&mut self, index: BOperand) -> &mut Self::Output {
         match index {
-            MOperand::BB(id) => self.get_mut(id).unwrap(),
-            _ => panic!("MCFG index_mut: expected MOperand::BB, got {:?}", index),
+            BOperand::BB(id) => self.get_mut(id).unwrap(),
+            _ => panic!("BCFG index_mut: expected BOperand::BB, got {:?}", index),
         }
     }
 }
