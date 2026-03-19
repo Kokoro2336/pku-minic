@@ -1,21 +1,16 @@
 //! Instruction Selection (ISel).
 //! Translating Lower IR to Machine IR.
 
+use yachiyo::pass::BPass;
 use yachiyo::ir::back::*;
 
-pub struct ISel {
-    ir: BackIR,
+#[derive(Default)]
+pub struct ISel<'a> {
+    ir: Option<&'a mut BackIR>,
     builder: BBuilder,
 }
 
-impl ISel {
-    pub fn new(ir: BackIR) -> Self {
-        Self {
-            ir,
-            builder: BBuilder::new(),
-        }
-    }
-
+impl ISel<'_> {
     pub fn init(&mut self, func_id: usize) {
         self.builder.set_current_func(Some(func_id));
     }
@@ -23,8 +18,21 @@ impl ISel {
     pub fn select(&mut self) {
         todo!()
     }
+}
 
-    pub fn run(&mut self) -> BackIR {
-        todo!()
+impl<'a> BPass<'a> for ISel<'a> {
+    fn name(&self) -> &str {
+        "ISel"
+    }
+
+    fn mount(&mut self, program: &'a mut BackIR) {
+        self.ir = Some(program);
+    }
+
+    fn run(&mut self) {
+        for func_id in self.ir.as_ref().unwrap().funcs.ids() {
+            self.init(func_id);
+            self.select();
+        }
     }
 }

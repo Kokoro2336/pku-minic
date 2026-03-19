@@ -14,10 +14,10 @@ lalrpop = "0.22.2"
 [dependencies]
 yachiyo = { path = "../yachiyo" }
 lalrpop-util = { version = "0.22.2", features = ["lexer"] }
-clap = { version = "4.4.18", features = ["derive"] }
-clap_builder = "4.4.18"
-clap_derive = "4.4.7"
-clap_lex = "1.1.0"
+clap = { workspace = true }
+clap_builder = { workspace = true }
+clap_derive = { workspace = true }
+clap_lex = { workspace = true }
 libc = "0.2"
 chrono = "0.4.41"
 textwrap = "0.16.2"

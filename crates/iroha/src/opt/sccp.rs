@@ -3,7 +3,7 @@
 //! Reference: https://dl.acm.org/doi/10.1145/103135.103136
 
 use yachiyo::base::Type;
-use super::Pass;
+use yachiyo::pass::Pass;
 use yachiyo::ir::mid::{Builder, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::utils::arena::{Arena, ArenaItem};
 use yachiyo::utils::bitset::BitSet;

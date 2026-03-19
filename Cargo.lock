@@ -1610,6 +1610,10 @@ dependencies = [
 name = "yachiyo"
 version = "0.1.0"
 dependencies = [
+ "clap",
+ "clap_builder",
+ "clap_derive",
+ "clap_lex 1.1.0",
  "graphviz-rust",
  "rustc-hash",
  "strum",

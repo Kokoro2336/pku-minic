@@ -3,10 +3,11 @@ use std::fs::read_to_string;
 use std::io::Result;
 
 use iroha::backend::*;
-use iroha::cli::Cli;
 use iroha::frontend::*;
-use iroha::opt::PassManager;
 use iroha::opt::*;
+
+use yachiyo::pass::*;
+use yachiyo::cli::Cli;
 use yachiyo::debug::info;
 use yachiyo::debug::log::setup;
 use yachiyo::utils::arena::Arena;
@@ -86,8 +87,13 @@ fn main() -> Result<()> {
 
     // Start Lowering
     info!("Start Lowering.");
-    let _ = Lowering::new(ir).run();
+    let mut lower_ir = Lowering::new(ir).run();
     info!("Finish Lowering.");
+
+    // Run Backend Passes.
+    BPassManager::default()
+        .register(Box::new(ISel::default()))
+        .run(&mut lower_ir);
 
     // Dump the asm.
 
