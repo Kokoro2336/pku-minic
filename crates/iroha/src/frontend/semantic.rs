@@ -1,7 +1,7 @@
 //! Semantic analysis.
 //! Performs type inference, add implicit cast and checks for semantic errors.
 
-use crate::frontend::ast::*;
+use yachiyo::ast::*;
 use yachiyo::base::{Type, SYSY_LIB};
 use yachiyo::utils::arena::Arena;
 use yachiyo::utils::table::SymbolTable;

@@ -1,17 +1,17 @@
-use clap::Parser;
+use lalrpop_util::lalrpop_mod;
 use std::fs::read_to_string;
 use std::io::Result;
 
 use iroha::backend::*;
 use iroha::cli::Cli;
-use iroha::frontend::parse;
 use iroha::frontend::*;
 use iroha::opt::PassManager;
 use iroha::opt::*;
-use iroha::sysy;
 use yachiyo::debug::info;
 use yachiyo::debug::log::setup;
 use yachiyo::utils::arena::Arena;
+
+lalrpop_mod!(sysy);
 
 fn main() -> Result<()> {
     // setup logging
@@ -20,7 +20,10 @@ fn main() -> Result<()> {
     info!("Logger initialized.");
 
     // Parse the args
-    let cli = Cli::parse();
+    let cli = {
+        use clap::Parser;
+        Cli::parse()
+    };
 
     let input_path = cli.input.clone();
     let _ = cli.output.clone();
@@ -30,7 +33,7 @@ fn main() -> Result<()> {
 
     // Parse the input string into an AST.
     let result = {
-        let mut parser = parse::Parser::default();
+        let mut parser = Parser::default();
         let root_id = sysy::CompUnitParser::new()
             .parse(&mut parser, &input_str)
             .unwrap();

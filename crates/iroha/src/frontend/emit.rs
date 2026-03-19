@@ -1,7 +1,7 @@
 //! Emit basic IR.
 
-use crate::frontend::ast;
-use crate::frontend::ast::*;
+use yachiyo::ast;
+use yachiyo::ast::*;
 use crate::frontend::semantic::decay;
 use yachiyo::base::Type;
 use yachiyo::base::SYSY_LIB;

@@ -6,6 +6,7 @@ use yachiyo::ir::machine::*;
 
 pub struct ISel {
     lower_ir: LowerIR,
+    machine_ir: MachineIR,
     builder: MBuilder,
 }
 
@@ -14,6 +15,7 @@ impl ISel {
         Self {
             lower_ir,
             builder: MBuilder::new(),
+            machine_ir: MachineIR::new(),
         }
     }
 
