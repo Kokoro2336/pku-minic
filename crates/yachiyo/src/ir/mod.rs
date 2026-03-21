@@ -1,5 +1,5 @@
 //! Intermediate Representation (IR) definitions and utilities.
 
-pub mod machine;
+pub mod back;
 pub mod mid;
-pub mod lower;
+pub use back as lower;

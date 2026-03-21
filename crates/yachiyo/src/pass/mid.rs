@@ -1,10 +1,10 @@
 //! Pass management for IR optimization and transformation.
 
-use yachiyo::debug::info;
-use yachiyo::debug::DumpLLVM;
-use yachiyo::ir::mid::IR;
-
+use crate::debug::info;
+use crate::debug::DumpLLVM;
+use crate::ir::mid::IR;
 use crate::cli::Cli;
+
 use std::collections::VecDeque;
 
 pub trait Pass<'a> {

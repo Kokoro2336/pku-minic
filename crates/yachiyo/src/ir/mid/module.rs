@@ -286,6 +286,7 @@ impl IR {
                 OpData::OLe,
                 OpData::Declare
             ],
+            other_patterns: [],
             uni_arm: {}
         }
     }
@@ -358,6 +359,7 @@ impl IR {
                 OpData::OLe,
                 OpData::Declare
             ],
+            other_patterns: [],
             uni_arm: {}
         }
     }

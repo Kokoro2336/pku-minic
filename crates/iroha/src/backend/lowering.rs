@@ -1,10 +1,9 @@
 //! IR Lowering from Mid IR to Lower IR.
 
-use yachiyo::config::PARAM_REG_MAX_NUM;
-use yachiyo::base::Type;
 use yachiyo::ast::Literal;
-use yachiyo::ir::lower::*;
-use yachiyo::ir::machine::{Data, FReg, MOperand, MType, Reg, RoData, Slot, XReg};
+use yachiyo::base::Type;
+use yachiyo::config::PARAM_REG_MAX_NUM;
+use yachiyo::ir::back::*;
 use yachiyo::ir::mid::*;
 use yachiyo::utils::bitset::BitSet;
 use yachiyo::utils::r#match::match_minor;
@@ -14,20 +13,20 @@ use rustc_hash::FxHashMap;
 
 pub struct Lowering {
     ir: IR,
-    builder: LBuilder,
-    lower_ir: LowerIR,
+    builder: BBuilder,
+    lower_ir: BackIR,
 
     /// Temporary Map between FuncId -> LFuncId
-    func_map: Vec<LOperand>,
+    func_map: Vec<BOperand>,
     /// Temporary Map between IR Global -> LGlobal
-    global_map: Vec<LOperand>,
-    /// Temporary Map between BBId -> LBasicBlock
-    block_map: Vec<LOperand>,
+    global_map: Vec<BOperand>,
+    /// Temporary Map between BBId -> BBasicBlock
+    block_map: Vec<BOperand>,
     /// IR OpId -> VirtId. Remember that NOT EVERY LOp has a mapping to its vreg in value_map,
     /// since some of them produce temp vreg.
-    value_map: Vec<LOperand>,
+    value_map: Vec<BOperand>,
     /// Param Idx -> SlotId/VirtId
-    param_map: Vec<LOperand>,
+    param_map: Vec<BOperand>,
 
     /// Worklist
     worklist: Worklist<usize, BitSet>,
@@ -38,34 +37,12 @@ pub struct Lowering {
     phis: Vec<(usize, usize)>,
 }
 
-macro_rules! match_rd {
-    (
-        target: $target:expr,
-
-        op_with_rds: [ $($op_with_rd:ident),* $(,)? ],
-        // Match arms.
-        rd_arm: $SrcRd:ident($rd:ident) => $rd_body:block,
-
-        // Handwritten fallback branches (captured by tt)
-        fallback: { $($rest:tt)* }
-    ) => {
-        match $target {
-            // Unroll the rd arms.
-            $(
-                $SrcRd::$op_with_rd { rd: $rd, .. } => $rd_body,
-            )*
-            // Unroll the rest handwritten branches.
-            $($rest)*
-        }
-    };
-}
-
 impl Lowering {
     pub fn new(ir: IR) -> Self {
         Lowering {
             ir,
-            builder: LBuilder::default(),
-            lower_ir: LowerIR::default(),
+            builder: BBuilder::default(),
+            lower_ir: BackIR::default(),
             func_map: vec![],
             global_map: vec![],
             block_map: vec![],
@@ -77,54 +54,46 @@ impl Lowering {
         }
     }
 
-    fn legalize_imm(&mut self, imm: LOperand) -> LOperand {
+    fn legalize_imm(&mut self, imm: BOperand) -> BOperand {
         const INT_IMM_MAX: i32 = 2047;
         const INT_IMM_MIN: i32 = -2048;
 
         match_minor! {
             target: imm,
             minor_arms: {
-                LOperand::IntImm(imm) => {
+                BOperand::IntImm(imm) => {
                     if !(INT_IMM_MIN..=INT_IMM_MAX).contains(&imm) {
                         // create a new LoadIntImm instruction and return the LOpId.
-                        let vreg_id = self.alloc_vreg(VirtReg {
-                            defs: vec![],
-                            phys: None,
-                        });
-                        let lop_id = self.create(LOp::new(
+                        let lop_id = self.create(BOp::new(
                             Type::Int.into(),
                             vec![],
                             LOpData::LoadIntImm {
-                                rd: LOperand::Undef,
+                                rd: BOperand::Undef,
                                 imm,
-                            },
+                            }
+                            .into(),
                         ));
-                        self.bind(lop_id, vreg_id.clone());
-                        vreg_id
+                        self.lower_ir.get_rd(self.builder.current_function.clone(), lop_id).unwrap()
                     } else {
-                        LOperand::IntImm(imm)
+                        BOperand::IntImm(imm)
                     }
                 },
-                LOperand::FloatImm(imm) => {
+                BOperand::FloatImm(imm) => {
                     // Float can never reside in immediate field of any instrucitons,
                     // So we always create a new LoadFloatImm instruction and return the LOpId.
-                    let vreg_id = self.alloc_vreg(VirtReg {
-                        defs: vec![],
-                        phys: None,
-                    });
-                    let lop_id = self.create(LOp::new(
+                    let lop_id = self.create(BOp::new(
                         Type::Float.into(),
                         vec![],
                         LOpData::LoadFloatImm {
-                            rd: LOperand::Undef,
+                            rd: BOperand::Undef,
                             imm,
-                        },
+                        }
+                        .into(),
                     ));
-                    self.bind(lop_id, vreg_id.clone());
-                    vreg_id
+                    self.lower_ir.get_rd(self.builder.current_function.clone(), lop_id).unwrap()
                 }
             },
-            uni_ops: [LOperand::Undef, LOperand::Virt, LOperand::Phys, LOperand::Func, LOperand::BB, LOperand::Inst, LOperand::Data, LOperand::Slot, LOperand::RoData],
+            uni_ops: [BOperand::Undef, BOperand::Reg, BOperand::Func, BOperand::BB, BOperand::Inst, BOperand::Data, BOperand::Slot, BOperand::RoData],
             other_patterns: [],
             uni_arm: {
                 unreachable!("Only IntImm and FloatImm can be immediats, but got {:?}", imm)
@@ -133,7 +102,7 @@ impl Lowering {
     }
 
     /// Getter
-    fn get(&mut self, operand: Operand) -> LOperand {
+    fn get(&mut self, operand: Operand) -> BOperand {
         yachiyo::debug::info!("get {:?}", operand);
         match operand {
             Operand::Global(id) => self.global_map[id].clone(),
@@ -143,45 +112,62 @@ impl Lowering {
             Operand::Value(id) => {
                 let lop_id = self.value_map[id].clone();
 
-                // If the operand is a data or slot operand, return it directly.
+                // If the operand is a data or slot operand, Create Load and then return the LOpId.
                 if matches!(
                     lop_id,
-                    LOperand::Data(_) | LOperand::Slot(_) | LOperand::RoData(_)
+                    BOperand::Data(_) | BOperand::Slot(_) | BOperand::RoData(_)
                 ) {
-                    return lop_id;
+                    let typ = self.get_op_type(Operand::Value(id));
+                    let lop_id = self.create(BOp::new(
+                        typ.into(),
+                        vec![],
+                        LOpData::Load {
+                            rd: BOperand::Undef,
+                            addr: lop_id,
+                        }
+                        .into(),
+                    ));
+                    return self
+                        .lower_ir
+                        .get_rd(self.builder.current_function.clone(), lop_id)
+                        .unwrap();
                 }
 
-                let current_function = self.builder.current_function.expect("No current function");
-                let lop = &self.lower_ir.funcs[current_function].dfg[lop_id.clone()];
-
-                match_rd! {
-                    target: &lop.data,
-                    op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Uitofp, Zext, Load, LoadFloatImm, LoadIntImm, Move],
-                    rd_arm: LOpData(rd) => {
-                        rd.clone()
-                    },
-                    fallback: {
-                        // For other LOpData which doesn't have rd field (e.g. Call and Store), we return Undef.
-                        LOpData::Store {..}
-                        | LOpData::Call {..}
-                        | LOpData::Br {..}
-                        | LOpData::Jump {..}
-                        | LOpData::Ret => unreachable!("Only LOp with rd field can be mapped to IR value, but got {:?}", lop.data),
-                    }
-                }
+                self.lower_ir
+                    .get_rd(self.builder.current_function.clone(), lop_id)
+                    .unwrap()
             }
             Operand::Param { idx, .. } => self.param_map[idx].clone(),
 
             // Legalize immediats when getting 'em.
-            Operand::Bool(imm) => self.legalize_imm(LOperand::IntImm(imm as i32)),
-            Operand::Int(imm) => self.legalize_imm(LOperand::IntImm(imm)),
-            Operand::Float(imm) => self.legalize_imm(LOperand::FloatImm(imm)),
-            Operand::Undefined => LOperand::Undef,
+            Operand::Bool(imm) => self.legalize_imm(BOperand::IntImm(imm as i32)),
+            Operand::Int(imm) => self.legalize_imm(BOperand::IntImm(imm)),
+            Operand::Float(imm) => self.legalize_imm(BOperand::FloatImm(imm)),
+            Operand::Undefined => BOperand::Undef,
         }
     }
 
+    fn get_current_func(&self) -> Operand {
+        let lfunc_id = self
+            .builder
+            .current_function
+            .clone()
+            .expect("No current function");
+
+        self.func_map
+            .iter()
+            .enumerate()
+            .find(|(_, op)| match op {
+                BOperand::Func(id) => *id == lfunc_id.get_func_id(),
+                _ => false,
+            })
+            .map(|(i, _)| Operand::Func(i))
+            .expect("Current function not found in func_map")
+    }
+
     fn get_op_type(&self, operand: Operand) -> Type {
-        let current_function = self.builder.current_function.expect("No current function");
+        let current_function = self.get_current_func();
+
         match operand {
             Operand::Global(id) => self.ir.globals[id].typ.clone(),
             Operand::BB(_) => unreachable!("BB operand should not be used in get_op_type"),
@@ -202,7 +188,7 @@ impl Lowering {
     }
 
     /// Setter
-    fn set(&mut self, operand: Operand, value: LOperand) {
+    fn set(&mut self, operand: Operand, value: BOperand) {
         match operand {
             Operand::Value(id) => self.value_map[id] = value,
             Operand::Global(id) => self.global_map[id] = value,
@@ -214,7 +200,7 @@ impl Lowering {
     }
 
     fn init(&mut self, idx: usize) {
-        self.builder.set_current_func(Some(idx));
+        self.builder.set_current_func(BOperand::BB(idx));
 
         // Clear the maps.
         self.block_map.clear();
@@ -226,23 +212,23 @@ impl Lowering {
 
         // Resize the maps.
         self.block_map
-            .resize(self.ir.funcs[idx].cfg.len(), LOperand::Undef);
+            .resize(self.ir.funcs[idx].cfg.len(), BOperand::Undef);
         self.value_map
-            .resize(self.ir.funcs[idx].dfg.len(), LOperand::Undef);
+            .resize(self.ir.funcs[idx].dfg.len(), BOperand::Undef);
         let param_num = match &self.ir.funcs[idx].typ {
             Type::Function { param_types, .. } => param_types.len(),
             _ => unreachable!("Only function type should be in the function arena"),
         };
-        self.param_map.resize(param_num, LOperand::Undef);
+        self.param_map.resize(param_num, BOperand::Undef);
     }
 
     // ========== Scafolding for mapping IR entities to LIR entities ==========
 
     #[inline(always)]
-    fn alloc_and_map_func(&mut self, func_id: Operand, lfunc: LFunction) -> LOperand {
+    fn alloc_and_map_func(&mut self, func_id: Operand, lfunc: BFunction) -> BOperand {
         let lfunc_id = self.lower_ir.funcs.alloc(lfunc);
-        self.set(func_id, LOperand::Func(lfunc_id));
-        LOperand::Func(lfunc_id)
+        self.set(func_id, BOperand::Func(lfunc_id));
+        BOperand::Func(lfunc_id)
     }
 
     #[inline(always)]
@@ -251,13 +237,13 @@ impl Lowering {
         global_id: Operand,
         name: Option<String>,
         data: Data,
-    ) -> LOperand {
+    ) -> BOperand {
         let data_id = match name {
             Some(name) => self.lower_ir.data_info.insert(data, name),
             None => self.lower_ir.data_info.alloc(data),
         };
-        self.set(global_id, LOperand::Data(data_id));
-        LOperand::Data(data_id)
+        self.set(global_id, BOperand::Data(data_id));
+        BOperand::Data(data_id)
     }
 
     #[inline(always)]
@@ -266,40 +252,62 @@ impl Lowering {
         global_id: Operand,
         name: Option<String>,
         rodata: RoData,
-    ) -> LOperand {
+    ) -> BOperand {
         let rodata_id = match name {
             Some(name) => self.lower_ir.rodata_info.insert(rodata, name),
             None => self.lower_ir.rodata_info.alloc(rodata),
         };
-        self.set(global_id, LOperand::Data(rodata_id));
-        LOperand::Data(rodata_id)
+        self.set(global_id, BOperand::Data(rodata_id));
+        BOperand::Data(rodata_id)
     }
 
     #[inline(always)]
-    fn alloc_and_map_slot(&mut self, alloc_id: Operand, slot: Slot) -> LOperand {
-        yachiyo::debug::info!("Map alloc {:?} to slot {:?}]", alloc_id, slot);
-        let func_id = self.builder.current_function.expect("No current function");
+    fn alloc_and_map_slot(&mut self, alloc_id: Operand, slot: Slot) -> BOperand {
+        let func_id = self
+            .builder
+            .current_function
+            .clone()
+            .expect("No current function");
+
         let lfunc = &mut self.lower_ir.funcs[func_id];
         let slot_id = lfunc.frame_info.alloc(slot);
-        self.set(alloc_id, LOperand::Slot(slot_id));
-        LOperand::Slot(slot_id)
+        self.set(alloc_id, BOperand::Slot(slot_id));
+        BOperand::Slot(slot_id)
     }
 
     #[inline(always)]
-    fn alloc_and_map_block(&mut self, bb_id: Operand, lbb: LBasicBlock) -> LOperand {
-        let func_id = self.builder.current_function.expect("No current function");
+    fn alloc_and_map_block(&mut self, bb_id: Operand, lbb: BBasicBlock) -> BOperand {
+        let func_id = self
+            .builder
+            .current_function
+            .clone()
+            .expect("No current function");
         let lbb_id = self.lower_ir.funcs[func_id].cfg.alloc(lbb);
-        self.set(bb_id, LOperand::BB(lbb_id));
-        LOperand::BB(lbb_id)
+        self.set(bb_id, BOperand::BB(lbb_id));
+        BOperand::BB(lbb_id)
     }
 
     /// When creating LOp which produces a value that can be mapped to IR's value, you'd better use this.
     #[inline(always)]
-    fn alloc_and_map_lop(&mut self, op_id: Operand, lop: LOp) -> LOperand {
-        let func_id = self.builder.current_function.expect("No current function");
-        let lop_id = self.lower_ir.funcs[func_id].dfg.alloc(lop);
-        self.set(op_id, LOperand::Inst(lop_id));
-        LOperand::Inst(lop_id)
+    fn create_and_map_lop(&mut self, op_id: Operand, lop: BOp) -> BOperand {
+        let lop_id = self.builder.create(
+            &mut self.lower_ir,
+            self.builder.current_function.clone(),
+            lop,
+        );
+        self.set(op_id, lop_id.clone());
+        lop_id
+    }
+
+    #[inline(always)]
+    fn create_and_map_param(&mut self, param_idx: usize, lop: BOp) -> BOperand {
+        let lop_id = self.builder.create(
+            &mut self.lower_ir,
+            self.builder.current_function.clone(),
+            lop,
+        );
+        self.param_map[param_idx] = lop_id.clone();
+        lop_id
     }
 
     // ========== Scafolding for temporary values' mapping ========
@@ -308,58 +316,36 @@ impl Lowering {
 
     /// When creating LOp which produces a temp value, you'd better use this.
     #[inline(always)]
-    fn create(&mut self, lop: LOp) -> LOperand {
-        let func_id = self.builder.current_function.expect("No current function");
+    fn create(&mut self, lop: BOp) -> BOperand {
+        let func_id = self
+            .builder
+            .current_function
+            .clone()
+            .expect("No current function");
         let lop_id = self.lower_ir.funcs[func_id].dfg.alloc(lop);
-        LOperand::Inst(lop_id)
+        BOperand::Inst(lop_id)
     }
 
     #[inline(always)]
-    fn alloc_vreg(&mut self, vreg: VirtReg) -> LOperand {
-        let func_id = self.builder.current_function.expect("No current function");
+    fn alloc_vreg(&mut self, vreg: VirtReg) -> BOperand {
+        let func_id = self
+            .builder
+            .current_function
+            .clone()
+            .expect("No current function");
         let vreg_id = self.lower_ir.funcs[func_id].vregs.alloc(vreg);
-        LOperand::Virt(vreg_id)
+        BOperand::Reg(Reg::Virt(vreg_id))
     }
 
     #[inline(always)]
-    fn alloc_slot(&mut self, slot: Slot) -> LOperand {
-        let func_id = self.builder.current_function.expect("No current function");
+    fn alloc_slot(&mut self, slot: Slot) -> BOperand {
+        let func_id = self
+            .builder
+            .current_function
+            .clone()
+            .expect("No current function");
         let slot_id = self.lower_ir.funcs[func_id].frame_info.alloc(slot);
-        LOperand::Slot(slot_id)
-    }
-
-    #[inline(always)]
-    fn alloc_rodata(&mut self, rodata: RoData) -> LOperand {
-        let rodata_id = self.lower_ir.rodata_info.alloc(rodata);
-        LOperand::Data(rodata_id)
-    }
-
-    fn bind(&mut self, lop_id: LOperand, vreg_id: LOperand) {
-        let data = &mut self.lower_ir.funcs
-            [self.builder.current_function.expect("No current function")]
-        .dfg[lop_id.clone()]
-        .data;
-
-        match_rd! {
-            target: data,
-            op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Uitofp, Zext, Load, Move, LoadFloatImm, LoadIntImm],
-            rd_arm: LOpData(rd) => {
-                *rd = vreg_id.clone();
-            },
-            fallback: {
-                // Only Move can be binded with vreg, since other LOp with rd field are not created for temp values.
-                LOpData::Br {..}
-                | LOpData::Jump {..}
-                | LOpData::Store {..}
-                | LOpData::Call {..}
-                | LOpData::Ret => unreachable!("Only Move can be binded with vreg, but got {:?}", data),
-            }
-        }
-
-        let vreg = &mut self.lower_ir.funcs
-            [self.builder.current_function.expect("No current function")]
-        .vregs[vreg_id];
-        vreg.defs.push(lop_id);
+        BOperand::Slot(slot_id)
     }
 
     fn get_param_regs(param_types: &[Type]) -> Vec<Reg> {
@@ -382,9 +368,10 @@ impl Lowering {
 
     /// TODO: Might be replaced by kaguya.
     fn lower_op(&mut self, op_id: Operand) {
-        let func_id = self.builder.current_function.expect("No current function");
+        let func_id = self.get_current_func();
+
         let (typ, attrs, data) = {
-            let op = &self.ir.funcs[func_id].dfg[op_id.clone()];
+            let op = &self.ir.funcs[func_id.clone()].dfg[op_id.clone()];
             (
                 self.get_op_type(op_id.clone()),
                 op.attrs.clone(),
@@ -398,7 +385,7 @@ impl Lowering {
             .iter()
             .filter_map(|attr| match attr {
                 Attr::Name(_) | Attr::FuncName(_) | Attr::GlobalArray { .. } => match attr {
-                    Attr::FuncName(name) | Attr::Name(name) => Some(LAttr::Name(name.clone())),
+                    Attr::FuncName(name) | Attr::Name(name) => Some(BAttr::Name(name.clone())),
                     Attr::GlobalArray { .. } | Attr::OldIdx(_) | Attr::Promotion => None,
                 },
                 Attr::OldIdx(_) | Attr::Promotion => None,
@@ -424,27 +411,29 @@ impl Lowering {
                         OpData::$bin_op { lhs, rhs } => {
                             let lhs = self.get(lhs.clone());
                             let rhs = self.get(rhs.clone());
-                            self.alloc_and_map_lop(op_id.clone(), LOp::new(
+                            self.create_and_map_lop(op_id.clone(), BOp::new(
                                 typ.clone().into(),
                                 lattr,
                                 LOpData::$bin_op {
-                                    rd: LOperand::Undef,
+                                    rd: BOperand::Undef,
                                     lhs,
                                     rhs,
-                                },
+                                }
+                                .into(),
                             ));
                         },
                     )*
                     $(
                         OpData::$un_op { value } => {
                             let value = self.get(value.clone());
-                            self.alloc_and_map_lop(op_id.clone(), LOp::new(
+                            self.create_and_map_lop(op_id.clone(), BOp::new(
                                 typ.clone().into(),
                                 lattr,
                                 LOpData::$un_op {
-                                    rd: LOperand::Undef,
+                                    rd: BOperand::Undef,
                                     value,
-                                },
+                                }
+                                .into(),
                             ));
                         },
                     )*
@@ -456,8 +445,26 @@ impl Lowering {
         lower_ops_match! {
             target: data,
             bin_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe],
-            un_ops: [Sitofp, Fptosi, Uitofp, Zext],
+            un_ops: [Sitofp, Fptosi],
             fallback: {
+                // For bool -> float, we replace it with int -> float.
+                OpData::Uitofp { value } => {
+                    let value = self.get(value.clone());
+                    self.create_and_map_lop(op_id.clone(), BOp::new(
+                        typ.clone().into(),
+                        lattr,
+                        LOpData::Sitofp {
+                            rd: BOperand::Undef,
+                            value,
+                        }
+                        .into(),
+                    ));
+                },
+                // For bool -> int, we don't genrate any instruction, just map the value.
+                OpData::Zext { value } => {
+                    let value = self.get(value.clone());
+                    self.set(op_id.clone(), value);
+                },
                 OpData::Br {
                     cond,
                     then_bb,
@@ -466,8 +473,8 @@ impl Lowering {
                     let cond = self.get(cond.clone());
                     let then_bb = self.get(then_bb.clone());
                     let else_bb = self.get(else_bb.clone());
-                    self.alloc_and_map_lop(op_id.clone(),
-                        LOp::new(
+                    self.create_and_map_lop(op_id.clone(),
+                        BOp::new(
                             Type::Void.into(),
                             lattr,
                             LOpData::Br {
@@ -475,61 +482,60 @@ impl Lowering {
                                 then_bb,
                                 else_bb,
                             }
+                            .into(),
                         )
                     );
                 },
                 OpData::Jump { target_bb } => {
                     let target_bb = self.get(target_bb.clone());
-                    self.alloc_and_map_lop(
+                    self.create_and_map_lop(
                         op_id.clone(),
-                        LOp::new(
+                        BOp::new(
                             Type::Void.into(),
                             lattr,
                             LOpData::Jump {
                                 target_bb,
-                            },
+                            }
+                            .into(),
                         ),
                     );
                 },
                 OpData::Load { addr } => {
                     let addr = self.get(addr.clone());
-                    let vreg_id = self.alloc_vreg(VirtReg {
-                        defs: vec![],
-                        phys: None,
-                    });
-                    let lop_id = self.alloc_and_map_lop(
+                    self.create_and_map_lop(
                         op_id.clone(),
-                        LOp::new(
+                        BOp::new(
                             typ.clone().into(),
                             lattr,
                             LOpData::Load {
-                                rd: LOperand::Undef,
+                                rd: BOperand::Undef,
                                 addr,
-                            },
+                            }
+                            .into(),
                         ),
                     );
-                    self.bind(lop_id, vreg_id);
                 },
                 OpData::Store { addr, value } => {
                     let addr = self.get(addr.clone());
                     let value = self.get(value.clone());
-                    self.alloc_and_map_lop(
+                    self.create_and_map_lop(
                         op_id.clone(),
-                        LOp::new(
+                        BOp::new(
                             Type::Void.into(),
                             lattr,
                             LOpData::Store {
                                 addr,
                                 value,
-                            },
+                            }
+                            .into(),
                         ),
                     );
                 },
                 OpData::Call { func, args } => {
                     // Create move instructions for args
                     let func_type = self.get_op_type(func.clone());
-                    let param_types = match &func_type {
-                        Type::Function { param_types, .. } => param_types.clone(),
+                    let (param_types, ret_typ) = match &func_type {
+                        Type::Function { param_types, return_type } => (param_types.clone(), *return_type.clone()),
                         _ => unreachable!("Only function type can be called"),
                     };
                     let mut param_regs = Self::get_param_regs(
@@ -538,66 +544,68 @@ impl Lowering {
                     for (idx, arg) in args.iter().enumerate() {
                         let arg_typ = self.get_op_type(arg.clone());
                         if idx < PARAM_REG_MAX_NUM as usize {
-                            let vreg_id = self.alloc_vreg(VirtReg {
-                                defs: vec![],
-                                phys: Some(param_regs.remove(0)),
-                            });
                             let arg = self.get(arg.clone());
-                            let move_lop_id = self.create(LOp::new(
+                            self.create(BOp::new(
                                 arg_typ.clone().into(),
                                 vec![],
                                 LOpData::Move {
-                                    rd: LOperand::Undef,
+                                    rd: BOperand::Reg(param_regs.remove(0)),
                                     src: arg,
-                                },
+                                }
+                                .into(),
                             ));
-                            self.bind(move_lop_id, vreg_id);
                         } else {
-                            let slot_id = self.alloc_slot(Slot::Param {
+                            let slot_id = self.alloc_slot(Slot::Arg {
                                 size: arg_typ.size(),
                                 align: arg_typ.align(),
+                                offset: 0, // We will calculate the offset in the stack frame layout phase.
                             });
                             let arg = self.get(arg.clone());
-                            self.create(LOp::new(
+                            self.create(BOp::new(
                                 Type::Void.into(),
                                 vec![],
                                 LOpData::Store {
                                     addr: slot_id.clone(),
                                     value: arg,
-                                },
+                                }
+                                .into(),
                             ));
                         }
                     }
-                    // Create call instruction
 
+                    // Create call instruction
                     let func = self.get(func.clone());
-                    self.create(LOp::new(
+                    self.create(BOp::new(
                         // Since call doesn't produce a value in Lower IR, the type should be void.
                         Type::Void.into(),
                         vec![],
                         LOpData::Call {
                             func,
-                        },
+                        }
+                        .into(),
                     ));
 
-                    // If the function returns a value, we create a move and bind the original VReg.
+                    // If the function returns a value, we create a move from physical register.
                     if typ != Type::Void {
-                        let vreg_id = self.alloc_vreg(VirtReg {
-                            defs: vec![],
-                            phys: None,
-                        });
-                        let move_lop_id = self.alloc_and_map_lop(
+                        let phys_reg = match ret_typ {
+                            Type::Float => Reg::F(FReg::Fa0),
+                            Type::Bool | Type::Int | Type::Pointer { .. } => Reg::X(XReg::A0),
+                            Type::Array { .. } | Type::Function { .. } | Type::Void | Type::Char => {
+                                unreachable!("Array, Function, Void and Char type should not be directly returned")
+                            }
+                        };
+                        self.create_and_map_lop(
                             op_id.clone(),
-                            LOp::new(
+                            BOp::new(
                                 typ.clone().into(),
                                 vec![],
                                 LOpData::Move {
-                                    rd: LOperand::Undef,
-                                    src: vreg_id.clone(),
-                                },
+                                    rd: BOperand::Undef,
+                                    src: BOperand::Reg(phys_reg),
+                                }
+                                .into(),
                             ),
                         );
-                        self.bind(move_lop_id, vreg_id.clone());
                     }
                 }
                 OpData::Phi { .. } => {
@@ -611,6 +619,7 @@ impl Lowering {
                     self.alloc_and_map_slot(Operand::Value(op_id.get_op_id()), Slot::Local {
                         size: typ.size(),
                         align: typ.align(),
+                        offset: 0, // We will calculate the offset in the stack frame layout phase.
                     });
                 }
                 OpData::GEP { base, indices } => {
@@ -632,19 +641,17 @@ impl Lowering {
                     for (dim, index) in indices.iter().enumerate() {
                         match &base_typ {
                             Type::Array { .. } => {
-                                let mul_vreg_id = self.alloc_vreg(VirtReg {
-                                    defs: vec![],
-                                    phys: None,
-                                });
+                                let mul_vreg_id = self.alloc_vreg(VirtReg::default());
 
-                                let mul_lop = LOp::new(
-                                    MType::U64,
+                                let mul_lop = BOp::new(
+                                    BType::U64,
                                     vec![],
                                     LOpData::MulI {
                                         rd: mul_vreg_id,
                                         lhs: self.get(index.clone()),
-                                        rhs: LOperand::IntImm(base_typ.subarr_size(dim) as i32),
-                                    },
+                                        rhs: BOperand::IntImm(base_typ.subarr_size(dim) as i32),
+                                    }
+                                    .into(),
                                 );
 
                                 let mul_lop_id = self.create(
@@ -653,18 +660,19 @@ impl Lowering {
 
                                 // If the end of loop reached, bind the VReg of GEP to the current instruction.
                                 let add_lop =
-                                        LOp::new(
-                                            MType::U64,
+                                        BOp::new(
+                                            BType::U64,
                                             vec![],
                                             LOpData::AddI {
-                                                rd: LOperand::Undef,
+                                                rd: BOperand::Undef,
                                                 lhs: current_lop_id.clone(),
                                                 rhs: mul_lop_id.clone(),
-                                            },
+                                            }
+                                            .into(),
                                         );
 
                                 if dim == indices.len() - 1 {
-                                    self.alloc_and_map_lop(
+                                    self.create_and_map_lop(
                                         op_id.clone(), add_lop
                                     );
                                 } else {
@@ -678,29 +686,31 @@ impl Lowering {
                             _ => {
                                 let rhs = self.get(index.clone());
                                 let mul_op = self.create(
-                                    LOp::new(
-                                        MType::U64,
+                                    BOp::new(
+                                        BType::U64,
                                         vec![],
                                         LOpData::MulI {
-                                            rd: LOperand::Undef,
-                                            lhs: LOperand::IntImm(base_typ.size() as i32),
+                                            rd: BOperand::Undef,
+                                            lhs: BOperand::IntImm(base_typ.size() as i32),
                                             rhs,
-                                        },
+                                        }
+                                        .into(),
                                     ),
                                 );
 
                                 // If the pointee is scalar, the iteration will only has one step.
                                 // We don't need to update current_lop_id, and we can directly bind the vreg of GEP to the Add.
-                                self.alloc_and_map_lop(
+                                self.create_and_map_lop(
                                     op_id.clone(),
-                                    LOp::new(
-                                        MType::U64,
+                                    BOp::new(
+                                        BType::U64,
                                         vec![],
                                         LOpData::AddI {
-                                            rd: LOperand::Undef,
+                                            rd: BOperand::Undef,
                                             lhs: current_lop_id.clone(),
                                             rhs: mul_op,
-                                        },
+                                        }
+                                        .into(),
                                     ),
                                 );
                             }
@@ -710,12 +720,14 @@ impl Lowering {
                     // If the truncated indices is empty, we need to map the GEP to the base pointer's LOp InstId directly.
                     if indices.is_empty() {
                         yachiyo::debug::info!("current_op_id: {:?}", current_lop_id);
+                        let lfunc_id = self.get(func_id);
                         let target_id = match_minor!(
                             target: current_lop_id,
                             minor_arms: {
-                                LOperand::Virt(id) => self.lower_ir.funcs[func_id].vregs[id].defs[0].clone(),
+                                BOperand::Reg(Reg::Virt(id)) => self.lower_ir.funcs[lfunc_id].vregs[id].defs[0].clone(),
+                                BOperand::Reg(_) => unreachable!("Only VirtReg can be the source of GEP, but got physical register"),
                             },
-                            uni_ops: [LOperand::Data, LOperand::Phys, LOperand::Slot, LOperand::BB, LOperand::Func, LOperand::Inst, LOperand::Undef, LOperand::IntImm, LOperand::FloatImm, LOperand::RoData],
+                            uni_ops: [BOperand::Data, BOperand::Slot, BOperand::BB, BOperand::Func, BOperand::Inst, BOperand::Undef, BOperand::IntImm, BOperand::FloatImm, BOperand::RoData],
                             other_patterns: [],
                             uni_arm: {
                                 current_lop_id
@@ -727,18 +739,19 @@ impl Lowering {
                 OpData::Ret { value } => {
                     if let Some(value) = value {
                         let value = self.get(value.clone());
-                        self.create(LOp::new(
+                        self.create(BOp::new(
                             typ.into(),
                             vec![],
                             LOpData::Move {
-                                rd: LOperand::Undef,
+                                rd: BOperand::Undef,
                                 src: value,
-                            },
+                            }
+                            .into(),
                         ));
                     }
                     // Ret itself never binds with any value.
                     self.create(
-                        LOp::new(Type::Void.into(), vec![], LOpData::Ret),
+                        BOp::new(Type::Void.into(), vec![], LOpData::Ret.into()),
                     );
                 }
 
@@ -750,31 +763,31 @@ impl Lowering {
     }
 
     /// Lowering the blocks in BFS order starting from the entry block.
-    fn lower_bbs(&mut self) {
-        let func_id = self.builder.current_function.expect("No current function");
-
+    fn lower_bbs(&mut self, func_id: Operand) {
         while let Some(bb_id) = self.worklist.pop_front() {
             if self.processed.contains(bb_id) {
                 continue;
             }
             self.processed.insert(bb_id);
 
-            if bb_id == self.ir.funcs[func_id].cfg.entry.expect("No entry block") {
-                let func = &self.ir.funcs[func_id];
+            if bb_id
+                == self.ir.funcs[func_id.clone()]
+                    .cfg
+                    .entry
+                    .expect("No entry block")
+            {
+                let func = &self.ir.funcs[func_id.clone()];
 
-                self.alloc_and_map_func(
-                    Operand::Func(self.builder.current_function.expect("No current function")),
-                    LFunction::new(func.name.clone()),
-                );
+                self.alloc_and_map_func(func_id.clone(), BFunction::new(func.name.clone()));
 
                 // Create prologue.
-                let func = &self.ir.funcs[func_id];
+                let func = &self.ir.funcs[func_id.clone()];
                 let lentry = self.alloc_and_map_block(
                     Operand::BB(func.cfg.entry.expect("No entry block")),
-                    LBasicBlock::default(),
+                    BBasicBlock::default(),
                 );
 
-                let func = &self.ir.funcs[func_id];
+                let func = &self.ir.funcs[func_id.clone()];
                 let param_types = match &func.typ {
                     Type::Function { param_types, .. } => param_types.clone(),
                     _ => unreachable!("Only function type should be in the function arena"),
@@ -788,24 +801,19 @@ impl Lowering {
                 // Create moves and stack slots for parameters.
                 for (idx, param_typ) in param_types.iter().enumerate() {
                     if idx < PARAM_REG_MAX_NUM as usize {
-                        let vreg_id = self.alloc_vreg(VirtReg {
-                            defs: vec![],
-                            phys: None,
-                        });
-
-                        let lop_id = self.create(LOp::new(
-                            (*param_typ).clone().into(),
-                            vec![],
-                            LOpData::Move {
-                                // The rd will be filled by LBuilder::create().
-                                rd: LOperand::Undef,
-                                src: LOperand::Phys(params_reg.remove(0)),
-                            },
-                        ));
-                        self.bind(lop_id, vreg_id.clone());
-
-                        // Manually map the param to the vreg.
-                        self.param_map[idx] = vreg_id;
+                        self.create_and_map_param(
+                            idx,
+                            BOp::new(
+                                (*param_typ).clone().into(),
+                                vec![],
+                                LOpData::Move {
+                                    // The rd will be filled by BBuilder::create().
+                                    rd: BOperand::Undef,
+                                    src: BOperand::Reg(params_reg.remove(0)),
+                                }
+                                .into(),
+                            ),
+                        );
                     } else {
                         let (size, align) = match &param_typ {
                             Type::Int | Type::Float => (param_typ.size(), param_typ.align()),
@@ -818,7 +826,11 @@ impl Lowering {
                                 unreachable!("Void type should not be passed as parameter")
                             }
                         };
-                        let slot_id = self.alloc_slot(Slot::Param { size, align });
+                        let slot_id = self.alloc_slot(Slot::Param {
+                            size,
+                            align,
+                            offset: 0,
+                        });
                         // Manually map the param to the slot.
                         self.param_map[idx] = slot_id;
                     }
@@ -828,7 +840,7 @@ impl Lowering {
             // The first iteration: Create Lower IR instructions
             let lbb_id = self.get(Operand::BB(bb_id));
             self.builder.set_current_block(lbb_id);
-            let bb = &self.ir.funcs[func_id].cfg[bb_id];
+            let bb = &self.ir.funcs[func_id.clone()].cfg[bb_id];
             let cur = bb.cur.clone();
 
             // Lower the IR operations.
@@ -837,8 +849,9 @@ impl Lowering {
             }
 
             // push successors to the worklist for later processing.
-            let func = &self.ir.funcs[func_id];
-            let entry_bb = &self.ir.funcs[func_id].cfg[func.cfg.entry.expect("No entry block")];
+            let func = &self.ir.funcs[func_id.clone()];
+            let entry_bb =
+                &self.ir.funcs[func_id.clone()].cfg[func.cfg.entry.expect("No entry block")];
             let succs = entry_bb.succs.clone();
             for succ in succs {
                 self.worklist.push_back(succ.get_bb_id());
@@ -846,19 +859,29 @@ impl Lowering {
         }
     }
 
-    fn resort_moves(&mut self, mut move_lop_ids: Vec<LOperand>) -> Vec<LOperand> {
+    fn resort_moves(&mut self, mut move_lop_ids: Vec<BOperand>) -> Vec<BOperand> {
         let mut new = vec![];
         let mut edges: Vec<(usize, usize)> = vec![];
 
         // Compute in-degree of each move.
         for move_lop_id in move_lop_ids.iter_mut() {
-            let move_lop = &self.lower_ir.funcs
-                [self.builder.current_function.expect("No current function")]
+            let move_bop = &self.lower_ir.funcs[self
+                .builder
+                .current_function
+                .clone()
+                .expect("No current function")]
             .dfg[move_lop_id.clone()];
-            let edge = match move_lop.data.clone() {
+
+            let move_lop_data = match move_bop.data.clone() {
+                BOpData::L(l_op) => l_op,
+                BOpData::M(_) => unreachable!("Only LOp should be in the move_lop_ids"),
+            };
+            let edge = match move_lop_data {
                 LOpData::Move { src, rd } => {
-                    if let (LOperand::Virt(_), LOperand::Virt(_)) = (src.clone(), rd.clone()) {
-                        (src.get_virt_id(), rd.get_virt_id())
+                    if let (BOperand::Reg(Reg::Virt(src_id)), BOperand::Reg(Reg::Virt(rd_id))) =
+                        (src.clone(), rd.clone())
+                    {
+                        (src_id, rd_id)
                     } else {
                         continue;
                     }
@@ -873,13 +896,23 @@ impl Lowering {
         let mut old_len = new.len();
         loop {
             for move_lop_id in move_lop_ids.iter_mut() {
-                let move_lop = &self.lower_ir.funcs
-                    [self.builder.current_function.expect("No current function")]
+                let move_bop = &self.lower_ir.funcs[self
+                    .builder
+                    .current_function
+                    .clone()
+                    .expect("No current function")]
                 .dfg[move_lop_id.clone()];
-                let edge = match move_lop.data.clone() {
+
+                let move_lop_data = match move_bop.data.clone() {
+                    BOpData::L(l_op) => l_op,
+                    BOpData::M(_) => unreachable!("Only LOp should be in the move_lop_ids"),
+                };
+                let edge = match move_lop_data {
                     LOpData::Move { src, rd } => {
-                        if let (LOperand::Virt(_), LOperand::Virt(_)) = (src.clone(), rd.clone()) {
-                            (src.get_virt_id(), rd.get_virt_id())
+                        if let (BOperand::Reg(Reg::Virt(src_id)), BOperand::Reg(Reg::Virt(rd_id))) =
+                            (src.clone(), rd.clone())
+                        {
+                            (src_id, rd_id)
                         } else {
                             continue;
                         }
@@ -897,37 +930,45 @@ impl Lowering {
                 // If there is a cycle, we can break it by inserting a temporary move.
                 // Choose the first edge in the cycle to break.
                 let (from, _) = *edges.first().unwrap();
-                let temp_vreg_id = self.lower_ir.funcs
-                    [self.builder.current_function.expect("No current function")]
+                let temp_vreg_id = self.lower_ir.funcs[self
+                    .builder
+                    .current_function
+                    .clone()
+                    .expect("No current function")]
                 .vregs
-                .alloc(VirtReg {
-                    defs: vec![],
-                    phys: None,
-                });
+                .alloc(VirtReg::default());
                 let temp_lop_id = self.builder.create(
                     &mut self.lower_ir,
-                    self.builder.current_function,
-                    LOp::new(
-                        MType::U64,
+                    self.builder.current_function.clone(),
+                    BOp::new(
+                        BType::U64,
                         vec![],
                         LOpData::Move {
-                            rd: LOperand::Virt(temp_vreg_id),
-                            src: LOperand::Virt(from),
-                        },
+                            rd: BOperand::Reg(Reg::Virt(temp_vreg_id)),
+                            src: BOperand::Reg(Reg::Virt(from)),
+                        }
+                        .into(),
                     ),
                 );
                 // We don't need to add the new move to edges.
                 new.push(temp_lop_id.clone());
                 // Replace the move from `from` to `temp`.
                 for move_lop_id in move_lop_ids.iter_mut() {
-                    let move_lop = &mut self.lower_ir.funcs
-                        [self.builder.current_function.expect("No current function")]
+                    let move_bop = &mut self.lower_ir.funcs[self
+                        .builder
+                        .current_function
+                        .clone()
+                        .expect("No current function")]
                     .dfg[move_lop_id.clone()];
-                    if let LOpData::Move { src, .. } = move_lop.data.clone() {
-                        if src == LOperand::Virt(from) {
-                            match &mut move_lop.data {
-                                LOpData::Move { src, .. } => {
-                                    *src = LOperand::Virt(temp_vreg_id);
+                    let move_lop_data = match move_bop.data.clone() {
+                        BOpData::L(l_op) => l_op,
+                        BOpData::M(_) => unreachable!("Only LOp should be in the move_lop_ids"),
+                    };
+                    if let LOpData::Move { src, .. } = move_lop_data {
+                        if src == BOperand::Reg(Reg::Virt(from)) {
+                            match &mut move_bop.data {
+                                BOpData::L(LOpData::Move { src, .. }) => {
+                                    *src = BOperand::Reg(Reg::Virt(temp_vreg_id));
                                 }
                                 _ => unreachable!("Only Move LOp should be in the move_lop_ids"),
                             }
@@ -949,50 +990,63 @@ impl Lowering {
         new
     }
 
-    fn create_trampoline(&mut self, edge: (usize, usize), new: Vec<LOperand>) {
-        let (from, to) = (LOperand::BB(edge.0), LOperand::BB(edge.1));
+    fn create_trampoline(&mut self, edge: (usize, usize), new: Vec<BOperand>) {
+        let (from, to) = (BOperand::BB(edge.0), BOperand::BB(edge.1));
         let tramp_id = self
             .builder
-            .create_new_block(&mut self.lower_ir, self.builder.current_function);
+            .create_new_block(&mut self.lower_ir, self.builder.current_function.clone());
 
-        let from_bb = &mut self.lower_ir.funcs
-            [self.builder.current_function.expect("No current function")]
+        let from_bb = &mut self.lower_ir.funcs[self
+            .builder
+            .current_function
+            .clone()
+            .expect("No current function")]
         .cfg[from.clone()];
         let from_term_id = from_bb
             .cur
             .last()
             .expect("No terminator in the from block")
             .clone();
-        let from_term = &self.lower_ir.funcs
-            [self.builder.current_function.expect("No current function")]
+        let from_term = &self.lower_ir.funcs[self
+            .builder
+            .current_function
+            .clone()
+            .expect("No current function")]
         .dfg[from_term_id.clone()];
 
+        let from_term_data = match from_term.data.clone() {
+            BOpData::L(l_op) => l_op,
+            BOpData::M(_) => unreachable!("Only LOp can be the terminator of a block"),
+        };
+
         // Update the control flow
-        let new_lop = match from_term.data.clone() {
+        let new_lop = match from_term_data {
             LOpData::Br {
                 cond,
                 then_bb,
                 else_bb,
             } => {
                 if then_bb == to {
-                    LOp::new(
+                    BOp::new(
                         Type::Void.into(),
                         vec![],
                         LOpData::Br {
                             cond,
                             then_bb: tramp_id.clone(),
                             else_bb,
-                        },
+                        }
+                        .into(),
                     )
                 } else if else_bb == to {
-                    LOp::new(
+                    BOp::new(
                         Type::Void.into(),
                         vec![],
                         LOpData::Br {
                             cond,
                             then_bb,
                             else_bb: tramp_id.clone(),
-                        },
+                        }
+                        .into(),
                     )
                 } else {
                     unreachable!(
@@ -1002,12 +1056,13 @@ impl Lowering {
             }
             LOpData::Jump { target_bb } => {
                 if target_bb == to {
-                    LOp::new(
+                    BOp::new(
                         Type::Void.into(),
                         vec![],
                         LOpData::Jump {
                             target_bb: tramp_id.clone(),
-                        },
+                        }
+                        .into(),
                     )
                 } else {
                     unreachable!(
@@ -1018,10 +1073,10 @@ impl Lowering {
             _ => unreachable!("The terminator of the from block should be either Br or Jump"),
         };
 
-        let current_function = self.builder.current_function;
+        let current_function = self.builder.current_function.clone();
         self.lower_ir.replace_op(
             &mut self.builder,
-            current_function,
+            current_function.clone(),
             from_term_id,
             from,
             new_lop,
@@ -1029,15 +1084,19 @@ impl Lowering {
 
         // Insert terminator and the moves for phi elimination.
         {
-            let mut guard = LBuilderGuard::new(&mut self.builder);
+            let mut guard = BBuilderGuard::new(&mut self.builder);
             guard.set_current_block(tramp_id.clone());
 
-            self.lower_ir.funcs[current_function.expect("No current function")].cfg
+            self.lower_ir.funcs[current_function.clone().expect("No current function")].cfg
                 [tramp_id.clone()]
             .cur
             .extend(new);
 
-            let jump_lop = LOp::new(Type::Void.into(), vec![], LOpData::Jump { target_bb: to });
+            let jump_lop = BOp::new(
+                Type::Void.into(),
+                vec![],
+                LOpData::Jump { target_bb: to }.into(),
+            );
             guard.create(&mut self.lower_ir, current_function, jump_lop);
         }
     }
@@ -1060,8 +1119,8 @@ impl Lowering {
                     if let Some((name, mutable, typ, values)) = res {
                         let values = match values {
                             Some(values) => values.iter().map(|v| match v {
-                                Literal::Int(i) => MOperand::IntImm(*i),
-                                Literal::Float(f) => MOperand::FloatImm(*f),
+                                Literal::Int(i) => BOperand::IntImm(*i),
+                                Literal::Float(f) => BOperand::FloatImm(*f),
                                 Literal::String(s) => unimplemented!(
                                     "String literal in global array initializer is not supported yet: {}",
                                     s
@@ -1070,14 +1129,14 @@ impl Lowering {
                             // If global array has no initializer, we need to fill it with default values according to the type.
                             None => match &typ {
                                 Type::Int
-                                | Type::Bool => vec![MOperand::IntImm(0)],
-                                Type::Float => vec![MOperand::FloatImm(0.0)],
+                                | Type::Bool => vec![BOperand::IntImm(0)],
+                                Type::Float => vec![BOperand::FloatImm(0.0)],
                                 Type::Pointer { .. } => unimplemented!("Uninitialized global pointer is not supported yet"),
                                 Type::Array { base, dims } => {
                                     let base_value = match &**base {
                                         Type::Int
-                                        | Type::Bool => MOperand::IntImm(0),
-                                        Type::Float => MOperand::FloatImm(0.0),
+                                        | Type::Bool => BOperand::IntImm(0),
+                                        Type::Float => BOperand::FloatImm(0.0),
                                         Type::Pointer { .. } => unimplemented!("Uninitialized global pointer is not supported yet"),
                                         Type::Array { .. } => unimplemented!("Multi-dimensional array without initializer is not supported yet"),
                                         Type::Function { .. } | Type::Void | Type::Char => unreachable!("Function, Void and Char type should not be in the global array"),
@@ -1091,10 +1150,10 @@ impl Lowering {
                         };
 
                         if mutable {
-                            let data = Data::new(typ, values);
+                            let data = Data::new(typ.into(), values);
                             self.alloc_and_map_data(Operand::Global(global), Some(name), data);
                         } else {
-                            let rodata = RoData::new(typ, values);
+                            let rodata = RoData::new(typ.into(), values);
                             self.alloc_and_map_rodata(Operand::Global(global), Some(name), rodata);
                         }
                     }
@@ -1106,14 +1165,14 @@ impl Lowering {
         // Pre-allocate functions.
         for func_id in self.ir.funcs.ids() {
             let func = &self.ir.funcs[func_id];
-            self.alloc_and_map_func(Operand::Func(func_id), LFunction::new(func.name.clone()));
+            self.alloc_and_map_func(Operand::Func(func_id), BFunction::new(func.name.clone()));
         }
     }
 
-    pub fn run(&mut self) -> LowerIR {
-        self.func_map.resize(self.ir.funcs.len(), LOperand::Undef);
+    pub fn run(&mut self) -> BackIR {
+        self.func_map.resize(self.ir.funcs.len(), BOperand::Undef);
         self.global_map
-            .resize(self.ir.globals.len(), LOperand::Undef);
+            .resize(self.ir.globals.len(), BOperand::Undef);
         self.lower_global();
 
         // Pre-allocate functions.
@@ -1124,15 +1183,14 @@ impl Lowering {
             let func = &self.ir.funcs[func_id];
             let entry = func.cfg.entry.expect("No entry block");
             for bb_id in func.cfg.ids() {
-                self.alloc_and_map_block(Operand::BB(bb_id), LBasicBlock::default());
+                self.alloc_and_map_block(Operand::BB(bb_id), BBasicBlock::default());
             }
 
             self.worklist.push_back(entry);
-            self.lower_bbs();
+            self.lower_bbs(Operand::BB(func_id));
 
             // Process phis.
-            let mut phi_moves: FxHashMap<(usize, (usize, usize)), Vec<LOperand>> =
-                FxHashMap::default();
+            let mut phi_moves: FxHashMap<(usize, usize), Vec<BOperand>> = FxHashMap::default();
             for (phi_id, phi_bb_id) in std::mem::take(&mut self.phis) {
                 let (typ, phi_op_data) = {
                     let op = &self.ir.funcs[func_id].dfg[Operand::Value(phi_id)];
@@ -1147,20 +1205,21 @@ impl Lowering {
                         };
 
                         let incoming_vreg_id = self.get(value.clone());
-                        let move_lop = LOp::new(
+                        let move_lop = BOp::new(
                             typ.clone().into(),
                             vec![],
                             LOpData::Move {
-                                rd: LOperand::Undef,
+                                rd: BOperand::Undef,
                                 src: incoming_vreg_id,
-                            },
+                            }
+                            .into(),
                         );
 
                         // The moves will be binded to the same VReg allocated to Phi instruction previously.
-                        let move_lop_id = self.alloc_and_map_lop(Operand::Value(phi_id), move_lop);
+                        let move_lop_id = self.create_and_map_lop(Operand::Value(phi_id), move_lop);
                         // Record the move_lop_id for later resorting and trampoline insertion.
                         phi_moves
-                            .entry((phi_id, (bb_id.get_bb_id(), phi_bb_id)))
+                            .entry((bb_id.get_bb_id(), phi_bb_id))
                             .or_default()
                             .push(move_lop_id);
                     }
@@ -1170,10 +1229,9 @@ impl Lowering {
             }
 
             // Refinement: reschedule the Moves generated by Phis and create trampolines.
-            for key in phi_moves.keys().cloned() {
-                let move_lop_ids = phi_moves[&key].clone();
+            for edge in phi_moves.keys().cloned() {
+                let move_lop_ids = phi_moves[&edge].clone();
                 let resorted_moves = self.resort_moves(move_lop_ids);
-                let (_, edge) = key;
                 self.create_trampoline(edge, resorted_moves);
             }
         }

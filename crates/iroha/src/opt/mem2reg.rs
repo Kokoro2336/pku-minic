@@ -1,7 +1,7 @@
 //! SSA construction & Mem2Reg based on Cytron et al. 1991's algorithm.
 //! Reference: https://dl.acm.org/doi/pdf/10.1145/75277.75280
 
-use super::Pass;
+use yachiyo::pass::Pass;
 use crate::analysis::dom::{BuildDomFrontier, BuildDomTree, DomFrontier, DomTree};
 use yachiyo::base::Type;
 use yachiyo::debug::info;

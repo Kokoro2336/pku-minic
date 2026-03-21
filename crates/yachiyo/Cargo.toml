@@ -20,3 +20,9 @@ tracing-appender = "0.2.1"
 
 # for printing graphs
 graphviz-rust = "0.9.6"
+
+# Cli
+clap = { workspace = true }
+clap_builder = { workspace = true }
+clap_derive = { workspace = true }
+clap_lex = { workspace = true }

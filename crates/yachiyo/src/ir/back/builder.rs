@@ -1,89 +1,94 @@
-//! Lower LowerIR Builder definition.
+//! Definition of Machine IR builder.
 
-use crate::ir::lower::{LOp, LOperand, LowerIR};
+use crate::ir::back::{BOp, BOperand, BackIR};
 
 use std::ops::{Deref, DerefMut};
 
 #[derive(Default)]
-pub struct LBuilder {
-    /// current function
-    pub current_function: Option<usize>,
-    /// current basic block
-    pub current_block: Option<LOperand>,
-    /// insertion point: insert before this instruction; None means append at block end.
-    pub current_inst: Option<LOperand>,
+pub struct BBuilder {
+    pub current_function: Option<BOperand>,
+    pub current_block: Option<BOperand>,
+    pub current_inst: Option<BOperand>,
 }
 
-pub struct LBuilderGuard<'a> {
-    pub builder: &'a mut LBuilder,
-    current_block: Option<LOperand>,
-    current_inst: Option<LOperand>,
+pub struct BBuilderGuard<'a> {
+    pub builder: &'a mut BBuilder,
+    current_function: Option<BOperand>,
+    current_block: Option<BOperand>,
+    current_inst: Option<BOperand>,
 }
 
-impl<'a> LBuilderGuard<'a> {
-    pub fn new(builder: &'a mut LBuilder) -> Self {
+impl<'a> BBuilderGuard<'a> {
+    pub fn new(builder: &'a mut BBuilder) -> Self {
+        let current_function = builder.current_function.clone();
         let current_block = builder.current_block.clone();
         let current_inst = builder.current_inst.clone();
         Self {
             builder,
+            current_function,
             current_block,
             current_inst,
         }
     }
 }
 
-impl Deref for LBuilderGuard<'_> {
-    type Target = LBuilder;
+impl Deref for BBuilderGuard<'_> {
+    type Target = BBuilder;
 
     fn deref(&self) -> &Self::Target {
         self.builder
     }
 }
 
-impl DerefMut for LBuilderGuard<'_> {
+impl DerefMut for BBuilderGuard<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.builder
     }
 }
 
-impl Drop for LBuilderGuard<'_> {
+impl Drop for BBuilderGuard<'_> {
     fn drop(&mut self) {
+        self.builder.current_function = self.current_function.clone();
         self.builder.current_block = self.current_block.clone();
         self.builder.current_inst = self.current_inst.clone();
     }
 }
 
-impl LBuilder {
+impl BBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     #[inline(always)]
-    pub fn set_current_func(&mut self, func_id: Option<usize>) {
-        self.current_function = func_id;
+    pub fn set_current_func(&mut self, func_id: BOperand) {
+        self.current_function = Some(func_id);
         self.current_block = None;
         self.current_inst = None;
     }
+
     #[inline(always)]
-    pub fn set_current_block(&mut self, block_id: LOperand) {
+    pub fn set_current_block(&mut self, block_id: BOperand) {
         self.current_block = Some(block_id);
         self.current_inst = None;
     }
+
     #[inline(always)]
-    pub fn set_current_inst(&mut self, inst_id: LOperand) {
+    pub fn set_current_inst(&mut self, inst_id: BOperand) {
         self.current_inst = Some(inst_id);
     }
-    // set insertion point before inst
-    // None: at the end
-    // inst_id must be in current block
+
     pub fn set_before_inst(
         &mut self,
-        program: &mut LowerIR,
-        current_function: Option<usize>,
-        inst_id: Option<LOperand>,
+        program: &mut BackIR,
+        current_function: Option<BOperand>,
+        inst_id: Option<BOperand>,
     ) {
         let cfg = program.cfg_mut_or_panic(
             current_function,
-            "Builder set_before_inst: no current function",
+            "BBuilder set_before_inst: no current function",
         );
         if self.current_block.is_none() {
-            panic!("Builder set_before_inst: current_block is None");
+            panic!("BBuilder set_before_inst: current_block is None");
         }
 
         let current_block = self.current_block.as_ref().unwrap().get_bb_id();
@@ -96,7 +101,7 @@ impl LBuilder {
             self.current_inst = inst_id;
         } else {
             panic!(
-                "Builder set_before_inst: inst {:?} not in current_block {:?}",
+                "BBuilder set_before_inst: inst {:?} not in current_block {:?}",
                 inst_id, self.current_block
             );
         }
@@ -104,16 +109,16 @@ impl LBuilder {
 
     pub fn set_after_inst(
         &mut self,
-        program: &mut LowerIR,
-        current_function: Option<usize>,
-        inst_id: Option<LOperand>,
+        program: &mut BackIR,
+        current_function: Option<BOperand>,
+        inst_id: Option<BOperand>,
     ) {
         let cfg = program.cfg_mut_or_panic(
             current_function,
-            "Builder set_after_inst: no current function",
+            "BBuilder set_after_inst: no current function",
         );
         if self.current_block.is_none() {
-            panic!("Builder set_after_inst: current_block is None");
+            panic!("BBuilder set_after_inst: current_block is None");
         }
 
         let current_block = self.current_block.as_ref().unwrap().get_bb_id();
@@ -122,6 +127,7 @@ impl LBuilder {
             self.current_inst = None;
             return;
         }
+
         if bb.cur.contains(&inst_id.clone().unwrap()) {
             let pos = bb
                 .cur
@@ -129,7 +135,7 @@ impl LBuilder {
                 .position(|id| id == &inst_id.clone().unwrap())
                 .unwrap_or_else(|| {
                     panic!(
-                        "Builder set_after_inst: inst {:?} not found in current_block {:?}",
+                        "BBuilder set_after_inst: inst {:?} not found in current_block {:?}",
                         inst_id, self.current_block
                     )
                 });
@@ -140,7 +146,7 @@ impl LBuilder {
             }
         } else {
             panic!(
-                "Builder set_after_inst: inst {:?} not in current_block {:?}",
+                "BBuilder set_after_inst: inst {:?} not in current_block {:?}",
                 inst_id, self.current_block
             );
         }
@@ -148,27 +154,27 @@ impl LBuilder {
 
     pub fn create(
         &mut self,
-        program: &mut LowerIR,
-        current_function: Option<usize>,
-        op: LOp,
-    ) -> LOperand {
+        program: &mut BackIR,
+        current_function: Option<BOperand>,
+        op: BOp,
+    ) -> BOperand {
         program.create(self, current_function, op)
     }
 
     pub fn create_at_head(
         &mut self,
-        program: &mut LowerIR,
-        current_function: Option<usize>,
-        op: LOp,
-    ) -> LOperand {
+        program: &mut BackIR,
+        current_function: Option<BOperand>,
+        op: BOp,
+    ) -> BOperand {
         program.create_at_head(self, current_function, op)
     }
 
     pub fn create_new_block(
         &mut self,
-        program: &mut LowerIR,
-        current_function: Option<usize>,
-    ) -> LOperand {
+        program: &mut BackIR,
+        current_function: Option<BOperand>,
+    ) -> BOperand {
         program.create_new_block(current_function)
     }
 }

@@ -1,6 +1,6 @@
 //! Garbage collection and reference rewriting support for Arena.
 
-use super::Pass;
+use yachiyo::pass::Pass;
 use yachiyo::ir::mid::IR;
 use yachiyo::utils::arena::Arena;
 

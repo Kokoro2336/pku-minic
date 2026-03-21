@@ -2,7 +2,7 @@
 
 use yachiyo::base::Type;
 use yachiyo::debug::{error, info};
-use crate::frontend::ast::*;
+use yachiyo::ast::*;
 use yachiyo::utils::arena::Arena;
 use yachiyo::utils::table::SymbolTable;
 

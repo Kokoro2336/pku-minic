@@ -1,6 +1,6 @@
 //! Remove Trivial Phi.
 
-use super::Pass;
+use yachiyo::pass::Pass;
 use yachiyo::ir::mid::{Attr, Builder, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::utils::arena::ArenaItem;
 
