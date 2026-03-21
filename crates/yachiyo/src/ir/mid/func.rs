@@ -179,6 +179,7 @@ impl Arena<Function> for IndexedArena<Function> {
                                 OpData::OGe,
                                 OpData::OLe
                             ],
+                            other_patterns: [],
                             uni_arm: { /* no BBId to rewrite */ }
                         }
                     }

@@ -1,3 +1,4 @@
+use crate::config::RISCV_BITS;
 use crate::base::Type;
 
 #[derive(Debug, Clone)]
@@ -7,6 +8,25 @@ pub enum BType {
     F32,
     // For pointer
     U64,
+}
+
+impl BType {
+    pub fn size(&self) -> u32 {
+        match self {
+            BType::Void => 1, // align to 1 byte for void type
+            BType::I32 => 4,
+            BType::F32 => 4,
+            BType::U64 => RISCV_BITS / 8,
+        }
+    }
+    pub fn align(&self) -> u32 {
+        match self {
+            BType::Void => 1,
+            BType::I32 => 4,
+            BType::F32 => 4,
+            BType::U64 => RISCV_BITS / 8,
+        }
+    }
 }
 
 impl From<Type> for BType {

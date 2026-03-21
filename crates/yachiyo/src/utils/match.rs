@@ -100,16 +100,14 @@ macro_rules! match_full_ops {
                 $SrcBin::$bin_op {
                     $rd_bin,
                     $lhs,
-                    $rhs,
-                    ..
+                    $rhs
                 } => $bin_body,
             )*
             // Unroll the unary operations.
             $(
                 $SrcUn::$un_op {
                     $rd_un,
-                    value: $val,
-                    ..
+                    $val,
                 } => $un_body,
             )*
             // Unroll the rest handwritten branches.

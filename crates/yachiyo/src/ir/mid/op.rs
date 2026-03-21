@@ -727,7 +727,6 @@ impl IndexedArena<Op> {
             minor_arms: {
                 Operand::Value(op_id) => op_id,
                 Operand::Global(global_id) => global_id,
-                _ => panic!("Operand is not a valid data: {:?}", op_idx),
             },
             // literals don't have uses in the DFG
             // For global variables, we don't maintain uses in the DFG, so just return.
@@ -736,7 +735,9 @@ impl IndexedArena<Op> {
                 Operand::Float,
                 Operand::Bool,
                 Operand::Undefined,
-                Operand::Param
+                Operand::Param,
+                Operand::BB,
+                Operand::Func
             ],
             other_patterns: [],
             uni_arm: return

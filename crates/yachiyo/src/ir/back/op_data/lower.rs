@@ -1,6 +1,6 @@
 //! Operand definition for Lower IR instructions.
 
-use crate::ir::back::{BOperand, BOpData};
+use crate::ir::back::{BOpData, BOperand};
 use strum_macros::EnumDiscriminants;
 
 #[derive(Debug, Clone, EnumDiscriminants)]
@@ -201,6 +201,26 @@ pub enum LOpData {
         target_bb: BOperand,
     },
     Ret,
+}
+
+impl LOpData {
+    pub fn is_rel(&self) -> bool {
+        matches!(
+            self,
+            LOpData::SNe { .. }
+                | LOpData::SEq { .. }
+                | LOpData::SGt { .. }
+                | LOpData::SLt { .. }
+                | LOpData::SGe { .. }
+                | LOpData::SLe { .. }
+                | LOpData::ONe { .. }
+                | LOpData::OEq { .. }
+                | LOpData::OGt { .. }
+                | LOpData::OLt { .. }
+                | LOpData::OGe { .. }
+                | LOpData::OLe { .. }
+        )
+    }
 }
 
 impl From<LOpData> for BOpData {

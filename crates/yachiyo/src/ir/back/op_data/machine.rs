@@ -1,6 +1,6 @@
 //! Instruction definition of Lower IR.
 
-use crate::ir::back::{BOperand, BOpData};
+use crate::ir::back::{BOpData, BOperand};
 
 #[derive(Debug, Clone)]
 pub enum MOpData {
@@ -8,9 +8,9 @@ pub enum MOpData {
     // 1. Pseudo-instructions & Data Movement
     // ==========================================
     /// Load Immediate: Materializes a 32-bit constant.
-    Li { rd: BOperand, imm: BOperand },
+    Li { rd: BOperand, imm: i32 },
     /// Load Address: Materializes the absolute address of a global variable or array.
-    La { rd: BOperand, imm: BOperand },
+    La { rd: BOperand, target: BOperand },
     /// Move: Register-to-register copy.
     /// Crucial for Phi elimination and register spilling/reloading.
     Mv { rd: BOperand, rs: BOperand },
@@ -23,6 +23,8 @@ pub enum MOpData {
     // If your target is RV64, you MUST use the 'w' (word) suffix for ALU ops
     // to ensure proper sign-extension and prevent silent overflow bugs.
     // ==========================================
+
+    // Register-Register ALU ops (32-bit)
     Addw {
         rd: BOperand,
         rs1: BOperand,
@@ -48,21 +50,6 @@ pub enum MOpData {
         rs1: BOperand,
         rs2: BOperand,
     }, // SysY +, -, *, /, % (32-bit math on 64-bit arch)
-    Slliw {
-        rd: BOperand,
-        rs1: BOperand,
-        imm: BOperand,
-    },
-    Srliw {
-        rd: BOperand,
-        rs1: BOperand,
-        imm: BOperand,
-    },
-    Sraiw {
-        rd: BOperand,
-        rs1: BOperand,
-        imm: BOperand,
-    }, // Shift by immediate (e.g., array index scaling: i * 4)
     Sllw {
         rd: BOperand,
         rs1: BOperand,
@@ -78,36 +65,81 @@ pub enum MOpData {
         rs1: BOperand,
         rs2: BOperand,
     }, // Shift by register
-    And {
+
+    /// For relational ops of integer.
+    Slt {
         rd: BOperand,
         rs1: BOperand,
         rs2: BOperand,
     },
-    Or {
+    Slti {
+        rd: BOperand,
+        rs1: BOperand,
+        imm: BOperand,
+    },
+    Sltu {
         rd: BOperand,
         rs1: BOperand,
         rs2: BOperand,
     },
+    Sltiu {
+        rd: BOperand,
+        rs1: BOperand,
+        imm: BOperand,
+    },
+
+    // Immediate ALU ops (32-bit)
+    Addiw {
+        rd: BOperand,
+        rs1: BOperand,
+        imm: BOperand,
+    },
+    Subiw {
+        rd: BOperand,
+        rs1: BOperand,
+        imm: BOperand,
+    },
+    Muliw {
+        rd: BOperand,
+        rs1: BOperand,
+        imm: BOperand,
+    },
+    Diviw {
+        rd: BOperand,
+        rs1: BOperand,
+        imm: BOperand,
+    },
+    Remiw {
+        rd: BOperand,
+        rs1: BOperand,
+        imm: BOperand,
+    },
+    Slliw {
+        rd: BOperand,
+        rs1: BOperand,
+        imm: BOperand,
+    },
+    Srliw {
+        rd: BOperand,
+        rs1: BOperand,
+        imm: BOperand,
+    },
+    Sraiw {
+        rd: BOperand,
+        rs1: BOperand,
+        imm: BOperand,
+    }, // Shift by immediate (e.g., array index scaling: i * 4)
+
     Xor {
         rd: BOperand,
         rs1: BOperand,
         rs2: BOperand,
     }, // Bitwise/Logical operations
-    Andi {
-        rd: BOperand,
-        rs1: BOperand,
-        imm: BOperand,
-    },
-    Ori {
-        rd: BOperand,
-        rs1: BOperand,
-        imm: BOperand,
-    },
     Xori {
         rd: BOperand,
         rs1: BOperand,
         imm: BOperand,
-    }, // Bitwise/Logical with immediate
+    },
 
     // ==========================================
     // 3. Floating-Point Arithmetic (F-Extension)
@@ -132,6 +164,8 @@ pub enum MOpData {
         rs1: BOperand,
         rs2: BOperand,
     }, // Single-precision math
+
+    // Relational ops
     FeqS {
         rd: BOperand,
         rs1: BOperand,
@@ -146,7 +180,24 @@ pub enum MOpData {
         rd: BOperand,
         rs1: BOperand,
         rs2: BOperand,
-    }, // FP comparisons (==, <, <=)
+    },
+
+    // Pesudo relational ops
+    FneS {
+        rd: BOperand,
+        rs1: BOperand,
+        rs2: BOperand,
+    },
+    FgtS {
+        rd: BOperand,
+        rs1: BOperand,
+        rs2: BOperand,
+    },
+    FgeS {
+        rd: BOperand,
+        rs1: BOperand,
+        rs2: BOperand,
+    },
 
     /// Float to Int conversion.
     /// Matches SysY semantic: truncate/round towards zero (RTZ).
@@ -201,11 +252,16 @@ pub enum MOpData {
     // 5. Control Flow
     // ==========================================
     /// Unconditional jump (translates 'break', 'continue', or block merges).
-    J { offset: BOperand },
+    J { target: BOperand },
     /// Function call. Use this pseudo-instruction and let the assembler handle ra/auipc/jalr.
     Call { target: BOperand },
+
     /// Return. Pseudo for 'jalr x0, 0(ra)'.
     Ret,
+
+    /// Branching
+    Bnez { rs: BOperand, target: BOperand },
+
     Beq {
         rs1: BOperand,
         rs2: BOperand,
@@ -215,7 +271,7 @@ pub enum MOpData {
         rs1: BOperand,
         rs2: BOperand,
         offset: BOperand,
-    }, // Branch if Equal / Not Equal
+    },
     Blt {
         rs1: BOperand,
         rs2: BOperand,
@@ -225,7 +281,7 @@ pub enum MOpData {
         rs1: BOperand,
         rs2: BOperand,
         offset: BOperand,
-    }, // Branch if Less Than / Greater or Equal (Signed - SysY default)
+    },
     Bltu {
         rs1: BOperand,
         rs2: BOperand,
@@ -235,14 +291,14 @@ pub enum MOpData {
         rs1: BOperand,
         rs2: BOperand,
         offset: BOperand,
-    }, // Branch Unsigned (Used strictly for pointer/address bound checks)
+    },
 }
 
 impl std::fmt::Display for MOpData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MOpData::Li { rd, imm } => write!(f, "li {rd}, {imm}"),
-            MOpData::La { rd, imm } => write!(f, "la {rd}, {imm}"),
+            MOpData::La { rd, target } => write!(f, "la {rd}, {target}"),
             MOpData::Mv { rd, rs } => write!(f, "mv {rd}, {rs}"),
             MOpData::FmvS { rd, rs } => write!(f, "fmv.s {rd}, {rs}"),
 
@@ -251,17 +307,22 @@ impl std::fmt::Display for MOpData {
             MOpData::Mulw { rd, rs1, rs2 } => write!(f, "mulw {rd}, {rs1}, {rs2}"),
             MOpData::Divw { rd, rs1, rs2 } => write!(f, "divw {rd}, {rs1}, {rs2}"),
             MOpData::Remw { rd, rs1, rs2 } => write!(f, "remw {rd}, {rs1}, {rs2}"),
+            MOpData::Addiw { rd, rs1, imm } => write!(f, "addiw {rd}, {rs1}, {imm}"),
+            MOpData::Subiw { rd, rs1, imm } => write!(f, "subiw {rd}, {rs1}, {imm}"),
+            MOpData::Muliw { rd, rs1, imm } => write!(f, "muliw {rd}, {rs1}, {imm}"),
+            MOpData::Diviw { rd, rs1, imm } => write!(f, "diviw {rd}, {rs1}, {imm}"),
+            MOpData::Remiw { rd, rs1, imm } => write!(f, "remiw {rd}, {rs1}, {imm}"),
             MOpData::Slliw { rd, rs1, imm } => write!(f, "slliw {rd}, {rs1}, {imm}"),
             MOpData::Srliw { rd, rs1, imm } => write!(f, "srliw {rd}, {rs1}, {imm}"),
             MOpData::Sraiw { rd, rs1, imm } => write!(f, "sraiw {rd}, {rs1}, {imm}"),
             MOpData::Sllw { rd, rs1, rs2 } => write!(f, "sllw {rd}, {rs1}, {rs2}"),
             MOpData::Srlw { rd, rs1, rs2 } => write!(f, "srlw {rd}, {rs1}, {rs2}"),
             MOpData::Sraw { rd, rs1, rs2 } => write!(f, "sraw {rd}, {rs1}, {rs2}"),
-            MOpData::And { rd, rs1, rs2 } => write!(f, "and {rd}, {rs1}, {rs2}"),
-            MOpData::Or { rd, rs1, rs2 } => write!(f, "or {rd}, {rs1}, {rs2}"),
+            MOpData::Slt { rd, rs1, rs2 } => write!(f, "slt {rd}, {rs1}, {rs2}"),
+            MOpData::Slti { rd, rs1, imm } => write!(f, "slti {rd}, {rs1}, {imm}"),
+            MOpData::Sltu { rd, rs1, rs2 } => write!(f, "sltu {rd}, {rs1}, {rs2}"),
+            MOpData::Sltiu { rd, rs1, imm } => write!(f, "sltiu {rd}, {rs1}, {imm}"),
             MOpData::Xor { rd, rs1, rs2 } => write!(f, "xor {rd}, {rs1}, {rs2}"),
-            MOpData::Andi { rd, rs1, imm } => write!(f, "andi {rd}, {rs1}, {imm}"),
-            MOpData::Ori { rd, rs1, imm } => write!(f, "ori {rd}, {rs1}, {imm}"),
             MOpData::Xori { rd, rs1, imm } => write!(f, "xori {rd}, {rs1}, {imm}"),
 
             MOpData::FaddS { rd, rs1, rs2 } => write!(f, "fadd.s {rd}, {rs1}, {rs2}"),
@@ -271,6 +332,9 @@ impl std::fmt::Display for MOpData {
             MOpData::FeqS { rd, rs1, rs2 } => write!(f, "feq.s {rd}, {rs1}, {rs2}"),
             MOpData::FltS { rd, rs1, rs2 } => write!(f, "flt.s {rd}, {rs1}, {rs2}"),
             MOpData::FleS { rd, rs1, rs2 } => write!(f, "fle.s {rd}, {rs1}, {rs2}"),
+            MOpData::FneS { rd, rs1, rs2 } => write!(f, "fne.s {rd}, {rs1}, {rs2}"),
+            MOpData::FgtS { rd, rs1, rs2 } => write!(f, "fgt.s {rd}, {rs1}, {rs2}"),
+            MOpData::FgeS { rd, rs1, rs2 } => write!(f, "fge.s {rd}, {rs1}, {rs2}"),
             MOpData::FcvtWS { rd, rs } => write!(f, "fcvt.w.s {rd}, {rs}"),
             MOpData::FcvtSW { rd, rs } => write!(f, "fcvt.s.w {rd}, {rs}"),
             MOpData::FmvWX { rd, rs } => write!(f, "fmv.w.x {rd}, {rs}"),
@@ -283,7 +347,8 @@ impl std::fmt::Display for MOpData {
             MOpData::Ld { rd, base, offset } => write!(f, "ld {rd}, {offset}({base})"),
             MOpData::Sd { rs, base, offset } => write!(f, "sd {rs}, {offset}({base})"),
 
-            MOpData::J { offset } => write!(f, "j {offset}"),
+            MOpData::J { target } => write!(f, "j {target}"),
+            MOpData::Bnez { rs, target } => write!(f, "bnez {rs}, {target}"),
             MOpData::Call { target } => write!(f, "call {target}"),
             MOpData::Ret => write!(f, "ret"),
             MOpData::Beq { rs1, rs2, offset } => write!(f, "beq {rs1}, {rs2}, {offset}"),

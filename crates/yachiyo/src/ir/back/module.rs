@@ -104,9 +104,9 @@ impl BackIR {
                 bin_ops: [
                     Addw, Subw, Mulw, Divw, Remw,
                     Sllw, Srlw, Sraw,
-                    And, Or, Xor,
+                    Slt, Sltu, Xor,
                     FaddS, FsubS, FmulS, FdivS,
-                    FeqS, FltS, FleS,
+                    FeqS, FltS, FleS, FneS, FgtS, FgeS,
                     Beq, Bne, Blt, Bge, Bltu, Bgeu
                 ],
                 bin_arm: MOpData { rs1, rs2 } => {
@@ -118,11 +118,16 @@ impl BackIR {
                     vregs.add_use(rs, op);
                 },
                 fallback: {
-                    MOpData::Slliw { rs1, imm, .. }
+                    MOpData::Slti { rs1, imm, .. }
+                    | MOpData::Sltiu { rs1, imm, .. }
+                    | MOpData::Addiw { rs1, imm, .. }
+                    | MOpData::Subiw { rs1, imm, .. }
+                    | MOpData::Muliw { rs1, imm, .. }
+                    | MOpData::Diviw { rs1, imm, .. }
+                    | MOpData::Remiw { rs1, imm, .. }
+                    | MOpData::Slliw { rs1, imm, .. }
                     | MOpData::Srliw { rs1, imm, .. }
                     | MOpData::Sraiw { rs1, imm, .. }
-                    | MOpData::Andi { rs1, imm, .. }
-                    | MOpData::Ori { rs1, imm, .. }
                     | MOpData::Xori { rs1, imm, .. } => {
                         vregs.add_use(rs1, op.clone());
                         vregs.add_use(imm, op);
@@ -140,15 +145,13 @@ impl BackIR {
                         vregs.add_use(base, op.clone());
                         vregs.add_use(offset, op);
                     }
-                    MOpData::Li { imm, .. } | MOpData::La { imm, .. } => {
-                        vregs.add_use(imm, op);
+                    MOpData::Li { .. } => {}
+                    MOpData::La { .. } => {}
+                    MOpData::J { .. } => {}
+                    MOpData::Bnez { rs, .. } => {
+                        vregs.add_use(rs, op.clone());
                     }
-                    MOpData::J { offset } => {
-                        vregs.add_use(offset, op);
-                    }
-                    MOpData::Call { target } => {
-                        vregs.add_use(target, op);
-                    }
+                    MOpData::Call { .. } => {}
                     MOpData::Ret => {}
                 }
             },
@@ -208,9 +211,9 @@ impl BackIR {
                 bin_ops: [
                     Addw, Subw, Mulw, Divw, Remw,
                     Sllw, Srlw, Sraw,
-                    And, Or, Xor,
+                    Slt, Sltu, Xor,
                     FaddS, FsubS, FmulS, FdivS,
-                    FeqS, FltS, FleS,
+                    FeqS, FltS, FleS, FneS, FgtS, FgeS,
                     Beq, Bne, Blt, Bge, Bltu, Bgeu
                 ],
                 bin_arm: MOpData { rs1, rs2 } => {
@@ -222,11 +225,16 @@ impl BackIR {
                     vregs.remove_use(rs, op);
                 },
                 fallback: {
-                    MOpData::Slliw { rs1, imm, .. }
+                    MOpData::Slti { rs1, imm, .. }
+                    | MOpData::Sltiu { rs1, imm, .. }
+                    | MOpData::Addiw { rs1, imm, .. }
+                    | MOpData::Subiw { rs1, imm, .. }
+                    | MOpData::Muliw { rs1, imm, .. }
+                    | MOpData::Diviw { rs1, imm, .. }
+                    | MOpData::Remiw { rs1, imm, .. }
+                    | MOpData::Slliw { rs1, imm, .. }
                     | MOpData::Srliw { rs1, imm, .. }
                     | MOpData::Sraiw { rs1, imm, .. }
-                    | MOpData::Andi { rs1, imm, .. }
-                    | MOpData::Ori { rs1, imm, .. }
                     | MOpData::Xori { rs1, imm, .. } => {
                         vregs.remove_use(rs1, op.clone());
                         vregs.remove_use(imm, op);
@@ -244,15 +252,13 @@ impl BackIR {
                         vregs.remove_use(base, op.clone());
                         vregs.remove_use(offset, op);
                     }
-                    MOpData::Li { imm, .. } | MOpData::La { imm, .. } => {
-                        vregs.remove_use(imm, op);
+                    MOpData::Li { .. } => {}
+                    MOpData::La { .. } => {}
+                    MOpData::J { .. } => {}
+                    MOpData::Bnez { rs, .. } => {
+                        vregs.remove_use(rs, op.clone());
                     }
-                    MOpData::J { offset } => {
-                        vregs.remove_use(offset, op);
-                    }
-                    MOpData::Call { target } => {
-                        vregs.remove_use(target, op);
-                    }
+                    MOpData::Call { .. } => {}
                     MOpData::Ret => {}
                 }
             },
@@ -290,9 +296,11 @@ impl BackIR {
                     Addw, Subw, Mulw, Divw, Remw,
                     Slliw, Srliw, Sraiw,
                     Sllw, Srlw, Sraw,
-                    And, Or, Xor, Andi, Ori, Xori,
+                    Slt, Slti, Sltu, Sltiu,
+                    Addiw, Subiw, Muliw, Diviw, Remiw,
+                    Xor, Xori,
                     FaddS, FsubS, FmulS, FdivS,
-                    FeqS, FltS, FleS,
+                    FeqS, FltS, FleS, FneS, FgtS, FgeS,
                     FcvtWS, FcvtSW, FmvWX, FmvXW,
                     Lw, Flw, Ld
                 ],
@@ -305,6 +313,7 @@ impl BackIR {
                     | MOpData::Fsw {..}
                     | MOpData::Sd {..}
                     | MOpData::J {..}
+                    | MOpData::Bnez {..}
                     | MOpData::Call {..}
                     | MOpData::Ret
                     | MOpData::Beq {..}
@@ -413,9 +422,9 @@ impl BackIR {
                     bin_ops: [
                         Addw, Subw, Mulw, Divw, Remw,
                         Sllw, Srlw, Sraw,
-                        And, Or, Xor,
+                        Slt, Sltu, Xor,
                         FaddS, FsubS, FmulS, FdivS,
-                        FeqS, FltS, FleS,
+                        FeqS, FltS, FleS, FneS, FgtS, FgeS,
                         Beq, Bne, Blt, Bge, Bltu, Bgeu
                     ],
                     bin_arm: MOpData { rs1, rs2 } => {
@@ -433,11 +442,16 @@ impl BackIR {
                         }
                     },
                     fallback: {
-                        MOpData::Slliw { rs1, imm, .. }
+                        MOpData::Slti { rs1, imm, .. }
+                        | MOpData::Sltiu { rs1, imm, .. }
+                        | MOpData::Addiw { rs1, imm, .. }
+                        | MOpData::Subiw { rs1, imm, .. }
+                        | MOpData::Muliw { rs1, imm, .. }
+                        | MOpData::Diviw { rs1, imm, .. }
+                        | MOpData::Remiw { rs1, imm, .. }
+                        | MOpData::Slliw { rs1, imm, .. }
                         | MOpData::Srliw { rs1, imm, .. }
                         | MOpData::Sraiw { rs1, imm, .. }
-                        | MOpData::Andi { rs1, imm, .. }
-                        | MOpData::Ori { rs1, imm, .. }
                         | MOpData::Xori { rs1, imm, .. } => {
                             if *rs1 == old {
                                 *rs1 = new.clone();
@@ -469,21 +483,15 @@ impl BackIR {
                                 *offset = new.clone();
                             }
                         }
-                        MOpData::Li { imm, .. } | MOpData::La { imm, .. } => {
-                            if *imm == old {
-                                *imm = new.clone();
+                        MOpData::Li { .. } => {}
+                        MOpData::La { .. } => {}
+                        MOpData::J { .. } => {}
+                        MOpData::Bnez { rs, .. } => {
+                            if *rs == old {
+                                *rs = new.clone();
                             }
                         }
-                        MOpData::J { offset } => {
-                            if *offset == old {
-                                *offset = new.clone();
-                            }
-                        }
-                        MOpData::Call { target } => {
-                            if *target == old {
-                                *target = new.clone();
-                            }
-                        }
+                        MOpData::Call { .. } => {}
                         MOpData::Ret => {}
                     }
                 },
@@ -568,9 +576,13 @@ impl BackIR {
                 match_minor! {
                     target: data,
                     minor_arms: {
-                        MOpData::J { offset } => {
-                            cfg.add_pred(offset.clone(), bb.clone());
-                            cfg.add_succ(bb, offset);
+                        MOpData::J { target } => {
+                            cfg.add_pred(target.clone(), bb.clone());
+                            cfg.add_succ(bb, target);
+                        }
+                        MOpData::Bnez { target, .. } => {
+                            cfg.add_pred(target.clone(), bb.clone());
+                            cfg.add_succ(bb, target);
                         }
                         MOpData::Beq { offset, .. }
                         | MOpData::Bne { offset, .. }
@@ -592,17 +604,22 @@ impl BackIR {
                         MOpData::Mulw,
                         MOpData::Divw,
                         MOpData::Remw,
+                        MOpData::Addiw,
+                        MOpData::Subiw,
+                        MOpData::Muliw,
+                        MOpData::Diviw,
+                        MOpData::Remiw,
                         MOpData::Slliw,
                         MOpData::Srliw,
                         MOpData::Sraiw,
                         MOpData::Sllw,
                         MOpData::Srlw,
                         MOpData::Sraw,
-                        MOpData::And,
-                        MOpData::Or,
+                        MOpData::Slt,
+                        MOpData::Slti,
+                        MOpData::Sltu,
+                        MOpData::Sltiu,
                         MOpData::Xor,
-                        MOpData::Andi,
-                        MOpData::Ori,
                         MOpData::Xori,
                         MOpData::FaddS,
                         MOpData::FsubS,
@@ -611,6 +628,9 @@ impl BackIR {
                         MOpData::FeqS,
                         MOpData::FltS,
                         MOpData::FleS,
+                        MOpData::FneS,
+                        MOpData::FgtS,
+                        MOpData::FgeS,
                         MOpData::FcvtWS,
                         MOpData::FcvtSW,
                         MOpData::FmvWX,
@@ -621,9 +641,10 @@ impl BackIR {
                         MOpData::Fsw,
                         MOpData::Ld,
                         MOpData::Sd,
-                        MOpData::Call
+                        MOpData::Call,
+                        MOpData::Ret
                     ],
-                    other_patterns: [MOpData::Ret],
+                    other_patterns: [],
                     uni_arm: {}
                 }
             }
@@ -693,9 +714,10 @@ impl BackIR {
                         LOpData::Move,
                         LOpData::Call,
                         LOpData::LoadIntImm,
-                        LOpData::LoadFloatImm
+                        LOpData::LoadFloatImm,
+                        LOpData::Ret
                     ],
-                    other_patterns: [LOpData::Ret],
+                    other_patterns: [],
                     uni_arm: {}
                 }
             }
@@ -703,9 +725,13 @@ impl BackIR {
                 match_minor! {
                     target: data,
                     minor_arms: {
-                        MOpData::J { offset } => {
-                            cfg.remove_pred(offset.clone(), bb.clone());
-                            cfg.remove_succ(bb, offset);
+                        MOpData::J { target } => {
+                            cfg.remove_pred(target.clone(), bb.clone());
+                            cfg.remove_succ(bb, target);
+                        }
+                        MOpData::Bnez { target, .. } => {
+                            cfg.remove_pred(target.clone(), bb.clone());
+                            cfg.remove_succ(bb, target);
                         }
                         MOpData::Beq { offset, .. }
                         | MOpData::Bne { offset, .. }
@@ -727,17 +753,22 @@ impl BackIR {
                         MOpData::Mulw,
                         MOpData::Divw,
                         MOpData::Remw,
+                        MOpData::Addiw,
+                        MOpData::Subiw,
+                        MOpData::Muliw,
+                        MOpData::Diviw,
+                        MOpData::Remiw,
                         MOpData::Slliw,
                         MOpData::Srliw,
                         MOpData::Sraiw,
                         MOpData::Sllw,
                         MOpData::Srlw,
                         MOpData::Sraw,
-                        MOpData::And,
-                        MOpData::Or,
+                        MOpData::Slt,
+                        MOpData::Slti,
+                        MOpData::Sltu,
+                        MOpData::Sltiu,
                         MOpData::Xor,
-                        MOpData::Andi,
-                        MOpData::Ori,
                         MOpData::Xori,
                         MOpData::FaddS,
                         MOpData::FsubS,
@@ -746,6 +777,9 @@ impl BackIR {
                         MOpData::FeqS,
                         MOpData::FltS,
                         MOpData::FleS,
+                        MOpData::FneS,
+                        MOpData::FgtS,
+                        MOpData::FgeS,
                         MOpData::FcvtWS,
                         MOpData::FcvtSW,
                         MOpData::FmvWX,
@@ -756,9 +790,10 @@ impl BackIR {
                         MOpData::Fsw,
                         MOpData::Ld,
                         MOpData::Sd,
-                        MOpData::Call
+                        MOpData::Call,
+                        MOpData::Ret
                     ],
-                    other_patterns: [MOpData::Ret],
+                    other_patterns: [],
                     uni_arm: {}
                 }
             }
@@ -864,9 +899,11 @@ impl BackIR {
                     Addw, Subw, Mulw, Divw, Remw,
                     Slliw, Srliw, Sraiw,
                     Sllw, Srlw, Sraw,
-                    And, Or, Xor, Andi, Ori, Xori,
+                    Slt, Slti, Sltu, Sltiu,
+                    Addiw, Subiw, Muliw, Diviw, Remiw,
+                    Xor, Xori,
                     FaddS, FsubS, FmulS, FdivS,
-                    FeqS, FltS, FleS,
+                    FeqS, FltS, FleS, FneS, FgtS, FgeS,
                     FcvtWS, FcvtSW, FmvWX, FmvXW,
                     Lw, Flw, Ld
                 ],
@@ -896,6 +933,7 @@ impl BackIR {
                     | MOpData::Fsw { .. }
                     | MOpData::Sd { .. }
                     | MOpData::J { .. }
+                    | MOpData::Bnez { .. }
                     | MOpData::Call { .. }
                     | MOpData::Ret
                     | MOpData::Beq { .. }
@@ -987,7 +1025,9 @@ impl BackIR {
             ArenaItem::Data(data) => data,
             _ => panic!("BackIR remove_op: dfg slot {} is not data", op_id),
         };
-        // We don't check whether the vreg defined by the removed instruction is empty, since we are not in SSA form anymore.
+
+        // We don't check whether the old vreg's uses are all removed, since the vreg might be defined my multiple operations.
+        // TODO: The vreg will be automatically removed if it has not uses in vregs.gc(), at which point the vregs will check the uses of vreg.
         removed_op
     }
 
@@ -1117,9 +1157,11 @@ impl BackIR {
                     Addw, Subw, Mulw, Divw, Remw,
                     Slliw, Srliw, Sraiw,
                     Sllw, Srlw, Sraw,
-                    And, Or, Xor, Andi, Ori, Xori,
+                    Slt, Slti, Sltu, Sltiu,
+                    Addiw, Subiw, Muliw, Diviw, Remiw,
+                    Xor, Xori,
                     FaddS, FsubS, FmulS, FdivS,
-                    FeqS, FltS, FleS,
+                    FeqS, FltS, FleS, FneS, FgtS, FgeS,
                     FcvtWS, FcvtSW, FmvWX, FmvXW,
                     Lw, Flw, Ld
                 ],
@@ -1132,6 +1174,7 @@ impl BackIR {
                     | MOpData::Fsw {..}
                     | MOpData::Sd {..}
                     | MOpData::J {..}
+                    | MOpData::Bnez {..}
                     | MOpData::Call {..}
                     | MOpData::Ret
                     | MOpData::Beq {..}

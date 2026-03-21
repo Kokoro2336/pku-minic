@@ -1,8 +1,8 @@
 //! Memory management for Machine IR.
 
-use crate::base::Type;
-use crate::ir::back::BOperand;
 use crate::config::STK_FRM_ALIGN;
+use crate::ir::back::BOperand;
+use crate::ir::back::BType;
 use crate::utils::arena::*;
 
 use std::ops::{Index, IndexMut};
@@ -33,7 +33,7 @@ pub struct RoData {
 }
 
 impl RoData {
-    pub fn new(typ: Type, inner: Vec<BOperand>) -> Self {
+    pub fn new(typ: BType, inner: Vec<BOperand>) -> Self {
         RoData {
             inner,
             size: typ.size(),
@@ -76,7 +76,7 @@ pub struct Data {
 }
 
 impl Data {
-    pub fn new(typ: Type, inner: Vec<BOperand>) -> Self {
+    pub fn new(typ: BType, inner: Vec<BOperand>) -> Self {
         Data {
             inner,
             size: typ.size(),

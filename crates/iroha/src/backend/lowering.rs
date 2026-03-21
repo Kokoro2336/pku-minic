@@ -1150,10 +1150,10 @@ impl Lowering {
                         };
 
                         if mutable {
-                            let data = Data::new(typ, values);
+                            let data = Data::new(typ.into(), values);
                             self.alloc_and_map_data(Operand::Global(global), Some(name), data);
                         } else {
-                            let rodata = RoData::new(typ, values);
+                            let rodata = RoData::new(typ.into(), values);
                             self.alloc_and_map_rodata(Operand::Global(global), Some(name), rodata);
                         }
                     }
