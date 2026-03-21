@@ -6,21 +6,21 @@ use std::ops::{Deref, DerefMut};
 
 #[derive(Default)]
 pub struct BBuilder {
-    pub current_function: Option<usize>,
+    pub current_function: Option<BOperand>,
     pub current_block: Option<BOperand>,
     pub current_inst: Option<BOperand>,
 }
 
 pub struct BBuilderGuard<'a> {
     pub builder: &'a mut BBuilder,
-    current_function: Option<usize>,
+    current_function: Option<BOperand>,
     current_block: Option<BOperand>,
     current_inst: Option<BOperand>,
 }
 
 impl<'a> BBuilderGuard<'a> {
     pub fn new(builder: &'a mut BBuilder) -> Self {
-        let current_function = builder.current_function;
+        let current_function = builder.current_function.clone();
         let current_block = builder.current_block.clone();
         let current_inst = builder.current_inst.clone();
         Self {
@@ -48,7 +48,7 @@ impl DerefMut for BBuilderGuard<'_> {
 
 impl Drop for BBuilderGuard<'_> {
     fn drop(&mut self) {
-        self.builder.current_function = self.current_function;
+        self.builder.current_function = self.current_function.clone();
         self.builder.current_block = self.current_block.clone();
         self.builder.current_inst = self.current_inst.clone();
     }
@@ -60,8 +60,8 @@ impl BBuilder {
     }
 
     #[inline(always)]
-    pub fn set_current_func(&mut self, func_id: Option<usize>) {
-        self.current_function = func_id;
+    pub fn set_current_func(&mut self, func_id: BOperand) {
+        self.current_function = Some(func_id);
         self.current_block = None;
         self.current_inst = None;
     }
@@ -80,7 +80,7 @@ impl BBuilder {
     pub fn set_before_inst(
         &mut self,
         program: &mut BackIR,
-        current_function: Option<usize>,
+        current_function: Option<BOperand>,
         inst_id: Option<BOperand>,
     ) {
         let cfg = program.cfg_mut_or_panic(
@@ -110,7 +110,7 @@ impl BBuilder {
     pub fn set_after_inst(
         &mut self,
         program: &mut BackIR,
-        current_function: Option<usize>,
+        current_function: Option<BOperand>,
         inst_id: Option<BOperand>,
     ) {
         let cfg = program.cfg_mut_or_panic(
@@ -155,7 +155,7 @@ impl BBuilder {
     pub fn create(
         &mut self,
         program: &mut BackIR,
-        current_function: Option<usize>,
+        current_function: Option<BOperand>,
         op: BOp,
     ) -> BOperand {
         program.create(self, current_function, op)
@@ -164,7 +164,7 @@ impl BBuilder {
     pub fn create_at_head(
         &mut self,
         program: &mut BackIR,
-        current_function: Option<usize>,
+        current_function: Option<BOperand>,
         op: BOp,
     ) -> BOperand {
         program.create_at_head(self, current_function, op)
@@ -173,7 +173,7 @@ impl BBuilder {
     pub fn create_new_block(
         &mut self,
         program: &mut BackIR,
-        current_function: Option<usize>,
+        current_function: Option<BOperand>,
     ) -> BOperand {
         program.create_new_block(current_function)
     }

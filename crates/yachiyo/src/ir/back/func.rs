@@ -1,6 +1,6 @@
 //! BFunction definition.
 
-use crate::ir::back::{FrameInfo, BOperand, Reg, VirtReg, BCFG, BDFG};
+use crate::ir::back::{BOperand, FrameInfo, Reg, VirtReg, BCFG, BDFG};
 use crate::utils::arena::*;
 use crate::utils::r#match::match_minor;
 
@@ -86,7 +86,7 @@ impl VRegs {
 
     /// op_idx: VReg, use_idx: Inst that uses the VReg.
     pub fn remove_use(&mut self, vreg_id: BOperand, use_op_id: BOperand) {
-        let op_id = match_minor! {
+        let vreg_id = match_minor! {
             target: vreg_id,
             minor_arms: {
                 BOperand::Reg(Reg::Virt(id)) => id,
@@ -106,7 +106,7 @@ impl VRegs {
             other_patterns: [],
             uni_arm: return
         };
-        let vreg = &mut self[op_id];
+        let vreg = &mut self[vreg_id];
         if let Some(pos) = vreg.uses.iter().position(|x| *x == use_op_id) {
             vreg.uses.swap_remove(pos);
         } else {
@@ -115,6 +115,63 @@ impl VRegs {
                 use_op_id, vreg_id
             );
         }
+    }
+
+    pub fn remove_def(&mut self, vreg_id: BOperand, def_op_id: BOperand) {
+        let vreg_id = match_minor! {
+            target: vreg_id,
+            minor_arms: {
+                BOperand::Reg(Reg::Virt(id)) => id,
+                BOperand::Reg(_) => panic!("Expected VirtReg operand, found PhysReg {:?}", vreg_id),
+            },
+            uni_ops: [
+                BOperand::IntImm,
+                BOperand::FloatImm,
+                BOperand::Inst,
+                BOperand::Func,
+                BOperand::Slot,
+                BOperand::Data,
+                BOperand::RoData,
+                BOperand::BB,
+                BOperand::Undef
+            ],
+            other_patterns: [],
+            uni_arm: return
+        };
+        let vreg = &mut self[vreg_id];
+        if let Some(pos) = vreg.defs.iter().position(|x| *x == def_op_id) {
+            vreg.defs.swap_remove(pos);
+        } else {
+            panic!("Def {:?}: not found in defs of op {:?}", def_op_id, vreg_id);
+        }
+    }
+
+    pub fn add_def(&mut self, vreg_id: BOperand, def_op_id: BOperand) {
+        let vreg_id = match_minor! {
+            target: vreg_id,
+            minor_arms: {
+                BOperand::Reg(Reg::Virt(id)) => id,
+                BOperand::Reg(_) => panic!("Expected VirtReg operand, found PhysReg {:?}", vreg_id),
+            },
+            uni_ops: [
+                BOperand::IntImm,
+                BOperand::FloatImm,
+                BOperand::Inst,
+                BOperand::Func,
+                BOperand::Slot,
+                BOperand::Data,
+                BOperand::RoData,
+                BOperand::BB,
+                BOperand::Undef
+            ],
+            other_patterns: [],
+            uni_arm: return
+        };
+        let vreg = &mut self[vreg_id];
+        if vreg.defs.contains(&def_op_id) {
+            return;
+        }
+        vreg.defs.push(def_op_id);
     }
 }
 

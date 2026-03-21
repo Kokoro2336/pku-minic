@@ -159,14 +159,6 @@ pub enum LOpData {
         rd: BOperand,
         value: BOperand,
     }, // float to int
-    Uitofp {
-        rd: BOperand,
-        value: BOperand,
-    }, // bool to float
-    Zext {
-        rd: BOperand,
-        value: BOperand,
-    }, // bool to int
 
     // SysY doesn't support bitwise shift for float
     /// Memory operations

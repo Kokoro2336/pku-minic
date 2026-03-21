@@ -7,7 +7,6 @@ use crate::utils::arena::*;
 
 use std::ops::{Index, IndexMut};
 
-
 #[derive(Debug, Clone, Default)]
 pub struct VirtReg {
     pub defs: Vec<BOperand>,
@@ -33,6 +32,8 @@ pub enum BOperand {
     RoData(usize),
 
     #[default]
+    /// If an instruction instance is created with its rd undef, the builder will automatically assign it a new virtual register.
+    /// Else if the undef lies in other kinds of operands, then the operand is really undefined.
     Undef,
 }
 
@@ -84,6 +85,9 @@ impl BOperand {
     }
     pub fn lo(imm: i32) -> Self {
         BOperand::IntImm(imm & 0xFFFF)
+    }
+    pub fn is_literal(&self) -> bool {
+        matches!(self, BOperand::IntImm(_) | BOperand::FloatImm(_))
     }
 }
 
