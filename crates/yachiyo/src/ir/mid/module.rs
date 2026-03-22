@@ -4,7 +4,7 @@ use crate::ir::mid::{
     BasicBlock, Builder, BuilderGuard, Op, OpData, OpType, Operand, PhiIncoming, CFG, CG, DFG,
 };
 use crate::utils::arena::{Arena, ArenaItem};
-use crate::utils::r#match::{match_minor, match_ops};
+use crate::utils::r#match::{match_ops, match_some};
 
 #[derive(Debug, Clone)]
 pub struct IR {
@@ -229,8 +229,9 @@ impl IR {
             self.cfg_dfg_mut_or_panic(current_function, "IR add_control_flow: no current function");
         let data = dfg[op.get_op_id()].data.clone();
 
-        match_minor! {
+        match_some! {
             target: data,
+            enu: OpData,
             minor_arms: {
                 OpData::Br {
                     then_bb, else_bb, ..
@@ -246,47 +247,7 @@ impl IR {
                     cfg.add_succ(bb, target_bb);
                 }
             },
-            uni_ops: [
-                OpData::AddF,
-                OpData::SubF,
-                OpData::MulF,
-                OpData::DivF,
-                OpData::AddI,
-                OpData::SubI,
-                OpData::MulI,
-                OpData::DivI,
-                OpData::ModI,
-                OpData::Load,
-                OpData::Store,
-                OpData::Alloca,
-                OpData::Phi,
-                OpData::GlobalAlloca,
-                OpData::Call,
-                OpData::GEP,
-                OpData::Sitofp,
-                OpData::Fptosi,
-                OpData::Uitofp,
-                OpData::Zext,
-                OpData::Ret,
-                OpData::Shl,
-                OpData::Shr,
-                OpData::Sar,
-                OpData::SNe,
-                OpData::SEq,
-                OpData::Xor,
-                OpData::SGt,
-                OpData::SLt,
-                OpData::SGe,
-                OpData::SLe,
-                OpData::ONe,
-                OpData::OEq,
-                OpData::OGt,
-                OpData::OLt,
-                OpData::OGe,
-                OpData::OLe,
-                OpData::Declare
-            ],
-            other_patterns: [],
+            uni_ops: [AddF, SubF, MulF, DivF, AddI, SubI, MulI, DivI, ModI, Load, Store, Alloca, Phi, GlobalAlloca, Call, GEP, Sitofp, Fptosi, Uitofp, Zext, Ret, Shl, Shr, Sar, SNe, SEq, Xor, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Declare],
             uni_arm: {}
         }
     }
@@ -303,8 +264,9 @@ impl IR {
         );
         let data = dfg[op.get_op_id()].data.clone();
 
-        match_minor! {
+        match_some! {
             target: data,
+            enu: OpData,
             minor_arms: {
                 OpData::Br {
                     then_bb, else_bb, ..
@@ -319,47 +281,7 @@ impl IR {
                     cfg.remove_succ(bb, target_bb);
                 }
             },
-            uni_ops: [
-                OpData::AddF,
-                OpData::SubF,
-                OpData::MulF,
-                OpData::DivF,
-                OpData::AddI,
-                OpData::SubI,
-                OpData::MulI,
-                OpData::DivI,
-                OpData::ModI,
-                OpData::Load,
-                OpData::Store,
-                OpData::Alloca,
-                OpData::Phi,
-                OpData::GlobalAlloca,
-                OpData::Call,
-                OpData::GEP,
-                OpData::Sitofp,
-                OpData::Fptosi,
-                OpData::Uitofp,
-                OpData::Zext,
-                OpData::Ret,
-                OpData::Shl,
-                OpData::Shr,
-                OpData::Sar,
-                OpData::SNe,
-                OpData::SEq,
-                OpData::Xor,
-                OpData::SGt,
-                OpData::SLt,
-                OpData::SGe,
-                OpData::SLe,
-                OpData::ONe,
-                OpData::OEq,
-                OpData::OGt,
-                OpData::OLt,
-                OpData::OGe,
-                OpData::OLe,
-                OpData::Declare
-            ],
-            other_patterns: [],
+            uni_ops: [AddF, SubF, MulF, DivF, AddI, SubI, MulI, DivI, ModI, Load, Store, Alloca, Phi, GlobalAlloca, Call, GEP, Sitofp, Fptosi, Uitofp, Zext, Ret, Shl, Shr, Sar, SNe, SEq, Xor, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Declare],
             uni_arm: {}
         }
     }

@@ -2,7 +2,7 @@
 
 use crate::ir::back::{BOperand, FrameInfo, Reg, VirtReg, BCFG, BDFG};
 use crate::utils::arena::*;
-use crate::utils::r#match::match_minor;
+use crate::utils::r#match::match_some;
 
 use std::ops::{Index, IndexMut};
 
@@ -57,24 +57,14 @@ impl IndexMut<BOperand> for BCG {
 
 impl VRegs {
     pub fn add_use(&mut self, vreg_id: BOperand, use_op_id: BOperand) {
-        let op_id = match_minor! {
+        let op_id = match_some! {
             target: vreg_id,
+            enu: BOperand,
             minor_arms: {
                 BOperand::Reg(Reg::Virt(id)) => id,
                 BOperand::Reg(_) => panic!("Expected VirtReg operand, found PhysReg {:?}", vreg_id),
             },
-            uni_ops: [
-                BOperand::IntImm,
-                BOperand::FloatImm,
-                BOperand::Func,
-                BOperand::Inst,
-                BOperand::Slot,
-                BOperand::Data,
-                BOperand::RoData,
-                BOperand::BB,
-                BOperand::Undef
-            ],
-            other_patterns: [],
+            uni_ops: [IntImm, FloatImm, Func, Inst, Slot, Data, RoData, BB, Undef],
             uni_arm: return
         };
         let vreg = &mut self[op_id];
@@ -86,24 +76,14 @@ impl VRegs {
 
     /// op_idx: VReg, use_idx: Inst that uses the VReg.
     pub fn remove_use(&mut self, vreg_id: BOperand, use_op_id: BOperand) {
-        let vreg_id = match_minor! {
+        let vreg_id = match_some! {
             target: vreg_id,
+            enu: BOperand,
             minor_arms: {
                 BOperand::Reg(Reg::Virt(id)) => id,
                 BOperand::Reg(_) => panic!("Expected VirtReg operand, found PhysReg {:?}", vreg_id),
             },
-            uni_ops: [
-                BOperand::IntImm,
-                BOperand::FloatImm,
-                BOperand::Inst,
-                BOperand::Func,
-                BOperand::Slot,
-                BOperand::Data,
-                BOperand::RoData,
-                BOperand::BB,
-                BOperand::Undef
-            ],
-            other_patterns: [],
+            uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, BB, Undef],
             uni_arm: return
         };
         let vreg = &mut self[vreg_id];
@@ -118,24 +98,14 @@ impl VRegs {
     }
 
     pub fn remove_def(&mut self, vreg_id: BOperand, def_op_id: BOperand) {
-        let vreg_id = match_minor! {
+        let vreg_id = match_some! {
             target: vreg_id,
+            enu: BOperand,
             minor_arms: {
                 BOperand::Reg(Reg::Virt(id)) => id,
                 BOperand::Reg(_) => panic!("Expected VirtReg operand, found PhysReg {:?}", vreg_id),
             },
-            uni_ops: [
-                BOperand::IntImm,
-                BOperand::FloatImm,
-                BOperand::Inst,
-                BOperand::Func,
-                BOperand::Slot,
-                BOperand::Data,
-                BOperand::RoData,
-                BOperand::BB,
-                BOperand::Undef
-            ],
-            other_patterns: [],
+            uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, BB, Undef],
             uni_arm: return
         };
         let vreg = &mut self[vreg_id];
@@ -147,24 +117,14 @@ impl VRegs {
     }
 
     pub fn add_def(&mut self, vreg_id: BOperand, def_op_id: BOperand) {
-        let vreg_id = match_minor! {
+        let vreg_id = match_some! {
             target: vreg_id,
+            enu: BOperand,
             minor_arms: {
                 BOperand::Reg(Reg::Virt(id)) => id,
                 BOperand::Reg(_) => panic!("Expected VirtReg operand, found PhysReg {:?}", vreg_id),
             },
-            uni_ops: [
-                BOperand::IntImm,
-                BOperand::FloatImm,
-                BOperand::Inst,
-                BOperand::Func,
-                BOperand::Slot,
-                BOperand::Data,
-                BOperand::RoData,
-                BOperand::BB,
-                BOperand::Undef
-            ],
-            other_patterns: [],
+            uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, BB, Undef],
             uni_arm: return
         };
         let vreg = &mut self[vreg_id];

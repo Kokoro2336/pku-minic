@@ -6,7 +6,7 @@ use yachiyo::config::PARAM_REG_MAX_NUM;
 use yachiyo::ir::back::*;
 use yachiyo::ir::mid::*;
 use yachiyo::utils::bitset::BitSet;
-use yachiyo::utils::r#match::match_minor;
+use yachiyo::utils::r#match::match_some;
 use yachiyo::utils::worklist::*;
 
 use rustc_hash::FxHashMap;
@@ -58,8 +58,9 @@ impl Lowering {
         const INT_IMM_MAX: i32 = 2047;
         const INT_IMM_MIN: i32 = -2048;
 
-        match_minor! {
+        match_some! {
             target: imm,
+            enu: BOperand,
             minor_arms: {
                 BOperand::IntImm(imm) => {
                     if !(INT_IMM_MIN..=INT_IMM_MAX).contains(&imm) {
@@ -93,8 +94,7 @@ impl Lowering {
                     self.lower_ir.get_rd(self.builder.current_function.clone(), lop_id).unwrap()
                 }
             },
-            uni_ops: [BOperand::Undef, BOperand::Reg, BOperand::Func, BOperand::BB, BOperand::Inst, BOperand::Data, BOperand::Slot, BOperand::RoData],
-            other_patterns: [],
+            uni_ops: [Undef, Reg, Func, BB, Inst, Data, Slot, RoData],
             uni_arm: {
                 unreachable!("Only IntImm and FloatImm can be immediats, but got {:?}", imm)
             }
@@ -721,14 +721,14 @@ impl Lowering {
                     if indices.is_empty() {
                         yachiyo::debug::info!("current_op_id: {:?}", current_lop_id);
                         let lfunc_id = self.get(func_id);
-                        let target_id = match_minor!(
+                        let target_id = match_some!(
                             target: current_lop_id,
+                            enu: BOperand,
                             minor_arms: {
                                 BOperand::Reg(Reg::Virt(id)) => self.lower_ir.funcs[lfunc_id].vregs[id].defs[0].clone(),
                                 BOperand::Reg(_) => unreachable!("Only VirtReg can be the source of GEP, but got physical register"),
                             },
-                            uni_ops: [BOperand::Data, BOperand::Slot, BOperand::BB, BOperand::Func, BOperand::Inst, BOperand::Undef, BOperand::IntImm, BOperand::FloatImm, BOperand::RoData],
-                            other_patterns: [],
+                            uni_ops: [Data, Slot, BB, Func, Inst, Undef, IntImm, FloatImm, RoData],
                             uni_arm: {
                                 current_lop_id
                             }

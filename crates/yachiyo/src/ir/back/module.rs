@@ -5,7 +5,7 @@ use super::{
     VirtReg, BCFG, BCG, BDFG,
 };
 use crate::utils::arena::ArenaItem;
-use crate::utils::r#match::{match_minor, match_ops, match_rd};
+use crate::utils::r#match::{match_some, match_ops, match_rd};
 
 pub struct BackIR {
     pub data_info: DataInfo,
@@ -337,23 +337,13 @@ impl BackIR {
         let uses = vregs[old.clone()].uses.clone();
 
         for use_op in uses {
-            let op_id = match_minor! {
+            let op_id = match_some! {
                 target: use_op,
+                enu: BOperand,
                 minor_arms: {
                     BOperand::Inst(op_id) => op_id,
                 },
-                uni_ops: [
-                    BOperand::Reg,
-                    BOperand::IntImm,
-                    BOperand::FloatImm,
-                    BOperand::Func,
-                    BOperand::Slot,
-                    BOperand::Data,
-                    BOperand::RoData,
-                    BOperand::BB,
-                    BOperand::Undef
-                ],
-                other_patterns: [],
+                uni_ops: [Reg, IntImm, FloatImm, Func, Slot, Data, RoData, BB, Undef],
                 uni_arm: return
             };
 
@@ -517,8 +507,9 @@ impl BackIR {
 
         match data {
             BOpData::L(data) => {
-                match_minor! {
+                match_some! {
                     target: data,
+                    enu: LOpData,
                     minor_arms: {
                         LOpData::Br {
                             then_bb, else_bb, ..
@@ -533,48 +524,14 @@ impl BackIR {
                             cfg.add_succ(bb, target_bb);
                         }
                     },
-                    uni_ops: [
-                        LOpData::AddI,
-                        LOpData::SubI,
-                        LOpData::MulI,
-                        LOpData::DivI,
-                        LOpData::ModI,
-                        LOpData::SNe,
-                        LOpData::SEq,
-                        LOpData::SGt,
-                        LOpData::SLt,
-                        LOpData::SGe,
-                        LOpData::SLe,
-                        LOpData::Xor,
-                        LOpData::Shl,
-                        LOpData::Shr,
-                        LOpData::Sar,
-                        LOpData::AddF,
-                        LOpData::SubF,
-                        LOpData::MulF,
-                        LOpData::DivF,
-                        LOpData::ONe,
-                        LOpData::OEq,
-                        LOpData::OGt,
-                        LOpData::OLt,
-                        LOpData::OGe,
-                        LOpData::OLe,
-                        LOpData::Sitofp,
-                        LOpData::Fptosi,
-                        LOpData::Store,
-                        LOpData::Load,
-                        LOpData::Move,
-                        LOpData::Call,
-                        LOpData::LoadIntImm,
-                        LOpData::LoadFloatImm
-                    ],
-                    other_patterns: [LOpData::Ret],
+                    uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, Call, LoadIntImm, LoadFloatImm, Ret],
                     uni_arm: {}
                 }
             }
             BOpData::M(data) => {
-                match_minor! {
+                match_some! {
                     target: data,
+                    enu: MOpData,
                     minor_arms: {
                         MOpData::J { target } => {
                             cfg.add_pred(target.clone(), bb.clone());
@@ -594,57 +551,7 @@ impl BackIR {
                             cfg.add_succ(bb, offset);
                         }
                     },
-                    uni_ops: [
-                        MOpData::Li,
-                        MOpData::La,
-                        MOpData::Mv,
-                        MOpData::FmvS,
-                        MOpData::Addw,
-                        MOpData::Subw,
-                        MOpData::Mulw,
-                        MOpData::Divw,
-                        MOpData::Remw,
-                        MOpData::Addiw,
-                        MOpData::Subiw,
-                        MOpData::Muliw,
-                        MOpData::Diviw,
-                        MOpData::Remiw,
-                        MOpData::Slliw,
-                        MOpData::Srliw,
-                        MOpData::Sraiw,
-                        MOpData::Sllw,
-                        MOpData::Srlw,
-                        MOpData::Sraw,
-                        MOpData::Slt,
-                        MOpData::Slti,
-                        MOpData::Sltu,
-                        MOpData::Sltiu,
-                        MOpData::Xor,
-                        MOpData::Xori,
-                        MOpData::FaddS,
-                        MOpData::FsubS,
-                        MOpData::FmulS,
-                        MOpData::FdivS,
-                        MOpData::FeqS,
-                        MOpData::FltS,
-                        MOpData::FleS,
-                        MOpData::FneS,
-                        MOpData::FgtS,
-                        MOpData::FgeS,
-                        MOpData::FcvtWS,
-                        MOpData::FcvtSW,
-                        MOpData::FmvWX,
-                        MOpData::FmvXW,
-                        MOpData::Lw,
-                        MOpData::Sw,
-                        MOpData::Flw,
-                        MOpData::Fsw,
-                        MOpData::Ld,
-                        MOpData::Sd,
-                        MOpData::Call,
-                        MOpData::Ret
-                    ],
-                    other_patterns: [],
+                    uni_ops: [Li, La, Mv, FmvS, Addw, Subw, Mulw, Divw, Remw, Addiw, Subiw, Muliw, Diviw, Remiw, Slliw, Srliw, Sraiw, Sllw, Srlw, Sraw, Slt, Slti, Sltu, Sltiu, Xor, Xori, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FneS, FgtS, FgeS, FcvtWS, FcvtSW, FmvWX, FmvXW, Lw, Sw, Flw, Fsw, Ld, Sd, Call, Ret],
                     uni_arm: {}
                 }
             }
@@ -665,8 +572,9 @@ impl BackIR {
 
         match data {
             BOpData::L(data) => {
-                match_minor! {
+                match_some! {
                     target: data,
+                    enu: LOpData,
                     minor_arms: {
                         LOpData::Br {
                             then_bb, else_bb, ..
@@ -681,49 +589,14 @@ impl BackIR {
                             cfg.remove_succ(bb, target_bb);
                         }
                     },
-                    uni_ops: [
-                        LOpData::AddI,
-                        LOpData::SubI,
-                        LOpData::MulI,
-                        LOpData::DivI,
-                        LOpData::ModI,
-                        LOpData::SNe,
-                        LOpData::SEq,
-                        LOpData::SGt,
-                        LOpData::SLt,
-                        LOpData::SGe,
-                        LOpData::SLe,
-                        LOpData::Xor,
-                        LOpData::Shl,
-                        LOpData::Shr,
-                        LOpData::Sar,
-                        LOpData::AddF,
-                        LOpData::SubF,
-                        LOpData::MulF,
-                        LOpData::DivF,
-                        LOpData::ONe,
-                        LOpData::OEq,
-                        LOpData::OGt,
-                        LOpData::OLt,
-                        LOpData::OGe,
-                        LOpData::OLe,
-                        LOpData::Sitofp,
-                        LOpData::Fptosi,
-                        LOpData::Store,
-                        LOpData::Load,
-                        LOpData::Move,
-                        LOpData::Call,
-                        LOpData::LoadIntImm,
-                        LOpData::LoadFloatImm,
-                        LOpData::Ret
-                    ],
-                    other_patterns: [],
+                    uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, Call, LoadIntImm, LoadFloatImm, Ret],
                     uni_arm: {}
                 }
             }
             BOpData::M(data) => {
-                match_minor! {
+                match_some! {
                     target: data,
+                    enu: MOpData,
                     minor_arms: {
                         MOpData::J { target } => {
                             cfg.remove_pred(target.clone(), bb.clone());
@@ -743,57 +616,7 @@ impl BackIR {
                             cfg.remove_succ(bb, offset);
                         }
                     },
-                    uni_ops: [
-                        MOpData::Li,
-                        MOpData::La,
-                        MOpData::Mv,
-                        MOpData::FmvS,
-                        MOpData::Addw,
-                        MOpData::Subw,
-                        MOpData::Mulw,
-                        MOpData::Divw,
-                        MOpData::Remw,
-                        MOpData::Addiw,
-                        MOpData::Subiw,
-                        MOpData::Muliw,
-                        MOpData::Diviw,
-                        MOpData::Remiw,
-                        MOpData::Slliw,
-                        MOpData::Srliw,
-                        MOpData::Sraiw,
-                        MOpData::Sllw,
-                        MOpData::Srlw,
-                        MOpData::Sraw,
-                        MOpData::Slt,
-                        MOpData::Slti,
-                        MOpData::Sltu,
-                        MOpData::Sltiu,
-                        MOpData::Xor,
-                        MOpData::Xori,
-                        MOpData::FaddS,
-                        MOpData::FsubS,
-                        MOpData::FmulS,
-                        MOpData::FdivS,
-                        MOpData::FeqS,
-                        MOpData::FltS,
-                        MOpData::FleS,
-                        MOpData::FneS,
-                        MOpData::FgtS,
-                        MOpData::FgeS,
-                        MOpData::FcvtWS,
-                        MOpData::FcvtSW,
-                        MOpData::FmvWX,
-                        MOpData::FmvXW,
-                        MOpData::Lw,
-                        MOpData::Sw,
-                        MOpData::Flw,
-                        MOpData::Fsw,
-                        MOpData::Ld,
-                        MOpData::Sd,
-                        MOpData::Call,
-                        MOpData::Ret
-                    ],
-                    other_patterns: [],
+                    uni_ops: [Li, La, Mv, FmvS, Addw, Subw, Mulw, Divw, Remw, Addiw, Subiw, Muliw, Diviw, Remiw, Slliw, Srliw, Sraiw, Sllw, Srlw, Sraw, Slt, Slti, Sltu, Sltiu, Xor, Xori, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FneS, FgtS, FgeS, FcvtWS, FcvtSW, FmvWX, FmvXW, Lw, Sw, Flw, Fsw, Ld, Sd, Call, Ret],
                     uni_arm: {}
                 }
             }

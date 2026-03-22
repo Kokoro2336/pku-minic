@@ -1,9 +1,9 @@
 //! Instruction Selection (ISel).
-//! Translating Lower IR to Machine IR.
+//! Translating Lower IR into Machine IR.
 
 use yachiyo::ir::back::*;
 use yachiyo::pass::BPass;
-use yachiyo::utils::r#match::{match_full_ops, match_minor, match_ops};
+use yachiyo::utils::r#match::{match_full_ops, match_some, match_ops};
 
 #[derive(Default)]
 pub struct ISel<'a> {
@@ -179,8 +179,9 @@ impl ISel<'_> {
                             (lop_data.clone(), lhs, rhs)
                         };
 
-                        let mop_data = match_minor! {
+                        let mop_data = match_some! {
                             target: lop_data,
+                            enu: LOpData,
                             minor_arms: {
                                 // Xxxw operations extend the operand automatically.
                                 LOpData::AddI { .. } => MOpData::Addiw { rd: rd.clone(), rs1: rs1.clone(), imm: imm.clone() },
@@ -290,31 +291,8 @@ impl ISel<'_> {
                                     MOpData::Slti { rd: rd.clone(), rs1: rhs.clone(), imm: imm.clone() }
                                 }
                             },
-                            uni_ops: [
-                                LOpData::Sitofp,
-                                LOpData::Fptosi,
-                                LOpData::Store,
-                                LOpData::Load,
-                                LOpData::Call,
-                                LOpData::Br,
-                                LOpData::Jump,
-                                LOpData::Move,
-                                LOpData::LoadFloatImm,
-                                LOpData::LoadIntImm,
-                                LOpData::Ret,
-                                // Since we've legalized float immediates in lowering, lhs and rhs can't be literals.
-                                LOpData::AddF,
-                                LOpData::SubF,
-                                LOpData::MulF,
-                                LOpData::DivF,
-                                LOpData::ONe,
-                                LOpData::OEq,
-                                LOpData::OGt,
-                                LOpData::OLt,
-                                LOpData::OGe,
-                                LOpData::OLe,
-                            ],
-                            other_patterns: [],
+                            // Since we've legalized float immediates in lowering, lhs and rhs can't be literals.
+                            uni_ops: [Sitofp, Fptosi, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, Ret, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe],
                             uni_arm: {
                                 unreachable!("{:?} should have been legalized in legalization", lop_data)
                             }
@@ -324,8 +302,9 @@ impl ISel<'_> {
                     },
                     (false, false) => {
                         let (rs1, rs2) = (lhs, rhs);
-                        let mop_data = match_minor! {
+                        let mop_data = match_some! {
                             target: lop_data,
+                            enu: LOpData,
                             minor_arms: {
                                 LOpData::AddI { .. } => MOpData::Addw { rd: rd.clone(), rs1: rs1.clone(), rs2: rs2.clone() },
                                 LOpData::SubI { .. } => MOpData::Subw { rd: rd.clone(), rs1: rs1.clone(), rs2: rs2.clone() },
@@ -439,20 +418,7 @@ impl ISel<'_> {
                                 LOpData::OGe { .. } => MOpData::FgeS { rd: rd.clone(), rs1: rs1.clone(), rs2: rs2.clone() },
                                 LOpData::OLe { .. } => MOpData::FleS { rd: rd.clone(), rs1: rs1.clone(), rs2: rs2.clone() },
                             },
-                            uni_ops: [
-                                LOpData::Sitofp,
-                                LOpData::Fptosi,
-                                LOpData::Store,
-                                LOpData::Load,
-                                LOpData::Call,
-                                LOpData::Br,
-                                LOpData::Jump,
-                                LOpData::Move,
-                                LOpData::LoadFloatImm,
-                                LOpData::LoadIntImm,
-                                LOpData::Ret,
-                            ],
-                            other_patterns: [],
+                            uni_ops: [Sitofp, Fptosi, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, Ret],
                             uni_arm: {
                                 unreachable!("{:?} should have been legalized in legalization", lop_data)
                             }
@@ -464,53 +430,14 @@ impl ISel<'_> {
             },
             un_ops: [Sitofp, Fptosi],
             un_arm: LOpData { rd, value } => {
-                let mop_data = match_minor! {
+                let mop_data = match_some! {
                     target: lop_data,
+                    enu: LOpData,
                     minor_arms: {
                         LOpData::Sitofp { .. } => MOpData::FcvtSW { rd: rd.clone(), rs: value.clone() },
                         LOpData::Fptosi { .. } => MOpData::FcvtWS { rd: rd.clone(), rs: value.clone() },
                     },
-                    uni_ops: [
-                        LOpData::AddI,
-                        LOpData::SubI,
-                        LOpData::MulI,
-                        LOpData::DivI,
-                        LOpData::ModI,
-                        LOpData::AddF,
-                        LOpData::SubF,
-                        LOpData::MulF,
-                        LOpData::DivF,
-                        LOpData::SNe,
-                        LOpData::SEq,
-                        LOpData::SGt,
-                        LOpData::SLt,
-                        LOpData::SGe,
-                        LOpData::SLe,
-                        LOpData::Xor,
-                        LOpData::Shl,
-                        LOpData::Shr,
-                        LOpData::Sar,
-                        LOpData::Store,
-                        LOpData::Load,
-                        LOpData::Call,
-                        LOpData::Br,
-                        LOpData::Jump,
-                        LOpData::Move,
-                        LOpData::LoadFloatImm,
-                        LOpData::LoadIntImm,
-                        LOpData::Ret,
-                        LOpData::AddF,
-                        LOpData::SubF,
-                        LOpData::MulF,
-                        LOpData::DivF,
-                        LOpData::ONe,
-                        LOpData::OEq,
-                        LOpData::OGt,
-                        LOpData::OLt,
-                        LOpData::OGe,
-                        LOpData::OLe,
-                    ],
-                    other_patterns: [],
+                    uni_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, Ret, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe],
                     uni_arm: {
                         unreachable!("{:?} should have been legalized in legalization", lop_data)
                     }
