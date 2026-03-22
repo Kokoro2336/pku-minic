@@ -3,7 +3,7 @@
 
 use yachiyo::ir::back::*;
 use yachiyo::pass::BPass;
-use yachiyo::utils::r#match::{match_full_ops, match_some, match_ops};
+use yachiyo::utils::r#match::{match_full_ops, match_some, match_src};
 
 #[derive(Default)]
 pub struct ISel<'a> {
@@ -17,7 +17,7 @@ impl ISel<'_> {
     }
 
     fn fold(lop_data: LOpData) -> BOperand {
-        match_ops! {
+        match_src! {
             target: &lop_data,
             bin_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe],
             bin_arm: LOpData { lhs, rhs } => {

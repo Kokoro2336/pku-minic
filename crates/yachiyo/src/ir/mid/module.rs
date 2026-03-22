@@ -4,7 +4,7 @@ use crate::ir::mid::{
     BasicBlock, Builder, BuilderGuard, Op, OpData, OpType, Operand, PhiIncoming, CFG, CG, DFG,
 };
 use crate::utils::arena::{Arena, ArenaItem};
-use crate::utils::r#match::{match_ops, match_some};
+use crate::utils::r#match::{match_some, match_src};
 
 #[derive(Debug, Clone)]
 pub struct IR {
@@ -52,7 +52,7 @@ impl IR {
         let dfg = self.dfg_mut_or_panic(current_function, "IR add_uses: no current function");
         let data = dfg[op.get_op_id()].data.clone();
 
-        match_ops! {
+        match_src! {
             target: data,
             bin_ops: [
                 AddI, SubI, MulI, DivI, ModI,
@@ -130,7 +130,7 @@ impl IR {
         let dfg = self.dfg_mut_or_panic(current_function, "IR remove_uses: no current function");
         let data = dfg[op.get_op_id()].data.clone();
 
-        match_ops! {
+        match_src! {
             target: data,
             bin_ops: [
                 AddI, SubI, MulI, DivI, ModI,

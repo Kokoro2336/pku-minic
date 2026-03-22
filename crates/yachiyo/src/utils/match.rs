@@ -1,7 +1,7 @@
 //! Utils for pattern matching to reduce code duplication.
 
 #[macro_export]
-macro_rules! match_ops {
+macro_rules! match_src {
     (
         target: $target:expr,
 
@@ -151,5 +151,5 @@ macro_rules! match_rd {
 
 pub use match_full_ops;
 pub use match_some;
-pub use match_ops;
+pub use match_src;
 pub use match_rd;

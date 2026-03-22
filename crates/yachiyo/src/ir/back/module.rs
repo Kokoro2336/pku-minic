@@ -5,7 +5,7 @@ use super::{
     VirtReg, BCFG, BCG, BDFG,
 };
 use crate::utils::arena::ArenaItem;
-use crate::utils::r#match::{match_some, match_ops, match_rd};
+use crate::utils::r#match::{match_some, match_src, match_rd};
 
 pub struct BackIR {
     pub data_info: DataInfo,
@@ -61,7 +61,7 @@ impl BackIR {
 
         let vregs = &mut self.funcs[current_function.unwrap()].vregs;
         match data {
-            BOpData::L(data) => match_ops! {
+            BOpData::L(data) => match_src! {
                 target: data,
                 bin_ops: [
                     AddI, SubI, MulI, DivI, ModI,
@@ -99,7 +99,7 @@ impl BackIR {
                     | LOpData::LoadFloatImm { .. } => {}
                 }
             },
-            BOpData::M(data) => match_ops! {
+            BOpData::M(data) => match_src! {
                 target: data,
                 bin_ops: [
                     Addw, Subw, Mulw, Divw, Remw,
@@ -168,7 +168,7 @@ impl BackIR {
 
         let vregs = &mut self.funcs[current_function.unwrap()].vregs;
         match data {
-            BOpData::L(data) => match_ops! {
+            BOpData::L(data) => match_src! {
                 target: data,
                 bin_ops: [
                     AddI, SubI, MulI, DivI, ModI,
@@ -206,7 +206,7 @@ impl BackIR {
                     | LOpData::LoadFloatImm { .. } => {}
                 }
             },
-            BOpData::M(data) => match_ops! {
+            BOpData::M(data) => match_src! {
                 target: data,
                 bin_ops: [
                     Addw, Subw, Mulw, Divw, Remw,
@@ -335,6 +335,10 @@ impl BackIR {
     ) {
         let vregs = &mut self.funcs[current_function.clone().unwrap()].vregs;
         let uses = vregs[old.clone()].uses.clone();
+        let new_vreg_id = match self.get_rd(current_function.clone(), new.clone()) {
+            Some(rd) => rd,
+            None => return,
+        };
 
         for use_op in uses {
             let op_id = match_some! {
@@ -353,7 +357,7 @@ impl BackIR {
             );
             let op = &mut dfg[op_id];
             match &mut op.data {
-                BOpData::L(data) => match_ops! {
+                BOpData::L(data) => match_src! {
                     target: data,
                     bin_ops: [
                         AddI, SubI, MulI, DivI, ModI,
@@ -364,40 +368,40 @@ impl BackIR {
                     ],
                     bin_arm: LOpData { lhs, rhs } => {
                         if *lhs == old {
-                            *lhs = new.clone();
+                            *lhs = new_vreg_id.clone();
                         }
                         if *rhs == old {
-                            *rhs = new.clone();
+                            *rhs = new_vreg_id.clone();
                         }
                     },
                     un_ops: [Sitofp, Fptosi],
                     un_arm: LOpData { value } => {
                         if *value == old {
-                            *value = new.clone();
+                            *value = new_vreg_id.clone();
                         }
                     },
                     fallback: {
                         LOpData::Store { addr, value } => {
                             if *addr == old {
-                                *addr = new.clone();
+                                *addr = new_vreg_id.clone();
                             }
                             if *value == old {
-                                *value = new.clone();
+                                *value = new_vreg_id.clone();
                             }
                         }
                         LOpData::Load { addr, .. } => {
                             if *addr == old {
-                                *addr = new.clone();
+                                *addr = new_vreg_id.clone();
                             }
                         }
                         LOpData::Move { src, .. } => {
                             if *src == old {
-                                *src = new.clone();
+                                *src = new_vreg_id.clone();
                             }
                         }
                         LOpData::Br { cond, .. } => {
                             if *cond == old {
-                                *cond = new.clone();
+                                *cond = new_vreg_id.clone();
                             }
                         }
                         LOpData::Call { .. }
@@ -407,7 +411,7 @@ impl BackIR {
                         | LOpData::LoadFloatImm { .. } => {}
                     }
                 },
-                BOpData::M(data) => match_ops! {
+                BOpData::M(data) => match_src! {
                     target: data,
                     bin_ops: [
                         Addw, Subw, Mulw, Divw, Remw,
@@ -419,16 +423,16 @@ impl BackIR {
                     ],
                     bin_arm: MOpData { rs1, rs2 } => {
                         if *rs1 == old {
-                            *rs1 = new.clone();
+                            *rs1 = new_vreg_id.clone();
                         }
                         if *rs2 == old {
-                            *rs2 = new.clone();
+                            *rs2 = new_vreg_id.clone();
                         }
                     },
                     un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
                     un_arm: MOpData { rs } => {
                         if *rs == old {
-                            *rs = new.clone();
+                            *rs = new_vreg_id.clone();
                         }
                     },
                     fallback: {
@@ -444,33 +448,33 @@ impl BackIR {
                         | MOpData::Sraiw { rs1, imm, .. }
                         | MOpData::Xori { rs1, imm, .. } => {
                             if *rs1 == old {
-                                *rs1 = new.clone();
+                                *rs1 = new_vreg_id.clone();
                             }
                             if *imm == old {
-                                *imm = new.clone();
+                                *imm = new_vreg_id.clone();
                             }
                         }
                         MOpData::Lw { base, offset, .. }
                         | MOpData::Flw { base, offset, .. }
                         | MOpData::Ld { base, offset, .. } => {
                             if *base == old {
-                                *base = new.clone();
+                                *base = new_vreg_id.clone();
                             }
                             if *offset == old {
-                                *offset = new.clone();
+                                *offset = new_vreg_id.clone();
                             }
                         }
                         MOpData::Sw { rs, base, offset }
                         | MOpData::Fsw { rs, base, offset }
                         | MOpData::Sd { rs, base, offset } => {
                             if *rs == old {
-                                *rs = new.clone();
+                                *rs = new_vreg_id.clone();
                             }
                             if *base == old {
-                                *base = new.clone();
+                                *base = new_vreg_id.clone();
                             }
                             if *offset == old {
-                                *offset = new.clone();
+                                *offset = new_vreg_id.clone();
                             }
                         }
                         MOpData::Li { .. } => {}
@@ -478,7 +482,7 @@ impl BackIR {
                         MOpData::J { .. } => {}
                         MOpData::Bnez { rs, .. } => {
                             if *rs == old {
-                                *rs = new.clone();
+                                *rs = new_vreg_id.clone();
                             }
                         }
                         MOpData::Call { .. } => {}

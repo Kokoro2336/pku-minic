@@ -6,7 +6,7 @@ use crate::ast::Literal;
 use crate::base::Type;
 use crate::debug::info;
 use crate::utils::arena::*;
-use crate::utils::r#match::{match_ops, match_some};
+use crate::utils::r#match::{match_some, match_src};
 
 #[allow(clippy::upper_case_acronyms)]
 pub type DFG = IndexedArena<Op>;
@@ -584,7 +584,7 @@ impl Arena<Op> for IndexedArena<Op> {
                 });
 
                 // rewrite operands excluding BBId
-                match_ops! {
+                match_src! {
                     target: &mut node.data,
                     bin_ops: [
                         AddI, SubI, MulI, DivI, ModI,
@@ -721,7 +721,7 @@ impl IndexedArena<Op> {
 
         let op = &mut self[op_id];
         // Update Use
-        match_ops! {
+        match_src! {
             target: &mut op.data,
             bin_ops: [
                 AddI, SubI, MulI, DivI, ModI,
