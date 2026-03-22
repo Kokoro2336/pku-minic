@@ -483,11 +483,6 @@ impl IR {
         op: Operand,
         bb: Option<Operand>,
     ) -> Op {
-        crate::debug::info!(
-            "IR remove_op: removing instruction {:?} from block {:?}",
-            op,
-            bb
-        );
         if matches!(op, Operand::Global(_)) {
             let removed_op = self.globals.remove(op.get_op_id());
             if !removed_op.users.is_empty() {
@@ -545,12 +540,6 @@ impl IR {
         bb_id: Operand,
         new_op: Op,
     ) -> Operand {
-        crate::debug::info!(
-            "IR replace_op: replacing instruction {:?} in block {:?} with new instruction {:?}",
-            op_id,
-            bb_id,
-            new_op
-        );
         let pos = {
             let cfg = self.cfg_mut_or_panic(current_function, "IR replace_op: no current function");
             let bb = &cfg[bb_id.clone()];
@@ -571,11 +560,18 @@ impl IR {
             bb.cur.get(pos + 1).cloned()
         };
 
-        let mut guard = BuilderGuard::new(builder);
-        guard.set_current_block(bb_id.clone());
-        self.remove_op(current_function, op_id, Some(bb_id.clone()));
-        guard.set_before_inst(self, current_function, next_inst);
-        self.create(&guard, current_function, new_op)
+        {
+            let mut guard = BuilderGuard::new(builder);
+            guard.set_current_block(bb_id.clone());
+            // Create new instruction first.
+            guard.set_before_inst(self, current_function, next_inst);
+            let new_op_id = self.create(&guard, current_function, new_op);
+            // RAUW
+            self.replace_all_uses(current_function, op_id.clone(), new_op_id.clone());
+            // Remove old instruction.
+            self.remove_op(current_function, op_id, Some(bb_id.clone()));
+            new_op_id
+        }
     }
 
     pub fn move_op_to_bb_at(
