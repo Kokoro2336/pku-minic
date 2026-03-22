@@ -2,7 +2,7 @@ use crate::base::Type;
 use crate::debug::info;
 use crate::ir::mid::{BasicBlock, Op, OpData, Operand, PhiIncoming, CFG, DFG};
 use crate::utils::arena::*;
-use crate::utils::r#match::match_minor;
+use crate::utils::r#match::match_some;
 use std::ops::{Index, IndexMut};
 
 pub type CG = IndexedArena<Function>;
@@ -112,8 +112,9 @@ impl Arena<Function> for IndexedArena<Function> {
                 // rewrite BBId in dfg ops
                 func.dfg.storage.iter_mut().for_each(|item| {
                     if let ArenaItem::Data(op) = item {
-                        match_minor! {
+                        match_some! {
                             target: &mut op.data,
+                            enu: OpData,
                             minor_arms: {
                                 OpData::Jump { target_bb } => {
                                     remap_with_cfg(target_bb, &old_arena_cfg);
@@ -141,45 +142,7 @@ impl Arena<Function> for IndexedArena<Function> {
                                     }
                                 }
                             },
-                            uni_ops: [
-                                OpData::AddF,
-                                OpData::SubF,
-                                OpData::MulF,
-                                OpData::DivF,
-                                OpData::AddI,
-                                OpData::SubI,
-                                OpData::MulI,
-                                OpData::DivI,
-                                OpData::ModI,
-                                OpData::Load,
-                                OpData::Store,
-                                OpData::Alloca,
-                                OpData::GlobalAlloca,
-                                OpData::Declare,
-                                OpData::GEP,
-                                OpData::Sitofp,
-                                OpData::Fptosi,
-                                OpData::Zext,
-                                OpData::Uitofp,
-                                OpData::Ret,
-                                OpData::Shl,
-                                OpData::Shr,
-                                OpData::Sar,
-                                OpData::SNe,
-                                OpData::SEq,
-                                OpData::Xor,
-                                OpData::SGt,
-                                OpData::SLt,
-                                OpData::SGe,
-                                OpData::SLe,
-                                OpData::ONe,
-                                OpData::OEq,
-                                OpData::OGt,
-                                OpData::OLt,
-                                OpData::OGe,
-                                OpData::OLe
-                            ],
-                            other_patterns: [],
+                            uni_ops: [AddF, SubF, MulF, DivF, AddI, SubI, MulI, DivI, ModI, Load, Store, Alloca, GlobalAlloca, Declare, GEP, Sitofp, Fptosi, Zext, Uitofp, Ret, Shl, Shr, Sar, SNe, SEq, Xor, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe],
                             uni_arm: { /* no BBId to rewrite */ }
                         }
                     }

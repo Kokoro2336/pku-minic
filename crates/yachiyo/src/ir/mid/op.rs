@@ -2,11 +2,11 @@ use std::ops::{Index, IndexMut};
 use std::vec::Vec;
 use strum_macros::EnumDiscriminants;
 
+use crate::ast::Literal;
 use crate::base::Type;
 use crate::debug::info;
-use crate::ast::Literal;
 use crate::utils::arena::*;
-use crate::utils::r#match::{match_minor, match_ops};
+use crate::utils::r#match::{match_some, match_src};
 
 #[allow(clippy::upper_case_acronyms)]
 pub type DFG = IndexedArena<Op>;
@@ -584,7 +584,7 @@ impl Arena<Op> for IndexedArena<Op> {
                 });
 
                 // rewrite operands excluding BBId
-                match_ops! {
+                match_src! {
                     target: &mut node.data,
                     bin_ops: [
                         AddI, SubI, MulI, DivI, ModI,
@@ -654,24 +654,16 @@ impl Arena<Op> for IndexedArena<Op> {
 
 impl IndexedArena<Op> {
     pub fn add_use(&mut self, op_idx: Operand, use_idx: Operand) {
-        let op_id = match_minor! {
+        let op_id = match_some! {
             target: op_idx,
+            enu: Operand,
             minor_arms: {
                 Operand::Value(op_id) => op_id,
                 Operand::Global(global_id) => global_id,
             },
             // literals don't have uses in the DFG
             // For global variables, we don't maintain uses in the DFG, so just return.
-            uni_ops: [
-                Operand::Int,
-                Operand::Float,
-                Operand::Bool,
-                Operand::Undefined,
-                Operand::Param,
-                Operand::Func,
-                Operand::BB
-            ],
-            other_patterns: [],
+            uni_ops: [Int, Float, Bool, Undefined, Param, Func, BB],
             uni_arm: return
         };
         let node = &mut self[op_id];
@@ -684,24 +676,16 @@ impl IndexedArena<Op> {
 
     // Remove use_idx from the users of op_idx.
     pub fn remove_use(&mut self, op_idx: Operand, use_idx: Operand) {
-        let op_id = match_minor! {
+        let op_id = match_some! {
             target: op_idx,
+            enu: Operand,
             minor_arms: {
                 Operand::Value(op_id) => op_id,
                 Operand::Global(global_id) => global_id,
             },
             // literals don't have uses in the DFG
             // For global variables, we don't maintain uses in the DFG, so just return.
-            uni_ops: [
-                Operand::Int,
-                Operand::Float,
-                Operand::Bool,
-                Operand::Undefined,
-                Operand::Param,
-                Operand::Func,
-                Operand::BB
-            ],
-            other_patterns: [],
+            uni_ops: [Int, Float, Bool, Undefined, Param, Func, BB],
             uni_arm: return
         };
         let node = &mut self[op_id];
@@ -722,30 +706,22 @@ impl IndexedArena<Op> {
     // @param old: the old use we want to replace with e.g. %1 in "add %1, %2"
     // @param new: the new use we want to replace with e.g. %3 in "add %3, %2"
     pub fn replace_use(&mut self, op_idx: Operand, old: Operand, new: Operand) {
-        let op_id = match_minor! {
+        let op_id = match_some! {
             target: op_idx,
+            enu: Operand,
             minor_arms: {
                 Operand::Value(op_id) => op_id,
                 Operand::Global(global_id) => global_id,
             },
             // literals don't have uses in the DFG
             // For global variables, we don't maintain uses in the DFG, so just return.
-            uni_ops: [
-                Operand::Int,
-                Operand::Float,
-                Operand::Bool,
-                Operand::Undefined,
-                Operand::Param,
-                Operand::BB,
-                Operand::Func
-            ],
-            other_patterns: [],
+            uni_ops: [Int, Float, Bool, Undefined, Param, BB, Func],
             uni_arm: return
         };
 
         let op = &mut self[op_id];
         // Update Use
-        match_ops! {
+        match_src! {
             target: &mut op.data,
             bin_ops: [
                 AddI, SubI, MulI, DivI, ModI,

@@ -1,7 +1,7 @@
 //! Utils for pattern matching to reduce code duplication.
 
 #[macro_export]
-macro_rules! match_ops {
+macro_rules! match_src {
     (
         target: $target:expr,
 
@@ -34,44 +34,21 @@ macro_rules! match_ops {
 
 #[macro_export]
 /// For matching a few ops.
-macro_rules! match_minor {
+macro_rules! match_some {
     (
         target: $target:expr,
-
+        enu: $SrcEnum:ident,
         // The few ops to match.
         minor_arms: { $($minor_arm:tt)* },
 
         // Struct-like variants to ignore. Macro expands each as `Variant { .. }`.
-        uni_ops: [ $($uni_op:path),* $(,)? ],
-        // Optional tuple/unit variants or custom patterns to ignore.
-        other_patterns: [ $($other_pat:pat),* $(,)? ],
+        uni_ops: [ $($uni_op:ident),* $(,)? ],
         uni_arm: $uni_arm:tt
     ) => {
         match $target {
             $($minor_arm)*
             $(
-                $uni_op { .. } => $uni_arm,
-            )*
-            $(
-                $other_pat => $uni_arm,
-            )*
-        }
-    };
-
-    (
-        target: $target:expr,
-
-        // The few ops to match.
-        minor_arms: { $($minor_arm:tt)* },
-
-        // Struct-like variants to ignore. Macro expands each as `Variant { .. }`.
-        uni_ops: [ $($uni_op:path),* $(,)? ],
-        uni_arm: $uni_arm:tt
-    ) => {
-        match $target {
-            $($minor_arm)*
-            $(
-                $uni_op { .. } => $uni_arm,
+                $SrcEnum::$uni_op { .. } => $uni_arm,
             )*
         }
     };
@@ -172,8 +149,7 @@ macro_rules! match_rd {
     };
 }
 
-
-pub use match_minor;
-pub use match_ops;
 pub use match_full_ops;
+pub use match_some;
+pub use match_src;
 pub use match_rd;

@@ -4,7 +4,7 @@ use crate::ir::mid::{
     BasicBlock, Builder, BuilderGuard, Op, OpData, OpType, Operand, PhiIncoming, CFG, CG, DFG,
 };
 use crate::utils::arena::{Arena, ArenaItem};
-use crate::utils::r#match::{match_minor, match_ops};
+use crate::utils::r#match::{match_some, match_src};
 
 #[derive(Debug, Clone)]
 pub struct IR {
@@ -52,7 +52,7 @@ impl IR {
         let dfg = self.dfg_mut_or_panic(current_function, "IR add_uses: no current function");
         let data = dfg[op.get_op_id()].data.clone();
 
-        match_ops! {
+        match_src! {
             target: data,
             bin_ops: [
                 AddI, SubI, MulI, DivI, ModI,
@@ -130,7 +130,17 @@ impl IR {
         let dfg = self.dfg_mut_or_panic(current_function, "IR remove_uses: no current function");
         let data = dfg[op.get_op_id()].data.clone();
 
-        match_ops! {
+        // Deduplicate repeated source operands when removing use-def links.
+        let mut removed = vec![];
+        let mut remove_use = |value: Operand, use_op: Operand| {
+            if removed.contains(&value) {
+                return;
+            }
+            removed.push(value.clone());
+            dfg.remove_use(value, use_op);
+        };
+
+        match_src! {
             target: data,
             bin_ops: [
                 AddI, SubI, MulI, DivI, ModI,
@@ -140,18 +150,18 @@ impl IR {
                 ONe, OEq, OGt, OLt, OGe, OLe
             ],
             bin_arm: OpData { lhs, rhs } => {
-                dfg.remove_use(lhs, op.clone());
-                dfg.remove_use(rhs, op);
+                remove_use(lhs, op.clone());
+                remove_use(rhs, op);
             },
             un_ops: [Sitofp, Fptosi, Uitofp, Zext],
             un_arm: OpData { value } => {
-                dfg.remove_use(value, op);
+                remove_use(value, op);
             },
             fallback: {
                 OpData::Load { addr } => {
                     if matches!(addr, Operand::Global(_)) {
                     } else if matches!(addr, Operand::Value(_)) {
-                        dfg.remove_use(addr, op);
+                        remove_use(addr, op);
                     } else {
                         panic!("IR remove_uses: Load address operand is not Value or Global");
                     }
@@ -159,47 +169,41 @@ impl IR {
                 OpData::Store { addr, value } => {
                     if matches!(addr, Operand::Global(_)) {
                     } else if matches!(addr, Operand::Value(_)) {
-                        dfg.remove_use(addr, op.clone());
+                        remove_use(addr, op.clone());
                     } else {
                         panic!("IR remove_uses: Store address operand is not Value or Global");
                     }
-                    dfg.remove_use(value, op);
+                    remove_use(value, op);
                 }
                 OpData::Br { cond, .. } => {
-                    dfg.remove_use(cond, op);
+                    remove_use(cond, op);
                 }
                 OpData::Call { args, .. } => {
                     for arg in args {
-                        dfg.remove_use(arg, op.clone());
+                        remove_use(arg, op.clone());
                     }
                 }
                 OpData::Ret { value } => {
                     if let Some(val) = value {
-                        dfg.remove_use(val, op);
+                        remove_use(val, op);
                     }
                 }
                 OpData::Phi { incomings } => {
-                    let mut removed = vec![];
                     for phi_incoming in incomings {
                         if let PhiIncoming::Data { value, .. } = phi_incoming {
-                            if !removed.contains(&value) {
-                                removed.push(value.clone());
-                            } else {
-                                continue;
-                            }
-                            dfg.remove_use(value, op.clone());
+                            remove_use(value, op.clone());
                         }
                     }
                 }
                 OpData::GEP { base, indices } => {
                     if matches!(base, Operand::Global(_)) {
                     } else if matches!(base, Operand::Value(_)) {
-                        dfg.remove_use(base, op.clone());
+                        remove_use(base, op.clone());
                     } else {
                         panic!("IR remove_uses: GEP base operand is not Value or Global");
                     }
                     for index in indices {
-                        dfg.remove_use(index, op.clone());
+                        remove_use(index, op.clone());
                     }
                 }
                 OpData::GlobalAlloca(_)
@@ -229,8 +233,9 @@ impl IR {
             self.cfg_dfg_mut_or_panic(current_function, "IR add_control_flow: no current function");
         let data = dfg[op.get_op_id()].data.clone();
 
-        match_minor! {
+        match_some! {
             target: data,
+            enu: OpData,
             minor_arms: {
                 OpData::Br {
                     then_bb, else_bb, ..
@@ -246,47 +251,7 @@ impl IR {
                     cfg.add_succ(bb, target_bb);
                 }
             },
-            uni_ops: [
-                OpData::AddF,
-                OpData::SubF,
-                OpData::MulF,
-                OpData::DivF,
-                OpData::AddI,
-                OpData::SubI,
-                OpData::MulI,
-                OpData::DivI,
-                OpData::ModI,
-                OpData::Load,
-                OpData::Store,
-                OpData::Alloca,
-                OpData::Phi,
-                OpData::GlobalAlloca,
-                OpData::Call,
-                OpData::GEP,
-                OpData::Sitofp,
-                OpData::Fptosi,
-                OpData::Uitofp,
-                OpData::Zext,
-                OpData::Ret,
-                OpData::Shl,
-                OpData::Shr,
-                OpData::Sar,
-                OpData::SNe,
-                OpData::SEq,
-                OpData::Xor,
-                OpData::SGt,
-                OpData::SLt,
-                OpData::SGe,
-                OpData::SLe,
-                OpData::ONe,
-                OpData::OEq,
-                OpData::OGt,
-                OpData::OLt,
-                OpData::OGe,
-                OpData::OLe,
-                OpData::Declare
-            ],
-            other_patterns: [],
+            uni_ops: [AddF, SubF, MulF, DivF, AddI, SubI, MulI, DivI, ModI, Load, Store, Alloca, Phi, GlobalAlloca, Call, GEP, Sitofp, Fptosi, Uitofp, Zext, Ret, Shl, Shr, Sar, SNe, SEq, Xor, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Declare],
             uni_arm: {}
         }
     }
@@ -303,8 +268,9 @@ impl IR {
         );
         let data = dfg[op.get_op_id()].data.clone();
 
-        match_minor! {
+        match_some! {
             target: data,
+            enu: OpData,
             minor_arms: {
                 OpData::Br {
                     then_bb, else_bb, ..
@@ -319,47 +285,7 @@ impl IR {
                     cfg.remove_succ(bb, target_bb);
                 }
             },
-            uni_ops: [
-                OpData::AddF,
-                OpData::SubF,
-                OpData::MulF,
-                OpData::DivF,
-                OpData::AddI,
-                OpData::SubI,
-                OpData::MulI,
-                OpData::DivI,
-                OpData::ModI,
-                OpData::Load,
-                OpData::Store,
-                OpData::Alloca,
-                OpData::Phi,
-                OpData::GlobalAlloca,
-                OpData::Call,
-                OpData::GEP,
-                OpData::Sitofp,
-                OpData::Fptosi,
-                OpData::Uitofp,
-                OpData::Zext,
-                OpData::Ret,
-                OpData::Shl,
-                OpData::Shr,
-                OpData::Sar,
-                OpData::SNe,
-                OpData::SEq,
-                OpData::Xor,
-                OpData::SGt,
-                OpData::SLt,
-                OpData::SGe,
-                OpData::SLe,
-                OpData::ONe,
-                OpData::OEq,
-                OpData::OGt,
-                OpData::OLt,
-                OpData::OGe,
-                OpData::OLe,
-                OpData::Declare
-            ],
-            other_patterns: [],
+            uni_ops: [AddF, SubF, MulF, DivF, AddI, SubI, MulI, DivI, ModI, Load, Store, Alloca, Phi, GlobalAlloca, Call, GEP, Sitofp, Fptosi, Uitofp, Zext, Ret, Shl, Shr, Sar, SNe, SEq, Xor, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Declare],
             uni_arm: {}
         }
     }
@@ -561,11 +487,6 @@ impl IR {
         op: Operand,
         bb: Option<Operand>,
     ) -> Op {
-        crate::debug::info!(
-            "IR remove_op: removing instruction {:?} from block {:?}",
-            op,
-            bb
-        );
         if matches!(op, Operand::Global(_)) {
             let removed_op = self.globals.remove(op.get_op_id());
             if !removed_op.users.is_empty() {
@@ -623,12 +544,6 @@ impl IR {
         bb_id: Operand,
         new_op: Op,
     ) -> Operand {
-        crate::debug::info!(
-            "IR replace_op: replacing instruction {:?} in block {:?} with new instruction {:?}",
-            op_id,
-            bb_id,
-            new_op
-        );
         let pos = {
             let cfg = self.cfg_mut_or_panic(current_function, "IR replace_op: no current function");
             let bb = &cfg[bb_id.clone()];
@@ -649,11 +564,18 @@ impl IR {
             bb.cur.get(pos + 1).cloned()
         };
 
-        let mut guard = BuilderGuard::new(builder);
-        guard.set_current_block(bb_id.clone());
-        self.remove_op(current_function, op_id, Some(bb_id.clone()));
-        guard.set_before_inst(self, current_function, next_inst);
-        self.create(&guard, current_function, new_op)
+        {
+            let mut guard = BuilderGuard::new(builder);
+            guard.set_current_block(bb_id.clone());
+            // Create new instruction first.
+            guard.set_before_inst(self, current_function, next_inst);
+            let new_op_id = self.create(&guard, current_function, new_op);
+            // RAUW
+            self.replace_all_uses(current_function, op_id.clone(), new_op_id.clone());
+            // Remove old instruction.
+            self.remove_op(current_function, op_id, Some(bb_id.clone()));
+            new_op_id
+        }
     }
 
     pub fn move_op_to_bb_at(
