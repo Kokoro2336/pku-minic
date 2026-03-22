@@ -6,12 +6,12 @@ Definitions of infrastructures.
 
 ```text
 src/
-├── ast/    - Abstract Syntax Tree definitions and nodes used by the frontend.
-├── base/   - Base types (e.g., `Type`) and system library mappings.
-├── cli/    - Command-line interface definitions and argument parsing logic.
-├── config/ - Compiler-wide configurations and constants (e.g., register limits).
-├── debug/  - Debugging utilities, logging macros, and IR dumpers (e.g., `DumpLLVM`).
-├── ir/     - Intermediate Representation structures, encompassing Mid IR and Back/Lower IR.
+├── ast/    - AST Node definitions.
+├── base/   - Base types and SysY lib definitions.
+├── cli/    - Command-line interface support.
+├── config/ - Configurations.
+├── debug/  - Debugging utilities like logging macros and dumping tools.
+├── ir/     - IR structures, including middle IR and backend IR(Lower IR and Machine IR sharing most of the infrastuctures).
 ├── pass/   - Pass management frameworks to orchestrate optimizations and transformations.
-└── utils/  - Reusable data structures and helpers (e.g., Arena allocators, BitSet, SymbolTable).
+└── utils/  - Reusable utilities and helper functions.
 ```

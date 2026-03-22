@@ -1,14 +1,14 @@
 # Iroha
 
-The main pipeline, including frontend, optimizer and backend.
+The main pipeline of the compiler.
 
 ## Structures
 
 ```text
 src/
-├── analysis/ - Program analysis passes (e.g., Dominator Tree, Dominance Frontier).
-├── backend/  - Code generation and lowering to machine instructions.
-├── frontend/ - Lexing, parsing, AST generation, and semantic analysis.
-├── opt/      - Mid-level IR optimizations (e.g., Mem2Reg, SCCP).
-└── main.rs   - Entry point of the compiler.
+├── analysis/ - Program analysis passes.
+├── backend/  - Backend of the compiler.
+├── frontend/ - Frontend of the compiler.
+├── opt/      - Mid-level IR optimizations.
+└── main.rs   - Entry point of the entire compiler.
 ```
