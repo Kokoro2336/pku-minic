@@ -117,6 +117,7 @@ impl VRegs {
         } else {
             panic!("Def {:?}: not found in defs of op {:?}", def_op_id, vreg_id);
         }
+        crate::debug::info!("Remove def {:?} from vreg {:?}", def_op_id, vreg_id);
     }
 
     pub fn add_def(&mut self, vreg_id: BOperand, def_op_id: BOperand) {

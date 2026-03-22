@@ -130,6 +130,16 @@ impl IR {
         let dfg = self.dfg_mut_or_panic(current_function, "IR remove_uses: no current function");
         let data = dfg[op.get_op_id()].data.clone();
 
+        // Deduplicate repeated source operands when removing use-def links.
+        let mut removed = vec![];
+        let mut remove_use = |value: Operand, use_op: Operand| {
+            if removed.contains(&value) {
+                return;
+            }
+            removed.push(value.clone());
+            dfg.remove_use(value, use_op);
+        };
+
         match_src! {
             target: data,
             bin_ops: [
@@ -140,18 +150,18 @@ impl IR {
                 ONe, OEq, OGt, OLt, OGe, OLe
             ],
             bin_arm: OpData { lhs, rhs } => {
-                dfg.remove_use(lhs, op.clone());
-                dfg.remove_use(rhs, op);
+                remove_use(lhs, op.clone());
+                remove_use(rhs, op);
             },
             un_ops: [Sitofp, Fptosi, Uitofp, Zext],
             un_arm: OpData { value } => {
-                dfg.remove_use(value, op);
+                remove_use(value, op);
             },
             fallback: {
                 OpData::Load { addr } => {
                     if matches!(addr, Operand::Global(_)) {
                     } else if matches!(addr, Operand::Value(_)) {
-                        dfg.remove_use(addr, op);
+                        remove_use(addr, op);
                     } else {
                         panic!("IR remove_uses: Load address operand is not Value or Global");
                     }
@@ -159,47 +169,41 @@ impl IR {
                 OpData::Store { addr, value } => {
                     if matches!(addr, Operand::Global(_)) {
                     } else if matches!(addr, Operand::Value(_)) {
-                        dfg.remove_use(addr, op.clone());
+                        remove_use(addr, op.clone());
                     } else {
                         panic!("IR remove_uses: Store address operand is not Value or Global");
                     }
-                    dfg.remove_use(value, op);
+                    remove_use(value, op);
                 }
                 OpData::Br { cond, .. } => {
-                    dfg.remove_use(cond, op);
+                    remove_use(cond, op);
                 }
                 OpData::Call { args, .. } => {
                     for arg in args {
-                        dfg.remove_use(arg, op.clone());
+                        remove_use(arg, op.clone());
                     }
                 }
                 OpData::Ret { value } => {
                     if let Some(val) = value {
-                        dfg.remove_use(val, op);
+                        remove_use(val, op);
                     }
                 }
                 OpData::Phi { incomings } => {
-                    let mut removed = vec![];
                     for phi_incoming in incomings {
                         if let PhiIncoming::Data { value, .. } = phi_incoming {
-                            if !removed.contains(&value) {
-                                removed.push(value.clone());
-                            } else {
-                                continue;
-                            }
-                            dfg.remove_use(value, op.clone());
+                            remove_use(value, op.clone());
                         }
                     }
                 }
                 OpData::GEP { base, indices } => {
                     if matches!(base, Operand::Global(_)) {
                     } else if matches!(base, Operand::Value(_)) {
-                        dfg.remove_use(base, op.clone());
+                        remove_use(base, op.clone());
                     } else {
                         panic!("IR remove_uses: GEP base operand is not Value or Global");
                     }
                     for index in indices {
-                        dfg.remove_use(index, op.clone());
+                        remove_use(index, op.clone());
                     }
                 }
                 OpData::GlobalAlloca(_)

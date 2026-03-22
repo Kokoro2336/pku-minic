@@ -167,6 +167,16 @@ impl BackIR {
         let data = dfg[op.get_inst_id()].data.clone();
 
         let vregs = &mut self.funcs[current_function.unwrap()].vregs;
+        // Deduplication list.
+        let mut removed = vec![];
+        let mut remove_use = |vreg_id: BOperand, use_op_id: BOperand| {
+            if removed.contains(&vreg_id) {
+                return;
+            }
+            removed.push(vreg_id.clone());
+            vregs.remove_use(vreg_id, use_op_id);
+        };
+
         match data {
             BOpData::L(data) => match_src! {
                 target: data,
@@ -178,26 +188,26 @@ impl BackIR {
                     ONe, OEq, OGt, OLt, OGe, OLe
                 ],
                 bin_arm: LOpData { lhs, rhs } => {
-                    vregs.remove_use(lhs, op.clone());
-                    vregs.remove_use(rhs, op);
+                    remove_use(lhs, op.clone());
+                    remove_use(rhs, op);
                 },
                 un_ops: [Sitofp, Fptosi],
                 un_arm: LOpData { value } => {
-                    vregs.remove_use(value, op);
+                    remove_use(value, op);
                 },
                 fallback: {
                     LOpData::Load { addr, .. } => {
-                        vregs.remove_use(addr, op);
+                        remove_use(addr, op);
                     }
                     LOpData::Store { addr, value } => {
-                        vregs.remove_use(addr, op.clone());
-                        vregs.remove_use(value, op);
+                        remove_use(addr, op.clone());
+                        remove_use(value, op);
                     }
                     LOpData::Br { cond, .. } => {
-                        vregs.remove_use(cond, op);
+                        remove_use(cond, op);
                     }
                     LOpData::Move { src, .. } => {
-                        vregs.remove_use(src, op);
+                        remove_use(src, op);
                     }
                     LOpData::Call { .. }
                     | LOpData::Jump { .. }
@@ -217,12 +227,12 @@ impl BackIR {
                     Beq, Bne, Blt, Bge, Bltu, Bgeu
                 ],
                 bin_arm: MOpData { rs1, rs2 } => {
-                    vregs.remove_use(rs1, op.clone());
-                    vregs.remove_use(rs2, op);
+                    remove_use(rs1, op.clone());
+                    remove_use(rs2, op);
                 },
                 un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
                 un_arm: MOpData { rs } => {
-                    vregs.remove_use(rs, op);
+                    remove_use(rs, op);
                 },
                 fallback: {
                     MOpData::Slti { rs1, imm, .. }
@@ -236,27 +246,27 @@ impl BackIR {
                     | MOpData::Srliw { rs1, imm, .. }
                     | MOpData::Sraiw { rs1, imm, .. }
                     | MOpData::Xori { rs1, imm, .. } => {
-                        vregs.remove_use(rs1, op.clone());
-                        vregs.remove_use(imm, op);
+                        remove_use(rs1, op.clone());
+                        remove_use(imm, op);
                     }
                     MOpData::Lw { base, offset, .. }
                     | MOpData::Flw { base, offset, .. }
                     | MOpData::Ld { base, offset, .. } => {
-                        vregs.remove_use(base, op.clone());
-                        vregs.remove_use(offset, op);
+                        remove_use(base, op.clone());
+                        remove_use(offset, op);
                     }
                     MOpData::Sw { rs, base, offset }
                     | MOpData::Fsw { rs, base, offset }
                     | MOpData::Sd { rs, base, offset } => {
-                        vregs.remove_use(rs, op.clone());
-                        vregs.remove_use(base, op.clone());
-                        vregs.remove_use(offset, op);
+                        remove_use(rs, op.clone());
+                        remove_use(base, op.clone());
+                        remove_use(offset, op);
                     }
                     MOpData::Li { .. } => {}
                     MOpData::La { .. } => {}
                     MOpData::J { .. } => {}
                     MOpData::Bnez { rs, .. } => {
-                        vregs.remove_use(rs, op.clone());
+                        remove_use(rs, op.clone());
                     }
                     MOpData::Call { .. } => {}
                     MOpData::Ret => {}
@@ -327,8 +337,9 @@ impl BackIR {
         }
     }
 
-    /// @param: old: old InstId(Not VirtId)
-    /// @param: new: new InstId
+    /// # Arguments
+    /// * `old`: old InstId(Not VirtId)
+    /// * `new`: new InstId
     pub fn replace_all_uses(
         &mut self,
         current_function: Option<BOperand>,
@@ -339,6 +350,7 @@ impl BackIR {
             BOperand::Inst(_) => match self.get_rd(current_function.clone(), old.clone()) {
                 Some(rd) => match rd {
                     BOperand::Reg(Reg::Virt(_)) => rd,
+                    // RAUW only works for SSA form values.
                     BOperand::Reg(Reg::X(_))
                     | BOperand::Reg(Reg::F(_))
                     | BOperand::Data(_)
@@ -681,6 +693,8 @@ impl BackIR {
         current_function: Option<BOperand>,
         op: BOp,
     ) -> BOperand {
+        crate::debug::info!("Creating op {:?} in function {:?}", op, current_function);
+
         let (cfg, dfg) = self.cfg_dfg_mut_or_panic(
             current_function.clone(),
             "BackIR create: no current function",
@@ -714,6 +728,8 @@ impl BackIR {
             op_id
         };
 
+        crate::debug::info!("Created op {:?} in block {:?}", op_id, current_block);
+
         self.bind(current_function.clone(), op_id.clone());
         self.add_uses(current_function.clone(), op_id.clone());
         let current_block = builder
@@ -729,7 +745,7 @@ impl BackIR {
     /// Else if rd is BOperand::Reg, we do nothing for it.
     /// Else panic and report invalid rd.
     pub fn bind(&mut self, current_function: Option<BOperand>, op: BOperand) {
-        let func = &mut self.funcs[current_function.unwrap()];
+        let func = &mut self.funcs[current_function.clone().unwrap()];
         let data = &mut func.dfg[op.clone()].data;
         let vregs = &mut func.vregs;
 
@@ -740,15 +756,18 @@ impl BackIR {
                 rd_arm: LOpData(rd) => {
                     match rd {
                         BOperand::Reg(_) => {
+                            crate::debug::info!("Bind existing vreg {:?} with op {:?} in function {:?}", rd, op, current_function);
                             // Bind the operation with the existing virt reg.
                             vregs.add_def(rd.clone(), op.clone());
                         }
                         BOperand::Undef => {
+                            // Allocate a new virt reg for the operation.
                             let new_vreg = vregs.alloc(VirtReg::default());
                             // Bind the new vreg with the operation.
                             *rd = BOperand::Reg(Reg::Virt(new_vreg));
                             // Bind the operation with the virt reg.
                             vregs.add_def(BOperand::Reg(Reg::Virt(new_vreg)), op.clone());
+                            crate::debug::info!("Bind new vreg {:?} with op {:?} in function {:?}", rd, op, current_function);
                         }
                         BOperand::Data(_)
                         | BOperand::RoData(_)
@@ -871,6 +890,13 @@ impl BackIR {
         op: BOperand,
         bb: Option<BOperand>,
     ) -> BOp {
+        crate::debug::info!(
+            "Removing op {:?}: {:?} in function {:?}",
+            op,
+            self.funcs[current_function.clone().unwrap()].dfg[op.clone()].data,
+            current_function
+        );
+
         self.remove_def(current_function.clone(), op.clone());
         self.remove_uses(current_function.clone(), op.clone());
         if let Some(bb_id) = bb.clone() {
@@ -907,11 +933,21 @@ impl BackIR {
             _ => panic!("BackIR remove_op: dfg slot {} is not data", op_id),
         };
 
+        crate::debug::info!(
+            "Removed op {:?}: {:?} in block {:?} of function {:?}",
+            op,
+            removed_op,
+            bb_id,
+            current_function
+        );
+
         // We don't check whether the old vreg's uses are all removed, since the vreg might be defined my multiple operations.
         // TODO: The vreg will be automatically removed if it has not uses in vregs.gc(), at which point the vregs will check the uses of vreg.
         removed_op
     }
 
+    /// This replacement method is for those operations which no longer keep SSA form,
+    /// like ABI binding operations and phi moves.
     pub fn replace_op_no_rauw(
         &mut self,
         builder: &mut BBuilder,
@@ -957,6 +993,7 @@ impl BackIR {
         }
     }
 
+    /// This replacement method is for those operations which keep SSA form.
     pub fn replace_op_rauw(
         &mut self,
         builder: &mut BBuilder,

@@ -580,8 +580,7 @@ impl ISel<'_> {
                     };
                 }
 
-                LOpData::LoadFloatImm { rd, imm } => {
-                    let _ = rd;
+                LOpData::LoadFloatImm { imm, .. } => {
                     // Add it to the constant pool first.
                     let rodata_id = self.alloc_rodata(RoData::new(
                         typ.clone(),
@@ -606,8 +605,7 @@ impl ISel<'_> {
                     );
                 }
 
-                LOpData::LoadIntImm { rd, imm } => {
-                    let _ = rd;
+                LOpData::LoadIntImm { imm, .. } => {
                     self.replace_op_rauw(
                         lop_id.clone(),
                         BOp::new(
