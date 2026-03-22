@@ -161,7 +161,8 @@ impl ISel<'_> {
                                 // If lhs is literal and rhs is not, we swap them to maintain the canonical form.
                                 (lop_data.clone(), rhs, lhs)
                             } else {
-                                // For relational operations, we don't swap the operands even if lhs is literal, since the order of operands matters for the semantics of the operation.
+                                // For relational operations, we reverse the operation while swapping the operands
+                                // since the order of operands matters for the semantics of the operation.
                                 let lop_data = match lop_data {
                                     LOpData::SGt { .. } => LOpData::SLt { rd: rd.clone(), lhs: rhs.clone(), rhs: lhs.clone() },
                                     LOpData::SGe { .. } => LOpData::SLe { rd: rd.clone(), lhs: rhs.clone(), rhs: lhs.clone() },

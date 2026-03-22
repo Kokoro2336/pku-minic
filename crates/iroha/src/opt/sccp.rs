@@ -620,7 +620,6 @@ impl<'a> SCCP<'a> {
 
             // Split users check and removal due to data dependency.
             for inst in cur.iter().rev() {
-                yachiyo::debug::info!("SCCP rewrite: checking users of instruction {:#?} in dead block {}", inst, bb_id);
                 let func_id = self.builder.current_function.unwrap();
                 let funcs = &mut self.program.as_mut().unwrap().funcs;
                 let dfg = &mut funcs[func_id].dfg;

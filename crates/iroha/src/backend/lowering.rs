@@ -103,7 +103,6 @@ impl Lowering {
 
     /// Getter
     fn get(&mut self, operand: Operand) -> BOperand {
-        yachiyo::debug::info!("get {:?}", operand);
         match operand {
             Operand::Global(id) => self.global_map[id].clone(),
             Operand::BB(id) => self.block_map[id].clone(),
@@ -378,7 +377,6 @@ impl Lowering {
                 op.data.clone(),
             )
         };
-        yachiyo::debug::info!("Lowering {:?} {:?}", op_id, data);
 
         // Translate attrs first.
         let lattr = attrs
@@ -719,7 +717,6 @@ impl Lowering {
 
                     // If the truncated indices is empty, we need to map the GEP to the base pointer's LOp InstId directly.
                     if indices.is_empty() {
-                        yachiyo::debug::info!("current_op_id: {:?}", current_lop_id);
                         let lfunc_id = self.get(func_id);
                         let target_id = match_some!(
                             target: current_lop_id,
