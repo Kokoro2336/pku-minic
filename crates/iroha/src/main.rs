@@ -87,13 +87,13 @@ fn main() -> Result<()> {
 
     // Start Lowering
     info!("Start Lowering.");
-    let mut lower_ir = Lowering::new(ir).run();
+    let mut back_ir = Lowering::new(ir).run();
     info!("Finish Lowering.");
 
     // Run Backend Passes.
     BPassManager::default()
         .register(Box::new(ISel::default()))
-        .run(&mut lower_ir);
+        .run(&mut back_ir);
 
     // Dump the asm.
 

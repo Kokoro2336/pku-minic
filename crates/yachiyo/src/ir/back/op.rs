@@ -91,9 +91,11 @@ impl BOperand {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BAttr {
     Name(String),
+    /// Indicates that this move is a phi move. If an instruction has this attribute, ISel won't create.
+    PhiMove,
 }
 
 #[derive(Debug, Clone)]

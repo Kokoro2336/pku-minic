@@ -5,7 +5,7 @@ use super::{
     VirtReg, BCFG, BCG, BDFG,
 };
 use crate::utils::arena::ArenaItem;
-use crate::utils::r#match::{match_some, match_src, match_rd};
+use crate::utils::r#match::{match_rd, match_some, match_src};
 
 pub struct BackIR {
     pub data_info: DataInfo,
@@ -327,17 +327,65 @@ impl BackIR {
         }
     }
 
+    /// @param: old: old InstId(Not VirtId)
+    /// @param: new: new InstId
     pub fn replace_all_uses(
         &mut self,
         current_function: Option<BOperand>,
         old: BOperand,
         new: BOperand,
     ) {
+        let old_vreg_id = match old {
+            BOperand::Inst(_) => match self.get_rd(current_function.clone(), old.clone()) {
+                Some(rd) => match rd {
+                    BOperand::Reg(Reg::Virt(_)) => rd,
+                    BOperand::Reg(Reg::X(_))
+                    | BOperand::Reg(Reg::F(_))
+                    | BOperand::Data(_)
+                    | BOperand::IntImm(_)
+                    | BOperand::FloatImm(_)
+                    | BOperand::Slot(_)
+                    | BOperand::Undef
+                    | BOperand::RoData(_)
+                    | BOperand::BB(_)
+                    | BOperand::Inst(_)
+                    | BOperand::Func(_) => {
+                        unreachable!("replace_all_uses: old operand cannot be {:?}", old)
+                    }
+                },
+                None => return,
+            },
+            BOperand::Data(_)
+            | BOperand::Reg(_)
+            | BOperand::IntImm(_)
+            | BOperand::FloatImm(_)
+            | BOperand::Slot(_)
+            | BOperand::Undef
+            | BOperand::RoData(_)
+            | BOperand::BB(_)
+            | BOperand::Func(_) => {
+                unreachable!("replace_all_uses: new operand cannot be {:?}", old)
+            }
+        };
         let vregs = &mut self.funcs[current_function.clone().unwrap()].vregs;
-        let uses = vregs[old.clone()].uses.clone();
-        let new_vreg_id = match self.get_rd(current_function.clone(), new.clone()) {
-            Some(rd) => rd,
-            None => return,
+        let uses = vregs[old_vreg_id].uses.clone();
+
+        let new_vreg_id = match new {
+            BOperand::Inst(_) => match self.get_rd(current_function.clone(), new.clone()) {
+                Some(rd) => rd,
+                None => return,
+            },
+            BOperand::Data(_)
+            | BOperand::Reg(_)
+            | BOperand::IntImm(_)
+            | BOperand::FloatImm(_)
+            | BOperand::Slot(_)
+            | BOperand::Undef
+            | BOperand::RoData(_) => new.clone(),
+
+            BOperand::BB(_) | BOperand::Func(_) => {
+                unreachable!("replace_all_uses: new operand cannot be {:?}", new)
+            }
         };
 
         for use_op in uses {
@@ -691,7 +739,10 @@ impl BackIR {
                 op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, Move, LoadFloatImm, LoadIntImm],
                 rd_arm: LOpData(rd) => {
                     match rd {
-                        BOperand::Reg(_) => {/*do nothing*/}
+                        BOperand::Reg(_) => {
+                            // Bind the operation with the existing virt reg.
+                            vregs.add_def(rd.clone(), op.clone());
+                        }
                         BOperand::Undef => {
                             let new_vreg = vregs.alloc(VirtReg::default());
                             // Bind the new vreg with the operation.
@@ -736,7 +787,10 @@ impl BackIR {
                 ],
                 rd_arm: MOpData(rd) => {
                     match rd {
-                        BOperand::Reg(_) => {/*do nothing*/}
+                        BOperand::Reg(_) => {
+                            // Bind the operation with the existing virt reg.
+                            vregs.add_def(rd.clone(), op.clone());
+                        }
                         BOperand::Undef => {
                             let new_vreg = vregs.alloc(VirtReg::default());
                             // Bind the new vreg with the operation.
@@ -858,7 +912,7 @@ impl BackIR {
         removed_op
     }
 
-    pub fn replace_op(
+    pub fn replace_op_no_rauw(
         &mut self,
         builder: &mut BBuilder,
         current_function: Option<BOperand>,
@@ -869,7 +923,7 @@ impl BackIR {
         let pos = {
             let cfg = self.cfg_mut_or_panic(
                 current_function.clone(),
-                "BackIR replace_op: no current function",
+                "BackIR replace_op_no_rauw: no current function",
             );
             let bb = &cfg[bb_id.clone()];
             bb.cur
@@ -877,7 +931,7 @@ impl BackIR {
                 .position(|id| id.get_inst_id() == op_id.get_inst_id())
                 .unwrap_or_else(|| {
                     panic!(
-                        "BackIR replace_op: instruction {:?} not found in block {:?}",
+                        "BackIR replace_op_no_rauw: instruction {:?} not found in block {:?}",
                         op_id, bb_id
                     )
                 })
@@ -886,7 +940,52 @@ impl BackIR {
         let next_inst = {
             let cfg = self.cfg_mut_or_panic(
                 current_function.clone(),
-                "BackIR replace_op: no current function",
+                "BackIR replace_op_no_rauw: no current function",
+            );
+            let bb = &cfg[bb_id.get_bb_id()];
+            bb.cur.get(pos + 1).cloned()
+        };
+
+        {
+            let mut guard = BBuilderGuard::new(builder);
+            guard.set_current_block(bb_id.clone());
+            // We won't bind the new operation with the old vreg. We create a new one directly.
+            guard.set_before_inst(self, current_function.clone(), next_inst);
+            // Remove the old operation.
+            self.remove_op(current_function.clone(), op_id, Some(bb_id));
+            self.create(&guard, current_function, new_op)
+        }
+    }
+
+    pub fn replace_op_rauw(
+        &mut self,
+        builder: &mut BBuilder,
+        current_function: Option<BOperand>,
+        op_id: BOperand,
+        bb_id: BOperand,
+        new_op: BOp,
+    ) -> BOperand {
+        let pos = {
+            let cfg = self.cfg_mut_or_panic(
+                current_function.clone(),
+                "BackIR replace_op_rauw: no current function",
+            );
+            let bb = &cfg[bb_id.clone()];
+            bb.cur
+                .iter()
+                .position(|id| id.get_inst_id() == op_id.get_inst_id())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "BackIR replace_op_rauw: instruction {:?} not found in block {:?}",
+                        op_id, bb_id
+                    )
+                })
+        };
+
+        let next_inst = {
+            let cfg = self.cfg_mut_or_panic(
+                current_function.clone(),
+                "BackIR replace_op_rauw: no current function",
             );
             let bb = &cfg[bb_id.get_bb_id()];
             bb.cur.get(pos + 1).cloned()
@@ -957,6 +1056,7 @@ impl BackIR {
         }
     }
 
+    /// lop_id: InstId
     pub fn get_rd(&self, current_function: Option<BOperand>, lop_id: BOperand) -> Option<BOperand> {
         let current_function = current_function.expect("No current function");
         let bop = &self.funcs[current_function].dfg[lop_id.clone()];

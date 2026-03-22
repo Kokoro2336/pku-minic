@@ -62,7 +62,8 @@ impl VRegs {
             enu: BOperand,
             minor_arms: {
                 BOperand::Reg(Reg::Virt(id)) => id,
-                BOperand::Reg(_) => panic!("Expected VirtReg operand, found PhysReg {:?}", vreg_id),
+                BOperand::Reg(Reg::X(_))
+                | BOperand::Reg(Reg::F(_)) => return,
             },
             uni_ops: [IntImm, FloatImm, Func, Inst, Slot, Data, RoData, BB, Undef],
             uni_arm: return
@@ -81,7 +82,8 @@ impl VRegs {
             enu: BOperand,
             minor_arms: {
                 BOperand::Reg(Reg::Virt(id)) => id,
-                BOperand::Reg(_) => panic!("Expected VirtReg operand, found PhysReg {:?}", vreg_id),
+                BOperand::Reg(Reg::X(_))
+                | BOperand::Reg(Reg::F(_)) => return,
             },
             uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, BB, Undef],
             uni_arm: return
@@ -91,7 +93,7 @@ impl VRegs {
             vreg.uses.swap_remove(pos);
         } else {
             panic!(
-                "Use {:?}: not found in users of op {:?}",
+                "Use {:?}: not found in users of virtual register {:?}",
                 use_op_id, vreg_id
             );
         }
@@ -103,7 +105,8 @@ impl VRegs {
             enu: BOperand,
             minor_arms: {
                 BOperand::Reg(Reg::Virt(id)) => id,
-                BOperand::Reg(_) => panic!("Expected VirtReg operand, found PhysReg {:?}", vreg_id),
+                BOperand::Reg(Reg::X(_))
+                | BOperand::Reg(Reg::F(_)) => return,
             },
             uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, BB, Undef],
             uni_arm: return
@@ -122,7 +125,8 @@ impl VRegs {
             enu: BOperand,
             minor_arms: {
                 BOperand::Reg(Reg::Virt(id)) => id,
-                BOperand::Reg(_) => panic!("Expected VirtReg operand, found PhysReg {:?}", vreg_id),
+                BOperand::Reg(Reg::X(_))
+                | BOperand::Reg(Reg::F(_)) => return,
             },
             uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, BB, Undef],
             uni_arm: return

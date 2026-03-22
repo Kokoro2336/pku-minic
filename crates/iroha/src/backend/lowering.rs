@@ -132,6 +132,7 @@ impl Lowering {
                         .unwrap();
                 }
 
+                yachiyo::debug::info!("Get op_id {:?} mapped to lop_id {:?}", operand, lop_id);
                 self.lower_ir
                     .get_rd(self.builder.current_function.clone(), lop_id)
                     .unwrap()
@@ -199,7 +200,7 @@ impl Lowering {
     }
 
     fn init(&mut self, idx: usize) {
-        self.builder.set_current_func(BOperand::BB(idx));
+        self.builder.set_current_func(BOperand::Func(idx));
 
         // Clear the maps.
         self.block_map.clear();
@@ -316,24 +317,11 @@ impl Lowering {
     /// When creating LOp which produces a temp value, you'd better use this.
     #[inline(always)]
     fn create(&mut self, lop: BOp) -> BOperand {
-        let func_id = self
-            .builder
-            .current_function
-            .clone()
-            .expect("No current function");
-        let lop_id = self.lower_ir.funcs[func_id].dfg.alloc(lop);
-        BOperand::Inst(lop_id)
-    }
-
-    #[inline(always)]
-    fn alloc_vreg(&mut self, vreg: VirtReg) -> BOperand {
-        let func_id = self
-            .builder
-            .current_function
-            .clone()
-            .expect("No current function");
-        let vreg_id = self.lower_ir.funcs[func_id].vregs.alloc(vreg);
-        BOperand::Reg(Reg::Virt(vreg_id))
+        self.builder.create(
+            &mut self.lower_ir,
+            self.builder.current_function.clone(),
+            lop,
+        )
     }
 
     #[inline(always)]
@@ -371,6 +359,7 @@ impl Lowering {
 
         let (typ, attrs, data) = {
             let op = &self.ir.funcs[func_id.clone()].dfg[op_id.clone()];
+            yachiyo::debug::info!("{:?}: Lowering op {:?}", op_id, op);
             (
                 self.get_op_type(op_id.clone()),
                 op.attrs.clone(),
@@ -460,7 +449,9 @@ impl Lowering {
                 },
                 // For bool -> int, we don't genrate any instruction, just map the value.
                 OpData::Zext { value } => {
-                    let value = self.get(value.clone());
+                    let lfunc_id = self.get(func_id.clone());
+                    let vreg_id = self.get(value.clone());
+                    let value = self.lower_ir.funcs[lfunc_id].vregs[vreg_id].defs[0].clone();
                     self.set(op_id.clone(), value);
                 },
                 OpData::Br {
@@ -639,22 +630,17 @@ impl Lowering {
                     for (dim, index) in indices.iter().enumerate() {
                         match &base_typ {
                             Type::Array { .. } => {
-                                let mul_vreg_id = self.alloc_vreg(VirtReg::default());
-
-                                let mul_lop = BOp::new(
+                                let index = self.get(index.clone());
+                                let mul_lop_id = self.create(BOp::new(
                                     BType::U64,
                                     vec![],
                                     LOpData::MulI {
-                                        rd: mul_vreg_id,
-                                        lhs: self.get(index.clone()),
+                                        rd: BOperand::Undef,
+                                        lhs: index,
                                         rhs: BOperand::IntImm(base_typ.subarr_size(dim) as i32),
                                     }
                                     .into(),
-                                );
-
-                                let mul_lop_id = self.create(
-                                    mul_lop,
-                                );
+                                ));
 
                                 // If the end of loop reached, bind the VReg of GEP to the current instruction.
                                 let add_lop =
@@ -730,14 +716,15 @@ impl Lowering {
                                 current_lop_id
                             }
                         );
-                        self.set(Operand::Value(op_id.get_op_id()), target_id);
+                        self.set(op_id, target_id);
                     }
                 }
                 OpData::Ret { value } => {
                     if let Some(value) = value {
-                        let value = self.get(value.clone());
+                        let move_typ = self.get_op_type(value.clone());
+                        let value = self.get(value);
                         self.create(BOp::new(
-                            typ.into(),
+                            move_typ.into(),
                             vec![],
                             LOpData::Move {
                                 rd: BOperand::Undef,
@@ -773,10 +760,6 @@ impl Lowering {
                     .entry
                     .expect("No entry block")
             {
-                let func = &self.ir.funcs[func_id.clone()];
-
-                self.alloc_and_map_func(func_id.clone(), BFunction::new(func.name.clone()));
-
                 // Create prologue.
                 let func = &self.ir.funcs[func_id.clone()];
                 let lentry = self.alloc_and_map_block(
@@ -1071,7 +1054,7 @@ impl Lowering {
         };
 
         let current_function = self.builder.current_function.clone();
-        self.lower_ir.replace_op(
+        self.lower_ir.replace_op_rauw(
             &mut self.builder,
             current_function.clone(),
             from_term_id,
@@ -1114,21 +1097,32 @@ impl Lowering {
                         _ => None,
                     });
                     if let Some((name, mutable, typ, values)) = res {
-                        let values = match values {
-                            Some(values) => values.iter().map(|v| match v {
-                                Literal::Int(i) => BOperand::IntImm(*i),
-                                Literal::Float(f) => BOperand::FloatImm(*f),
-                                Literal::String(s) => unimplemented!(
-                                    "String literal in global array initializer is not supported yet: {}",
-                                    s
-                                ),
-                            }).collect(),
+                        let (typ, values) = match values {
+                            Some(values) => {
+                                let typ = match typ {
+                                    Type::Array { base, .. } => *base.clone(),
+                                    Type::Int | Type::Float | Type::Bool | Type::Pointer { .. } => typ,
+                                    Type::Function { .. }
+                                    | Type::Void
+                                    | Type::Char => unreachable!("Function, Void and Char type should not be in the global array"),
+                                };
+
+                                (typ, values.iter().map(|v| match v {
+                                    Literal::Int(i) => BOperand::IntImm(*i),
+                                    Literal::Float(f) => BOperand::FloatImm(*f),
+                                    Literal::String(s) => unimplemented!(
+                                        "String literal in global array initializer is not supported yet: {}",
+                                        s
+                                    ),
+                                }).collect())
+                            }
                             // If global array has no initializer, we need to fill it with default values according to the type.
                             None => match &typ {
-                                Type::Int
-                                | Type::Bool => vec![BOperand::IntImm(0)],
-                                Type::Float => vec![BOperand::FloatImm(0.0)],
-                                Type::Pointer { .. } => unimplemented!("Uninitialized global pointer is not supported yet"),
+                                Type::Int | Type::Bool => (Type::Int, vec![BOperand::IntImm(0)]),
+                                Type::Float => (Type::Float, vec![BOperand::FloatImm(0.0)]),
+                                Type::Pointer { .. } => unimplemented!(
+                                    "Uninitialized global pointer is not supported yet"
+                                ),
                                 Type::Array { base, dims } => {
                                     let base_value = match &**base {
                                         Type::Int
@@ -1138,12 +1132,18 @@ impl Lowering {
                                         Type::Array { .. } => unimplemented!("Multi-dimensional array without initializer is not supported yet"),
                                         Type::Function { .. } | Type::Void | Type::Char => unreachable!("Function, Void and Char type should not be in the global array"),
                                     };
-                                    vec![base_value.clone(); dims.iter().product::<u32>() as usize]
+                                    (
+                                        *base.clone(),
+                                        vec![
+                                            base_value.clone();
+                                            dims.iter().product::<u32>() as usize
+                                        ],
+                                    )
                                 }
-                                Type::Function {..}
-                                | Type::Void
-                                | Type::Char => unreachable!("Function type should not be in the global array"),
-                            }
+                                Type::Function { .. } | Type::Void | Type::Char => {
+                                    unreachable!("Function type should not be in the global array")
+                                }
+                            },
                         };
 
                         if mutable {
@@ -1159,6 +1159,7 @@ impl Lowering {
                 _ => unreachable!("Only global alloca and declare should be in the global arena"),
             }
         }
+
         // Pre-allocate functions.
         for func_id in self.ir.funcs.ids() {
             let func = &self.ir.funcs[func_id];
@@ -1184,7 +1185,7 @@ impl Lowering {
             }
 
             self.worklist.push_back(entry);
-            self.lower_bbs(Operand::BB(func_id));
+            self.lower_bbs(Operand::Func(func_id));
 
             // Process phis.
             let mut phi_moves: FxHashMap<(usize, usize), Vec<BOperand>> = FxHashMap::default();
@@ -1197,6 +1198,13 @@ impl Lowering {
                 if let OpData::Phi { incomings } = phi_op_data {
                     for incoming in incomings {
                         let (value, bb_id) = match incoming {
+                            PhiIncoming::Data {
+                                value: Operand::Undefined,
+                                ..
+                            } => {
+                                // If the incoming value is undefined, we can simply skip it since it won't be used in the later codegen.
+                                continue;
+                            }
                             PhiIncoming::Data { value, bb } => (value, bb),
                             PhiIncoming::None => continue,
                         };
@@ -1204,7 +1212,7 @@ impl Lowering {
                         let incoming_vreg_id = self.get(value.clone());
                         let move_lop = BOp::new(
                             typ.clone().into(),
-                            vec![],
+                            vec![BAttr::PhiMove],
                             LOpData::Move {
                                 rd: BOperand::Undef,
                                 src: incoming_vreg_id,
