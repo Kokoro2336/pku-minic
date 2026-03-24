@@ -292,50 +292,17 @@ impl IR {
         current_function: Option<usize>,
         op: Op,
     ) -> Operand {
-        match op.data {
-            OpData::GlobalAlloca(_) | OpData::Declare { .. } => {
-                let op_id = self.globals.alloc(op);
-                Operand::Global(op_id)
-            }
-
-            OpData::GEP { .. }
-            | OpData::AddI { .. }
-            | OpData::SubI { .. }
-            | OpData::MulI { .. }
-            | OpData::DivI { .. }
-            | OpData::ModI { .. }
-            | OpData::Xor { .. }
-            | OpData::SNe { .. }
-            | OpData::SEq { .. }
-            | OpData::SGt { .. }
-            | OpData::SLt { .. }
-            | OpData::SGe { .. }
-            | OpData::SLe { .. }
-            | OpData::Shl { .. }
-            | OpData::Shr { .. }
-            | OpData::Sar { .. }
-            | OpData::AddF { .. }
-            | OpData::SubF { .. }
-            | OpData::MulF { .. }
-            | OpData::DivF { .. }
-            | OpData::ONe { .. }
-            | OpData::OEq { .. }
-            | OpData::OGt { .. }
-            | OpData::OLt { .. }
-            | OpData::OGe { .. }
-            | OpData::OLe { .. }
-            | OpData::Sitofp { .. }
-            | OpData::Fptosi { .. }
-            | OpData::Uitofp { .. }
-            | OpData::Zext { .. }
-            | OpData::Store { .. }
-            | OpData::Load { .. }
-            | OpData::Phi { .. }
-            | OpData::Alloca(_)
-            | OpData::Call { .. }
-            | OpData::Br { .. }
-            | OpData::Jump { .. }
-            | OpData::Ret { .. } => {
+        match_some! {
+            target: op.data,
+            enu: OpData,
+            minor_arms: {
+                OpData::GlobalAlloca(_) | OpData::Declare { .. } => {
+                    let op_id = self.globals.alloc(op);
+                    Operand::Global(op_id)
+                }
+            },
+            uni_ops: [AddF, SubF, MulF, DivF, AddI, SubI, MulI, DivI, ModI, Load, Store, Alloca, Phi, GlobalAlloca, Call, GEP, Sitofp, Fptosi, Uitofp, Zext, Ret, Shl, Shr, Sar, SNe, SEq, Xor, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Declare, Jump, Br],
+            uni_arm: {
                 let (cfg, dfg) =
                     self.cfg_dfg_mut_or_panic(current_function, "IR create: no current function");
 
@@ -642,7 +609,7 @@ impl IR {
         }
     }
 
-    // Remove means we clear a phi incoming slot to None while preserving arity.
+    /// Set a phi incoming slot to None while preserving arity.
     #[allow(unused)]
     pub fn remove_phi_incoming(
         &mut self,
@@ -653,6 +620,7 @@ impl IR {
         unimplemented!()
     }
 
+    /// Eliminate the phi edge from the incomings.
     pub fn slay_phi_incoming(
         &mut self,
         current_function: Option<usize>,
@@ -696,7 +664,7 @@ impl IR {
                         let uses = &mut dfg[*id].users;
                         for (user, use_idx) in uses.iter_mut() {
                             if user == &phi && *use_idx > pos {
-                                // Emm...I know this is fragile.
+                                // Emm...I know this is fragile, but anyway it's simple and stupid.
                                 *use_idx -= 1;
                             }
                         }

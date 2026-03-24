@@ -71,7 +71,7 @@ impl BackIR {
                     ONe, OEq, OGt, OLt, OGe, OLe
                 ],
                 bin_arm: LOpData { lhs, rhs } => {
-                    // rd is consider the first operand.
+                    // rd is considered as the first operand.
                     vregs.add_use(lhs, (op.clone(), 1));
                     vregs.add_use(rhs, (op, 2));
                 },
