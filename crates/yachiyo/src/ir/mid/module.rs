@@ -62,18 +62,18 @@ impl IR {
                 ONe, OEq, OGt, OLt, OGe, OLe
             ],
             bin_arm: OpData { lhs, rhs } => {
-                dfg.add_use(lhs, op.clone());
-                dfg.add_use(rhs, op);
+                dfg.add_use(lhs, (op.clone(), 0));
+                dfg.add_use(rhs, (op, 1));
             },
             un_ops: [Sitofp, Fptosi, Uitofp, Zext],
             un_arm: OpData { value } => {
-                dfg.add_use(value, op);
+                dfg.add_use(value, (op, 0));
             },
             fallback: {
                 OpData::Load { addr } => {
                     if matches!(addr, Operand::Global(_)) {
                     } else if matches!(addr, Operand::Value(_)) {
-                        dfg.add_use(addr, op);
+                        dfg.add_use(addr, (op, 0));
                     } else {
                         panic!("IR add_uses: Load address operand is not Value or Global");
                     }
@@ -81,41 +81,44 @@ impl IR {
                 OpData::Store { addr, value } => {
                     if matches!(addr, Operand::Global(_)) {
                     } else if matches!(addr, Operand::Value(_)) {
-                        dfg.add_use(addr, op.clone());
+                        dfg.add_use(addr, (op.clone(), 0));
                     } else {
                         panic!("IR add_uses: Store address operand is not Value or Global");
                     }
-                    dfg.add_use(value, op);
+                    dfg.add_use(value, (op, 1));
                 }
                 OpData::Br { cond, .. } => {
-                    dfg.add_use(cond, op);
+                    dfg.add_use(cond, (op, 0));
                 }
                 OpData::Call { args, .. } => {
-                    for arg in args {
-                        dfg.add_use(arg, op.clone());
+                    for (i, arg) in args.iter().enumerate() {
+                        // Func is considered operand index 0.
+                        dfg.add_use(arg.clone(), (op.clone(), i + 1));
                     }
                 }
                 OpData::Ret { value } => {
                     if let Some(val) = value {
-                        dfg.add_use(val, op);
+                        dfg.add_use(val, (op, 0));
                     }
                 }
                 OpData::Phi { incomings } => {
-                    for phi_incoming in incomings {
+                    for (i, phi_incoming) in incomings.iter().enumerate() {
                         if let PhiIncoming::Data { value, .. } = phi_incoming {
-                            dfg.add_use(value, op.clone());
+                            dfg.add_use(value.clone(), (op.clone(), i));
                         }
                     }
                 }
                 OpData::GEP { base, indices } => {
                     if matches!(base, Operand::Global(_)) {
+                        // TODO
                     } else if matches!(base, Operand::Value(_)) {
-                        dfg.add_use(base, op.clone());
+                        dfg.add_use(base, (op.clone(), 0));
                     } else {
                         panic!("IR add_uses: GEP base operand is not Value or Global");
                     }
-                    for index in indices {
-                        dfg.add_use(index, op.clone());
+                    for (i, index) in indices.iter().enumerate() {
+                        // We start from 1 because the base operand is considered index 0.
+                        dfg.add_use(index.clone(), (op.clone(), i + 1));
                     }
                 }
                 OpData::GlobalAlloca(_)
@@ -130,16 +133,6 @@ impl IR {
         let dfg = self.dfg_mut_or_panic(current_function, "IR remove_uses: no current function");
         let data = dfg[op.get_op_id()].data.clone();
 
-        // Deduplicate repeated source operands when removing use-def links.
-        let mut removed = vec![];
-        let mut remove_use = |value: Operand, use_op: Operand| {
-            if removed.contains(&value) {
-                return;
-            }
-            removed.push(value.clone());
-            dfg.remove_use(value, use_op);
-        };
-
         match_src! {
             target: data,
             bin_ops: [
@@ -150,60 +143,63 @@ impl IR {
                 ONe, OEq, OGt, OLt, OGe, OLe
             ],
             bin_arm: OpData { lhs, rhs } => {
-                remove_use(lhs, op.clone());
-                remove_use(rhs, op);
+                dfg.remove_use(lhs, (op.clone(), 0));
+                dfg.remove_use(rhs, (op, 1));
             },
             un_ops: [Sitofp, Fptosi, Uitofp, Zext],
             un_arm: OpData { value } => {
-                remove_use(value, op);
+                dfg.remove_use(value, (op, 0));
             },
             fallback: {
                 OpData::Load { addr } => {
                     if matches!(addr, Operand::Global(_)) {
+                        // TODO
                     } else if matches!(addr, Operand::Value(_)) {
-                        remove_use(addr, op);
+                        dfg.remove_use(addr, (op, 0));
                     } else {
                         panic!("IR remove_uses: Load address operand is not Value or Global");
                     }
                 }
                 OpData::Store { addr, value } => {
                     if matches!(addr, Operand::Global(_)) {
+                        // TODO
                     } else if matches!(addr, Operand::Value(_)) {
-                        remove_use(addr, op.clone());
+                        dfg.remove_use(addr, (op.clone(), 0));
                     } else {
                         panic!("IR remove_uses: Store address operand is not Value or Global");
                     }
-                    remove_use(value, op);
+                    dfg.remove_use(value, (op, 1));
                 }
                 OpData::Br { cond, .. } => {
-                    remove_use(cond, op);
+                    dfg.remove_use(cond, (op, 0));
                 }
                 OpData::Call { args, .. } => {
-                    for arg in args {
-                        remove_use(arg, op.clone());
+                    for (i, arg) in args.iter().enumerate() {
+                        dfg.remove_use(arg.clone(), (op.clone(), i + 1));
                     }
                 }
                 OpData::Ret { value } => {
                     if let Some(val) = value {
-                        remove_use(val, op);
+                        dfg.remove_use(val, (op, 0));
                     }
                 }
                 OpData::Phi { incomings } => {
-                    for phi_incoming in incomings {
+                    for (i, phi_incoming) in incomings.iter().enumerate() {
                         if let PhiIncoming::Data { value, .. } = phi_incoming {
-                            remove_use(value, op.clone());
+                            dfg.remove_use(value.clone(), (op.clone(), i));
                         }
                     }
                 }
                 OpData::GEP { base, indices } => {
                     if matches!(base, Operand::Global(_)) {
+                        // TODO
                     } else if matches!(base, Operand::Value(_)) {
-                        remove_use(base, op.clone());
+                        dfg.remove_use(base, (op.clone(), 0));
                     } else {
                         panic!("IR remove_uses: GEP base operand is not Value or Global");
                     }
-                    for index in indices {
-                        remove_use(index, op.clone());
+                    for (i, index) in indices.iter().enumerate() {
+                        dfg.remove_use(index.clone(), (op.clone(), i + 1));
                     }
                 }
                 OpData::GlobalAlloca(_)
@@ -640,7 +636,7 @@ impl IR {
                 value: value.clone(),
                 bb,
             };
-            dfg.add_use(value, phi.clone());
+            dfg.add_use(value, (phi.clone(), idx));
         } else {
             panic!("IR add_phi_incoming: not a phi node");
         }
@@ -679,10 +675,32 @@ impl IR {
                 }
             }) {
                 if let PhiIncoming::Data { value, .. } = &incomings[pos] {
-                    dfg.remove_use(value.clone(), phi.clone());
+                    dfg.remove_use(value.clone(), (phi.clone(), pos));
                 }
-                if let OpData::Phi { incomings } = &mut dfg[phi_id].data {
-                    incomings.swap_remove(pos);
+
+                let updated_incomings = if let OpData::Phi { incomings } = &mut dfg[phi_id].data {
+                    // DO NOT use swap_remove here.
+                    incomings.remove(pos);
+                    incomings.clone()
+                } else {
+                    panic!("IR slay_phi_incoming: not a phi node");
+                };
+
+                // Rewrite the operand index of subsequent incomings in all the used operations' users.
+                for (_, incoming) in updated_incomings.iter().enumerate().skip(pos) {
+                    if let PhiIncoming::Data {
+                        value: Operand::Value(id),
+                        ..
+                    } = incoming
+                    {
+                        let uses = &mut dfg[*id].users;
+                        for (user, use_idx) in uses.iter_mut() {
+                            if user == &phi && *use_idx > pos {
+                                // Emm...I know this is fragile.
+                                *use_idx -= 1;
+                            }
+                        }
+                    }
                 }
             } else {
                 panic!(

@@ -7,6 +7,7 @@ use yachiyo::pass::Pass;
 use yachiyo::ir::mid::{Builder, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::utils::arena::{Arena, ArenaItem};
 use yachiyo::utils::bitset::BitSet;
+use yachiyo::utils::r#match::match_src;
 
 use rustc_hash::FxHashSet;
 
@@ -273,7 +274,7 @@ impl<'a> SCCP<'a> {
                 }
 
                 // If the lattice has changed, we need to propagate the change to users.
-                for user in self.program.as_ref().unwrap().funcs[func].dfg[op_id.clone()].users.iter() {
+                for (user, _) in self.program.as_ref().unwrap().funcs[func].dfg[op_id.clone()].users.iter() {
                     if !self.in_inst_list.contains(user.get_op_id()) {
                         self.in_inst_list.insert(user.get_op_id());
                         self.inst_list.push(user.clone());
@@ -292,7 +293,7 @@ impl<'a> SCCP<'a> {
                     return;
                 }
                 // If the lattice has changed, we need to propagate the change to users.
-                for user in self.program.as_ref().unwrap().funcs[func].dfg[op_id.clone()].users.iter() {
+                for (user, _) in self.program.as_ref().unwrap().funcs[func].dfg[op_id.clone()].users.iter() {
                     if !self.in_inst_list.contains(user.get_op_id()) {
                         self.in_inst_list.insert(user.get_op_id());
                         self.inst_list.push(user.clone());
@@ -308,7 +309,7 @@ impl<'a> SCCP<'a> {
                     return;
                 }
                 // If the lattice has changed, we need to propagate the change to users.
-                for user in self.program.as_ref().unwrap().funcs[func].dfg[op_id.clone()].users.iter() {
+                for (user, _) in self.program.as_ref().unwrap().funcs[func].dfg[op_id.clone()].users.iter() {
                     if !self.in_inst_list.contains(user.get_op_id()) {
                         self.in_inst_list.insert(user.get_op_id());
                         self.inst_list.push(user.clone());
@@ -398,7 +399,7 @@ impl<'a> SCCP<'a> {
                 return;
             }
             // If the lattice has changed, we need to propagate the change to users.
-            for user in self.program.as_ref().unwrap().funcs[func].dfg[op_id.clone()].users.iter() {
+            for (user, _) in self.program.as_ref().unwrap().funcs[func].dfg[op_id.clone()].users.iter() {
                 if !self.in_inst_list.contains(user.get_op_id()) {
                     self.in_inst_list.insert(user.get_op_id());
                     self.inst_list.push(user.clone());
@@ -626,7 +627,7 @@ impl<'a> SCCP<'a> {
 
                 // inst can be used by the instructions inside the block, but it cannot be used by instructions outside the block.
                 let users = dfg[inst.get_op_id()].users.clone();
-                for user in users {
+                for (user, _) in users {
                     let user_bb = self.op_to_bb[user.get_op_id()].clone();
                     // The user can be in the same block, or in another dead block. But it cannot be in a live block.
                     if dead_blocks.contains(&user_bb.get_bb_id()) {
@@ -651,109 +652,85 @@ impl<'a> SCCP<'a> {
                     _ => false,
                 };
 
-                match data {
-                    OpData::Load { addr } => {
-                        // TODO(SCCP): Re-enable global use-list maintenance after rewrite/dead-block phases avoid stale-use removals.
-                        if is_live_value(&addr) {
-                            dfg.remove_use(addr, op);
+                match_src! {
+                    target: data,
+                    bin_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe],
+                    bin_arm: OpData { lhs, rhs } => {
+                        if is_live_value(&lhs) {
+                            dfg.remove_use(lhs.clone(), (op.clone(), 0));
                         }
-                    }
-                    OpData::Store { addr, value } => {
-                        // TODO(SCCP): Re-enable global use-list maintenance after rewrite/dead-block phases avoid stale-use removals.
-                        if is_live_value(&addr) {
-                            dfg.remove_use(addr, op.clone());
+                        if is_live_value(&rhs) {
+                            dfg.remove_use(rhs.clone(), (op.clone(), 1));
                         }
+                    },
+                    un_ops: [Sitofp, Fptosi, Zext, Uitofp],
+                    un_arm: OpData { value } => {
                         if is_live_value(&value) {
-                            dfg.remove_use(value, op);
+                            dfg.remove_use(value.clone(), (op.clone(), 0));
                         }
-                    }
-                    OpData::Br { cond, .. } => {
-                        if is_live_value(&cond) {
-                            dfg.remove_use(cond, op);
-                        }
-                    }
-                    OpData::Call { args, .. } => {
-                        for arg in args {
-                            if is_live_value(&arg) {
-                                dfg.remove_use(arg, op.clone());
+                    },
+                    fallback: {
+                        OpData::Load { addr } => {
+                            // TODO(SCCP): Re-enable global use-list maintenance after rewrite/dead-block phases avoid stale-use removals.
+                            if is_live_value(&addr) {
+                                dfg.remove_use(addr, (op, 0));
                             }
                         }
-                    }
-                    OpData::Ret { value } => {
-                        if let Some(val) = value {
-                            if is_live_value(&val) {
-                                dfg.remove_use(val, op);
+                        OpData::Store { addr, value } => {
+                            // TODO(SCCP): Re-enable global use-list maintenance after rewrite/dead-block phases avoid stale-use removals.
+                            if is_live_value(&addr) {
+                                dfg.remove_use(addr, (op.clone(), 0));
+                            }
+                            if is_live_value(&value) {
+                                dfg.remove_use(value, (op, 1));
                             }
                         }
-                    }
-                    OpData::Phi { incomings } => {
-                        for phi_incoming in incomings {
-                            if let PhiIncoming::Data { value, .. } = phi_incoming {
-                                if is_live_value(&value) {
-                                    dfg.remove_use(value, op.clone());
+                        OpData::Br { cond, .. } => {
+                            if is_live_value(&cond) {
+                                dfg.remove_use(cond, (op, 0));
+                            }
+                        }
+                        OpData::Call { args, .. } => {
+                            for (i, arg) in args.iter().enumerate() {
+                                if is_live_value(arg) {
+                                    dfg.remove_use(arg.clone(), (op.clone(), i + 1));
                                 }
                             }
                         }
-                    }
-
-                    OpData::AddI { lhs, rhs }
-                    | OpData::SubI { lhs, rhs }
-                    | OpData::MulI { lhs, rhs }
-                    | OpData::DivI { lhs, rhs }
-                    | OpData::ModI { lhs, rhs }
-                    | OpData::SNe { lhs, rhs }
-                    | OpData::SEq { lhs, rhs }
-                    | OpData::SGt { lhs, rhs }
-                    | OpData::SLt { lhs, rhs }
-                    | OpData::SGe { lhs, rhs }
-                    | OpData::SLe { lhs, rhs }
-                    | OpData::Xor { lhs, rhs }
-                    | OpData::Shl { lhs, rhs }
-                    | OpData::Shr { lhs, rhs }
-                    | OpData::Sar { lhs, rhs }
-                    | OpData::AddF { lhs, rhs }
-                    | OpData::SubF { lhs, rhs }
-                    | OpData::MulF { lhs, rhs }
-                    | OpData::DivF { lhs, rhs }
-                    | OpData::ONe { lhs, rhs }
-                    | OpData::OEq { lhs, rhs }
-                    | OpData::OGt { lhs, rhs }
-                    | OpData::OLt { lhs, rhs }
-                    | OpData::OGe { lhs, rhs }
-                    | OpData::OLe { lhs, rhs } => {
-                        if is_live_value(&lhs) {
-                            dfg.remove_use(lhs, op.clone());
-                        }
-                        if is_live_value(&rhs) {
-                            dfg.remove_use(rhs, op);
-                        }
-                    }
-
-                    OpData::Sitofp { value }
-                    | OpData::Fptosi { value }
-                    | OpData::Uitofp { value }
-                    | OpData::Zext { value } => {
-                        if is_live_value(&value) {
-                            dfg.remove_use(value, op);
-                        }
-                    }
-
-                    OpData::GEP { base, indices } => {
-                        // TODO(SCCP): Re-enable global use-list maintenance after rewrite/dead-block phases avoid stale-use removals.
-                        if is_live_value(&base) {
-                            dfg.remove_use(base, op.clone());
-                        }
-                        for index in indices {
-                            if is_live_value(&index) {
-                                dfg.remove_use(index, op.clone());
+                        OpData::Ret { value } => {
+                            if let Some(val) = value {
+                                if is_live_value(&val) {
+                                    dfg.remove_use(val, (op, 0));
+                                }
                             }
                         }
-                    }
+                        OpData::Phi { incomings } => {
+                            for (i, phi_incoming) in incomings.iter().enumerate() {
+                                if let PhiIncoming::Data { value, .. } = phi_incoming {
+                                    if is_live_value(value) {
+                                        dfg.remove_use(value.clone(), (op.clone(), i + 1));
+                                    }
+                                }
+                            }
+                        }
 
-                    OpData::GlobalAlloca(_)
-                    | OpData::Alloca(_)
-                    | OpData::Jump { .. }
-                    | OpData::Declare { .. } => {}
+                        OpData::GEP { base, indices } => {
+                            // TODO(SCCP): Re-enable global use-list maintenance after rewrite/dead-block phases avoid stale-use removals.
+                            if is_live_value(&base) {
+                                dfg.remove_use(base, (op.clone(), 0));
+                            }
+                            for (i, index) in indices.iter().enumerate() {
+                                if is_live_value(index) {
+                                    dfg.remove_use(index.clone(), (op.clone(), i + 1));
+                                }
+                            }
+                        }
+
+                        OpData::GlobalAlloca(_)
+                        | OpData::Alloca(_)
+                        | OpData::Jump { .. }
+                        | OpData::Declare { .. } => {}
+                    }
                 }
             }
         }

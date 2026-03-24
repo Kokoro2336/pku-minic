@@ -114,7 +114,7 @@ impl<'a> RemoveTrivialPhi<'a> {
                         phi_id.clone(),
                         Operand::Undefined,
                     );
-                    for user in uses {
+                    for (user, _) in uses {
                         // Ignore phi itself, since it will be removed later and should not pushed to worklist again.
                         if user == phi_id {
                             continue;
@@ -153,7 +153,7 @@ impl<'a> RemoveTrivialPhi<'a> {
                         phi_id.clone(),
                         value,
                     );
-                    for user in uses {
+                    for (user, _) in uses {
                         if user == phi_id {
                             continue;
                         }

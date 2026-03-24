@@ -56,7 +56,7 @@ impl IndexMut<BOperand> for BCG {
 }
 
 impl VRegs {
-    pub fn add_use(&mut self, vreg_id: BOperand, use_op_id: BOperand) {
+    pub fn add_use(&mut self, vreg_id: BOperand, use_op_id: (BOperand, usize)) {
         let op_id = match_some! {
             target: vreg_id,
             enu: BOperand,
@@ -69,14 +69,11 @@ impl VRegs {
             uni_arm: return
         };
         let vreg = &mut self[op_id];
-        if vreg.uses.contains(&use_op_id) {
-            return;
-        }
         vreg.uses.push(use_op_id);
     }
 
     /// op_idx: VReg, use_idx: Inst that uses the VReg.
-    pub fn remove_use(&mut self, vreg_id: BOperand, use_op_id: BOperand) {
+    pub fn remove_use(&mut self, vreg_id: BOperand, use_tuple: (BOperand, usize)) {
         let vreg_id = match_some! {
             target: vreg_id,
             enu: BOperand,
@@ -89,12 +86,12 @@ impl VRegs {
             uni_arm: return
         };
         let vreg = &mut self[vreg_id];
-        if let Some(pos) = vreg.uses.iter().position(|x| *x == use_op_id) {
+        if let Some(pos) = vreg.uses.iter().position(|x| *x == use_tuple) {
             vreg.uses.swap_remove(pos);
         } else {
             panic!(
                 "Use {:?}: not found in users of virtual register {:?}",
-                use_op_id, vreg_id
+                use_tuple, vreg_id
             );
         }
     }

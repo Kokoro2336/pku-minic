@@ -348,7 +348,8 @@ pub struct Op {
     pub typ: Type,
     pub attrs: Vec<Attr>,
     pub data: OpData,
-    pub users: Vec<Operand>,
+    /// (OpId of user, operand idx in user)
+    pub users: Vec<(Operand, usize)>,
 }
 
 impl Op {
@@ -568,8 +569,8 @@ impl Arena<Op> for IndexedArena<Op> {
             // item can't be any other variant than Data here
             if let ArenaItem::Data(node) = item {
                 // rewrite uses
-                for use_idx in node.users.iter_mut() {
-                    remap_value(use_idx, &old_arena);
+                for (op_id, _) in node.users.iter_mut() {
+                    remap_value(op_id, &old_arena);
                 }
 
                 // rewrite Attr
@@ -653,9 +654,9 @@ impl Arena<Op> for IndexedArena<Op> {
 }
 
 impl IndexedArena<Op> {
-    pub fn add_use(&mut self, op_idx: Operand, use_idx: Operand) {
+    pub fn add_use(&mut self, op_id: Operand, user_tuple: (Operand, usize)) {
         let op_id = match_some! {
-            target: op_idx,
+            target: op_id,
             enu: Operand,
             minor_arms: {
                 Operand::Value(op_id) => op_id,
@@ -668,16 +669,13 @@ impl IndexedArena<Op> {
         };
         let node = &mut self[op_id];
         // Check whether the use already exists to avoid duplicates
-        if node.users.contains(&use_idx) {
-            return;
-        }
-        node.users.push(use_idx);
+        node.users.push(user_tuple);
     }
 
     // Remove use_idx from the users of op_idx.
-    pub fn remove_use(&mut self, op_idx: Operand, use_idx: Operand) {
+    pub fn remove_use(&mut self, op_id: Operand, user_tuple: (Operand, usize)) {
         let op_id = match_some! {
-            target: op_idx,
+            target: op_id,
             enu: Operand,
             minor_arms: {
                 Operand::Value(op_id) => op_id,
@@ -689,25 +687,26 @@ impl IndexedArena<Op> {
             uni_arm: return
         };
         let node = &mut self[op_id];
-        if let Some(pos) = node.users.iter().position(|x| *x == use_idx) {
+        if let Some(pos) = node.users.iter().position(|x| *x == user_tuple) {
             node.users.swap_remove(pos);
         } else {
             panic!(
                 "Use {}: {:?} not found in users of op {}: {:?}",
-                use_idx.clone(),
-                self[use_idx],
-                op_idx.clone(),
-                self[op_idx]
+                user_tuple.0.clone(),
+                self[user_tuple.0],
+                op_id.clone(),
+                self[op_id]
             );
         }
     }
 
-    // @param op_idx: the op whose uses we want to replace with new operand. e.g. "add %1, %2"
+    // @param op_tuple: the op whose uses we want to replace with new operand. e.g. "add %1, %2"
     // @param old: the old use we want to replace with e.g. %1 in "add %1, %2"
     // @param new: the new use we want to replace with e.g. %3 in "add %3, %2"
-    pub fn replace_use(&mut self, op_idx: Operand, old: Operand, new: Operand) {
+    pub fn replace_use(&mut self, op_tuple: (Operand, usize), old: Operand, new: Operand) {
+        let op_id = op_tuple.0.clone();
         let op_id = match_some! {
-            target: op_idx,
+            target: op_id,
             enu: Operand,
             minor_arms: {
                 Operand::Value(op_id) => op_id,
@@ -803,8 +802,8 @@ impl IndexedArena<Op> {
             }
         }
         // Delete old user
-        self.remove_use(old, op_idx.clone());
+        self.remove_use(old, op_tuple.clone());
         // Add new user
-        self.add_use(new, op_idx);
+        self.add_use(new, op_tuple);
     }
 }

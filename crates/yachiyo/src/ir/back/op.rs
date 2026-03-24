@@ -10,7 +10,8 @@ use std::ops::{Index, IndexMut};
 #[derive(Debug, Clone, Default)]
 pub struct VirtReg {
     pub defs: Vec<BOperand>,
-    pub uses: Vec<BOperand>,
+    /// (OpId of uses, operand idx in the use instruction)
+    pub uses: Vec<(BOperand, usize)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

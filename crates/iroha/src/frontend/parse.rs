@@ -1,4 +1,4 @@
-//! A module which provides a variety of utilities for parsing.
+//! Parser utilities.
 
 use yachiyo::base::Type;
 use yachiyo::debug::{error, info};
