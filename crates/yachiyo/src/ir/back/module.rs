@@ -71,26 +71,27 @@ impl BackIR {
                     ONe, OEq, OGt, OLt, OGe, OLe
                 ],
                 bin_arm: LOpData { lhs, rhs } => {
-                    vregs.add_use(lhs, op.clone());
-                    vregs.add_use(rhs, op);
+                    // rd is consider the first operand.
+                    vregs.add_use(lhs, (op.clone(), 1));
+                    vregs.add_use(rhs, (op, 2));
                 },
                 un_ops: [Sitofp, Fptosi],
                 un_arm: LOpData { value } => {
-                    vregs.add_use(value, op);
+                    vregs.add_use(value, (op, 1));
                 },
                 fallback: {
                     LOpData::Load { addr, .. } => {
-                        vregs.add_use(addr, op);
+                        vregs.add_use(addr, (op, 1));
                     }
                     LOpData::Store { addr, value } => {
-                        vregs.add_use(addr, op.clone());
-                        vregs.add_use(value, op);
+                        vregs.add_use(addr, (op.clone(), 0));
+                        vregs.add_use(value, (op, 1));
                     }
                     LOpData::Br { cond, .. } => {
-                        vregs.add_use(cond, op);
+                        vregs.add_use(cond, (op, 0));
                     }
                     LOpData::Move { src, .. } => {
-                        vregs.add_use(src, op);
+                        vregs.add_use(src, (op, 1));
                     }
                     LOpData::Call { .. }
                     | LOpData::Jump { .. }
@@ -110,12 +111,12 @@ impl BackIR {
                     Beq, Bne, Blt, Bge, Bltu, Bgeu
                 ],
                 bin_arm: MOpData { rs1, rs2 } => {
-                    vregs.add_use(rs1, op.clone());
-                    vregs.add_use(rs2, op);
+                    vregs.add_use(rs1, (op.clone(), 1));
+                    vregs.add_use(rs2, (op, 2));
                 },
                 un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
                 un_arm: MOpData { rs } => {
-                    vregs.add_use(rs, op);
+                    vregs.add_use(rs, (op, 1));
                 },
                 fallback: {
                     MOpData::Slti { rs1, imm, .. }
@@ -129,30 +130,30 @@ impl BackIR {
                     | MOpData::Srliw { rs1, imm, .. }
                     | MOpData::Sraiw { rs1, imm, .. }
                     | MOpData::Xori { rs1, imm, .. } => {
-                        vregs.add_use(rs1, op.clone());
-                        vregs.add_use(imm, op);
+                        vregs.add_use(rs1, (op.clone(), 1));
+                        vregs.add_use(imm, (op, 2));
                     }
                     MOpData::Lw { base, offset, .. }
                     | MOpData::Flw { base, offset, .. }
                     | MOpData::Ld { base, offset, .. } => {
-                        vregs.add_use(base, op.clone());
-                        vregs.add_use(offset, op);
+                        vregs.add_use(base, (op.clone(), 1));
+                        vregs.add_use(offset, (op, 2));
                     }
                     MOpData::Sw { rs, base, offset }
                     | MOpData::Fsw { rs, base, offset }
                     | MOpData::Sd { rs, base, offset } => {
-                        vregs.add_use(rs, op.clone());
-                        vregs.add_use(base, op.clone());
-                        vregs.add_use(offset, op);
+                        vregs.add_use(rs, (op.clone(), 0));
+                        vregs.add_use(base, (op.clone(), 1));
+                        vregs.add_use(offset, (op, 2));
                     }
-                    MOpData::Li { .. } => {}
-                    MOpData::La { .. } => {}
-                    MOpData::J { .. } => {}
                     MOpData::Bnez { rs, .. } => {
-                        vregs.add_use(rs, op.clone());
+                        vregs.add_use(rs, (op.clone(), 0));
                     }
-                    MOpData::Call { .. } => {}
-                    MOpData::Ret => {}
+                    MOpData::Li { .. }
+                    | MOpData::La { .. }
+                    | MOpData::J { .. }
+                    | MOpData::Call { .. }
+                    | MOpData::Ret => {}
                 }
             },
         }
@@ -167,15 +168,6 @@ impl BackIR {
         let data = dfg[op.get_inst_id()].data.clone();
 
         let vregs = &mut self.funcs[current_function.unwrap()].vregs;
-        // Deduplication list.
-        let mut removed = vec![];
-        let mut remove_use = |vreg_id: BOperand, use_op_id: BOperand| {
-            if removed.contains(&vreg_id) {
-                return;
-            }
-            removed.push(vreg_id.clone());
-            vregs.remove_use(vreg_id, use_op_id);
-        };
 
         match data {
             BOpData::L(data) => match_src! {
@@ -188,26 +180,26 @@ impl BackIR {
                     ONe, OEq, OGt, OLt, OGe, OLe
                 ],
                 bin_arm: LOpData { lhs, rhs } => {
-                    remove_use(lhs, op.clone());
-                    remove_use(rhs, op);
+                    vregs.remove_use(lhs, (op.clone(), 1));
+                    vregs.remove_use(rhs, (op, 2));
                 },
                 un_ops: [Sitofp, Fptosi],
                 un_arm: LOpData { value } => {
-                    remove_use(value, op);
+                    vregs.remove_use(value, (op, 1));
                 },
                 fallback: {
                     LOpData::Load { addr, .. } => {
-                        remove_use(addr, op);
+                        vregs.remove_use(addr, (op, 1));
                     }
                     LOpData::Store { addr, value } => {
-                        remove_use(addr, op.clone());
-                        remove_use(value, op);
+                        vregs.remove_use(addr, (op.clone(), 0));
+                        vregs.remove_use(value, (op, 1));
                     }
                     LOpData::Br { cond, .. } => {
-                        remove_use(cond, op);
+                        vregs.remove_use(cond, (op, 0));
                     }
                     LOpData::Move { src, .. } => {
-                        remove_use(src, op);
+                        vregs.remove_use(src, (op, 1));
                     }
                     LOpData::Call { .. }
                     | LOpData::Jump { .. }
@@ -227,12 +219,12 @@ impl BackIR {
                     Beq, Bne, Blt, Bge, Bltu, Bgeu
                 ],
                 bin_arm: MOpData { rs1, rs2 } => {
-                    remove_use(rs1, op.clone());
-                    remove_use(rs2, op);
+                    vregs.remove_use(rs1, (op.clone(), 1));
+                    vregs.remove_use(rs2, (op, 2));
                 },
                 un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
                 un_arm: MOpData { rs } => {
-                    remove_use(rs, op);
+                    vregs.remove_use(rs, (op, 1));
                 },
                 fallback: {
                     MOpData::Slti { rs1, imm, .. }
@@ -246,30 +238,30 @@ impl BackIR {
                     | MOpData::Srliw { rs1, imm, .. }
                     | MOpData::Sraiw { rs1, imm, .. }
                     | MOpData::Xori { rs1, imm, .. } => {
-                        remove_use(rs1, op.clone());
-                        remove_use(imm, op);
+                        vregs.remove_use(rs1, (op.clone(), 1));
+                        vregs.remove_use(imm, (op, 2));
                     }
                     MOpData::Lw { base, offset, .. }
                     | MOpData::Flw { base, offset, .. }
                     | MOpData::Ld { base, offset, .. } => {
-                        remove_use(base, op.clone());
-                        remove_use(offset, op);
+                        vregs.remove_use(base, (op.clone(), 1));
+                        vregs.remove_use(offset, (op, 2));
                     }
                     MOpData::Sw { rs, base, offset }
                     | MOpData::Fsw { rs, base, offset }
                     | MOpData::Sd { rs, base, offset } => {
-                        remove_use(rs, op.clone());
-                        remove_use(base, op.clone());
-                        remove_use(offset, op);
+                        vregs.remove_use(rs, (op.clone(), 0));
+                        vregs.remove_use(base, (op.clone(), 1));
+                        vregs.remove_use(offset, (op, 2));
                     }
-                    MOpData::Li { .. } => {}
-                    MOpData::La { .. } => {}
-                    MOpData::J { .. } => {}
                     MOpData::Bnez { rs, .. } => {
-                        remove_use(rs, op.clone());
+                        vregs.remove_use(rs, (op.clone(), 0));
                     }
-                    MOpData::Call { .. } => {}
-                    MOpData::Ret => {}
+                    MOpData::Li { .. }
+                    | MOpData::La { .. }
+                    | MOpData::J { .. }
+                    | MOpData::Call { .. }
+                    | MOpData::Ret => {}
                 }
             },
         }
@@ -400,7 +392,8 @@ impl BackIR {
             }
         };
 
-        for use_op in uses {
+        for use_tuple in uses {
+            let use_op = use_tuple.0.clone();
             let op_id = match_some! {
                 target: use_op,
                 enu: BOperand,
@@ -552,8 +545,8 @@ impl BackIR {
             }
 
             let vregs = &mut self.funcs[current_function.clone().unwrap()].vregs;
-            vregs.remove_use(old.clone(), use_op.clone());
-            vregs.add_use(new.clone(), use_op);
+            vregs.remove_use(old.clone(), use_tuple.clone());
+            vregs.add_use(new.clone(), use_tuple);
         }
     }
 

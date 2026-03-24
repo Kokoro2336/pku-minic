@@ -1,5 +1,7 @@
 //! Semantic analysis.
-//! Performs type inference, add implicit cast and checks for semantic errors.
+//! 1. Type inference
+//! 2. Implicit cast
+//! 3. Checks for semantic errors.
 
 use yachiyo::ast::*;
 use yachiyo::base::{Type, SYSY_LIB};
