@@ -3,8 +3,8 @@
 //! Reference: https://dl.acm.org/doi/10.1145/103135.103136
 
 use yachiyo::base::Type;
-use yachiyo::pass::Pass;
 use yachiyo::ir::mid::{Builder, Op, OpData, OpType, Operand, PhiIncoming, IR};
+use yachiyo::pass::Pass;
 use yachiyo::utils::arena::{Arena, ArenaItem};
 use yachiyo::utils::bitset::BitSet;
 use yachiyo::utils::r#match::match_src;
@@ -221,39 +221,17 @@ impl<'a> SCCP<'a> {
         };
         let old = Self::get_lattice(self, &op_id);
 
-        match op_data.clone() {
-            OpData::AddF { lhs, rhs }
-            | OpData::SubF { lhs, rhs }
-            | OpData::MulF { lhs, rhs }
-            | OpData::DivF { lhs, rhs }
-            | OpData::AddI { lhs, rhs }
-            | OpData::SubI { lhs, rhs }
-            | OpData::MulI { lhs, rhs }
-            | OpData::DivI { lhs, rhs }
-            | OpData::ModI { lhs, rhs }
-            | OpData::SNe { lhs, rhs }
-            | OpData::SEq { lhs, rhs }
-            | OpData::SGt { lhs, rhs }
-            | OpData::SLt { lhs, rhs }
-            | OpData::SGe { lhs, rhs }
-            | OpData::SLe { lhs, rhs }
-            | OpData::OEq { lhs, rhs }
-            | OpData::OGt { lhs, rhs }
-            | OpData::OLt { lhs, rhs }
-            | OpData::OGe { lhs, rhs }
-            | OpData::OLe { lhs, rhs }
-            | OpData::ONe { lhs, rhs }
-            | OpData::Xor { lhs, rhs }
-            | OpData::Shl { lhs, rhs }
-            | OpData::Shr { lhs, rhs }
-            | OpData::Sar { lhs, rhs } => {
+        match_src! {
+            target: op_data.clone(),
+            bin_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe],
+            bin_arm: OpData { lhs, rhs } => {
                 // Fold the const first
                 let left_lattice = self.get_lattice(&lhs);
                 let right_lattice = self.get_lattice(&rhs);
                 if matches!(left_lattice, Lattice::Constant(_))
                     && matches!(right_lattice, Lattice::Constant(_))
                 {
-                    self.lattices[op_id.get_op_id()] = 
+                    self.lattices[op_id.get_op_id()] =
                         Self::cast(
                             Self::fold(left_lattice, right_lattice, OpType::from(&op_data)),
                             val_typ,
@@ -280,12 +258,9 @@ impl<'a> SCCP<'a> {
                         self.inst_list.push(user.clone());
                     }
                 }
-            }
-
-            OpData::Sitofp { value }
-            | OpData::Fptosi { value }
-            | OpData::Zext { value }
-            | OpData::Uitofp { value } => {
+            },
+            un_ops: [Sitofp, Fptosi, Zext, Uitofp],
+            un_arm: OpData { value } => {
                 let operand_lattice = self.get_lattice(&value);
                 self.lattices[op_id.get_op_id()] = Self::cast(operand_lattice, val_typ);
 
@@ -299,66 +274,67 @@ impl<'a> SCCP<'a> {
                         self.inst_list.push(user.clone());
                     }
                 }
-            }
+            },
+            fallback: {
+                OpData::GEP { .. } | OpData::Load { .. } | OpData::Call { .. } => {
+                    // TODO: We are not able to fold these instructions for now.
+                    self.lattices[op_id.get_op_id()] = Lattice::Bottom;
 
-            OpData::GEP { .. } | OpData::Load { .. } | OpData::Call { .. } => {
-                // TODO: We are not able to fold these instructions for now.
-                self.lattices[op_id.get_op_id()] = Lattice::Bottom;
-
-                if old == self.lattices[op_id.get_op_id()] {
-                    return;
-                }
-                // If the lattice has changed, we need to propagate the change to users.
-                for (user, _) in self.program.as_ref().unwrap().funcs[func].dfg[op_id.clone()].users.iter() {
-                    if !self.in_inst_list.contains(user.get_op_id()) {
-                        self.in_inst_list.insert(user.get_op_id());
-                        self.inst_list.push(user.clone());
+                    if old == self.lattices[op_id.get_op_id()] {
+                        return;
                     }
-                }
-            }
-
-            OpData::Br {
-                cond,
-                then_bb,
-                else_bb,
-            } => {
-                let cond_lattice = self.get_lattice(&cond);
-                match cond_lattice {
-                    Lattice::Top => {/*do nothing*/}
-                    Lattice::Constant(c) => {
-                        if let Operand::Bool(b) = c {
-                            if b {
-                                self.edge_list.push((bb_id.clone(), then_bb.clone()));
-                            } else {
-                                self.edge_list.push((bb_id.clone(), else_bb.clone()));
-                            }
-                        } else {
-                            panic!("SCCP: condition of br must be a boolean constant: {:?}", c);
+                    // If the lattice has changed, we need to propagate the change to users.
+                    for (user, _) in self.program.as_ref().unwrap().funcs[func].dfg[op_id.clone()].users.iter() {
+                        if !self.in_inst_list.contains(user.get_op_id()) {
+                            self.in_inst_list.insert(user.get_op_id());
+                            self.inst_list.push(user.clone());
                         }
                     }
-                    // Top requires conservative assumption, and Bottom requires no assumption. So we need to push both branches to the edge list.
-                    Lattice::Bottom => {
-                        self.edge_list.push((bb_id.clone(), then_bb.clone()));
-                        self.edge_list.push((bb_id.clone(), else_bb.clone()));
+                }
+
+                OpData::Br {
+                    cond,
+                    then_bb,
+                    else_bb,
+                } => {
+                    let cond_lattice = self.get_lattice(&cond);
+                    match cond_lattice {
+                        Lattice::Top => {/*do nothing*/}
+                        Lattice::Constant(c) => {
+                            if let Operand::Bool(b) = c {
+                                if b {
+                                    self.edge_list.push((bb_id.clone(), then_bb.clone()));
+                                } else {
+                                    self.edge_list.push((bb_id.clone(), else_bb.clone()));
+                                }
+                            } else {
+                                panic!("SCCP: condition of br must be a boolean constant: {:?}", c);
+                            }
+                        }
+                        // Top requires conservative assumption, and Bottom requires no assumption. So we need to push both branches to the edge list.
+                        Lattice::Bottom => {
+                            self.edge_list.push((bb_id.clone(), then_bb.clone()));
+                            self.edge_list.push((bb_id.clone(), else_bb.clone()));
+                        }
+                    }
+                    // Push the terminator to the worklist for later rewriting.
+                    if !self.in_br_ops.contains(op_id.get_op_id()) {
+                        self.in_br_ops.insert(op_id.get_op_id());
+                        self.br_ops.push(op_id.clone());
                     }
                 }
-                // Push the terminator to the worklist for later rewriting.
-                if !self.in_br_ops.contains(op_id.get_op_id()) {
-                    self.in_br_ops.insert(op_id.get_op_id());
-                    self.br_ops.push(op_id.clone());
-                }
+
+                OpData::Phi { .. } => unreachable!("Phi nodes should be handled in visit_phi()"),
+
+                // Jump is unconditional, and it's been processed outside of visit_expr().
+                OpData::Jump { .. }
+                | OpData::Ret { .. }
+                // SCCP doesn't care about these ops.
+                | OpData::Alloca(_)
+                | OpData::GlobalAlloca(_)
+                | OpData::Store { .. }
+                | OpData::Declare { .. } => {}
             }
-
-            OpData::Phi { .. } => unreachable!("Phi nodes should be handled in visit_phi()"),
-
-            // Jump is unconditional, and it's been processed outside of visit_expr().
-            OpData::Jump { .. }
-            | OpData::Ret { .. }
-            // SCCP doesn't care about these ops.
-            | OpData::Alloca(_)
-            | OpData::GlobalAlloca(_)
-            | OpData::Store { .. }
-            | OpData::Declare { .. } => {}
         }
     }
 
@@ -382,7 +358,7 @@ impl<'a> SCCP<'a> {
                         bb: Operand::BB(bb_id),
                     } = incoming
                     {
-                        // Checking whether the incoming edge is executable. If not, we just ignore this incoming value. 
+                        // Checking whether the incoming edge is executable. If not, we just ignore this incoming value.
                         // This is the key to handling infeasible paths.
                         if !self.visited.contains(*bb_id) {
                             return None;
@@ -399,7 +375,10 @@ impl<'a> SCCP<'a> {
                 return;
             }
             // If the lattice has changed, we need to propagate the change to users.
-            for (user, _) in self.program.as_ref().unwrap().funcs[func].dfg[op_id.clone()].users.iter() {
+            for (user, _) in self.program.as_ref().unwrap().funcs[func].dfg[op_id.clone()]
+                .users
+                .iter()
+            {
                 if !self.in_inst_list.contains(user.get_op_id()) {
                     self.in_inst_list.insert(user.get_op_id());
                     self.inst_list.push(user.clone());
@@ -424,11 +403,11 @@ impl<'a> SCCP<'a> {
 
                 // Visit the successor block. We need to check all phi nodes in the successor block and update their lattices.
                 {
-                    let phis = self
-                        .program
-                        .as_deref_mut()
-                        .unwrap()
-                        .get_all_ops_in_block(self.builder.current_function, to.clone(), OpType::Phi);
+                    let phis = self.program.as_deref_mut().unwrap().get_all_ops_in_block(
+                        self.builder.current_function,
+                        to.clone(),
+                        OpType::Phi,
+                    );
                     for phi in phis {
                         self.visit_phi(phi);
                     }
@@ -448,7 +427,9 @@ impl<'a> SCCP<'a> {
                 }
 
                 // If to only has only one outgoing edge, push succ to edge_list.
-                let cfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].cfg;
+                let cfg = &mut self.program.as_mut().unwrap().funcs
+                    [self.builder.current_function.unwrap()]
+                .cfg;
                 if cfg[to.get_bb_id()].succs.len() == 1 {
                     let succ = cfg[to.get_bb_id()].succs[0].clone();
                     self.edge_list.push((to.clone(), succ));
@@ -460,7 +441,9 @@ impl<'a> SCCP<'a> {
                 // Critical: remove the inst first.
                 self.in_inst_list.remove(op_id.get_op_id());
 
-                let dfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
+                let dfg = &mut self.program.as_mut().unwrap().funcs
+                    [self.builder.current_function.unwrap()]
+                .dfg;
                 let op_data = dfg[op_id.clone()].data.clone();
                 if op_data.is(OpType::Phi) {
                     self.visit_phi(op_id.clone());
@@ -488,10 +471,11 @@ impl<'a> SCCP<'a> {
                 if let Lattice::Constant(c) = lattice {
                     let bb_id = self.op_to_bb[op_id].clone();
                     let op_id = Operand::Value(op_id);
-                    self.program
-                        .as_deref_mut()
-                        .unwrap()
-                        .replace_all_uses(self.builder.current_function, op_id.clone(), c.clone());
+                    self.program.as_deref_mut().unwrap().replace_all_uses(
+                        self.builder.current_function,
+                        op_id.clone(),
+                        c.clone(),
+                    );
                     Some((op_id.clone(), bb_id.clone()))
                 } else {
                     None
@@ -501,7 +485,9 @@ impl<'a> SCCP<'a> {
 
         // Replace br with jump if the condition is a constant.
         for br_op in self.br_ops.iter() {
-            let dfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
+            let dfg = &mut self.program.as_mut().unwrap().funcs
+                [self.builder.current_function.unwrap()]
+            .dfg;
             let op = dfg[br_op.clone()].clone();
             if let OpData::Br {
                 cond,
@@ -546,16 +532,20 @@ impl<'a> SCCP<'a> {
             .unwrap()
             .get_all_ops(self.builder.current_function, OpType::Phi);
         for phi_op in &phis {
-            let dfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
+            let dfg = &mut self.program.as_mut().unwrap().funcs
+                [self.builder.current_function.unwrap()]
+            .dfg;
             let op = dfg[phi_op.clone()].clone();
             if let OpData::Phi { incomings } = op.data {
                 for incoming in incomings.iter() {
                     if let PhiIncoming::Data { bb, .. } = incoming {
                         if let Operand::BB(bb_id) = bb {
-                            // Check whether the block is dead or the current block is no longer the successor of the incoming block. 
+                            // Check whether the block is dead or the current block is no longer the successor of the incoming block.
                             // If so, we need to slay this incoming edge.
                             let current_bb = self.op_to_bb[phi_op.get_op_id()].clone();
-                            let cfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].cfg;
+                            let cfg = &mut self.program.as_mut().unwrap().funcs
+                                [self.builder.current_function.unwrap()]
+                            .cfg;
                             let ans_succ = &cfg[*bb_id].succs;
 
                             if !self.visited.contains(*bb_id) || !ans_succ.contains(&current_bb) {
@@ -577,46 +567,55 @@ impl<'a> SCCP<'a> {
 
         // Remove the ops
         removed.into_iter().for_each(|(op_id, bb_id)| {
-            self.program
-                .as_deref_mut()
-                .unwrap()
-                .remove_op(self.builder.current_function, op_id, Some(bb_id));
+            self.program.as_deref_mut().unwrap().remove_op(
+                self.builder.current_function,
+                op_id,
+                Some(bb_id),
+            );
         });
 
-        let dead_blocks = self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()]
-            .cfg
-            .collect()
-            .into_iter()
-            .filter(|bb_id| !self.visited.contains(*bb_id))
-            .collect::<FxHashSet<usize>>();
+        let dead_blocks = self.program.as_ref().unwrap().funcs
+            [self.builder.current_function.unwrap()]
+        .cfg
+        .collect()
+        .into_iter()
+        .filter(|bb_id| !self.visited.contains(*bb_id))
+        .collect::<FxHashSet<usize>>();
 
         // Phase 1: Isolate the dead blocks, disconnect the edges from live blocks to dead blocks.
         dead_blocks.iter().for_each(|bb_id| {
             let (last, terminator) = {
-                let cfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].cfg;
+                let cfg = &mut self.program.as_mut().unwrap().funcs
+                    [self.builder.current_function.unwrap()]
+                .cfg;
                 let bb = &cfg[*bb_id];
                 let last = match bb.cur.last() {
                     Some(last) => last.clone(),
                     None => return,
                 };
                 let data = {
-                    let dfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
+                    let dfg = &mut self.program.as_mut().unwrap().funcs
+                        [self.builder.current_function.unwrap()]
+                    .dfg;
                     dfg[last.clone()].data.clone()
                 };
                 (last, data)
             };
             if matches!(terminator, OpData::Br { .. } | OpData::Jump { .. }) {
                 // remove the op
-                self.program
-                    .as_deref_mut()
-                    .unwrap()
-                    .remove_op(self.builder.current_function, last.clone(), Some(Operand::BB(*bb_id)));
+                self.program.as_deref_mut().unwrap().remove_op(
+                    self.builder.current_function,
+                    last.clone(),
+                    Some(Operand::BB(*bb_id)),
+                );
             }
         });
 
         // Phase 2: Check users in dead blocks.
         for bb_id in &dead_blocks {
-            let cfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].cfg;
+            let cfg = &mut self.program.as_mut().unwrap().funcs
+                [self.builder.current_function.unwrap()]
+            .cfg;
             let cur = cfg[*bb_id].cur.clone();
 
             // Split users check and removal due to data dependency.
@@ -737,9 +736,13 @@ impl<'a> SCCP<'a> {
 
         // Phase 3: Remove the instructions in dead blocks directly by dfg.
         for bb_id in &dead_blocks {
-            let cfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].cfg;
+            let cfg = &mut self.program.as_mut().unwrap().funcs
+                [self.builder.current_function.unwrap()]
+            .cfg;
             let cur = cfg[*bb_id].cur.clone();
-            let dfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
+            let dfg = &mut self.program.as_mut().unwrap().funcs
+                [self.builder.current_function.unwrap()]
+            .dfg;
             for inst in cur.iter().rev() {
                 // Remove the uses
                 dfg.remove(inst.get_op_id());
@@ -749,15 +752,21 @@ impl<'a> SCCP<'a> {
         // Phase 4: Remove the blocks directly by cfg.
         for bb_id in dead_blocks {
             // remove the block from cfg
-            let cfg = &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].cfg;
+            let cfg = &mut self.program.as_mut().unwrap().funcs
+                [self.builder.current_function.unwrap()]
+            .cfg;
             cfg.remove(bb_id);
         }
     }
 }
 
 impl<'a> Pass<'a> for SCCP<'a> {
-    fn name(&self) -> &str { "SCCP" }
-    fn mount(&mut self, program: &'a mut IR) { self.program = Some(program); }
+    fn name(&self) -> &str {
+        "SCCP"
+    }
+    fn mount(&mut self, program: &'a mut IR) {
+        self.program = Some(program);
+    }
     fn run(&mut self) {
         let program = self.program.as_mut().unwrap();
         let func_ids = program.funcs.collect_internal();
