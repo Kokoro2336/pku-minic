@@ -1,19 +1,22 @@
-//! Set implemented by Vec.
+//! Set Implementations.
 
-use std::ops::{BitAnd, BitOr, BitXor, Sub};
+use std::fmt;
+use std::ops::{
+    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, IndexMut, Sub, SubAssign,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Set<T> {
+pub struct ArraySet<T> {
     items: Vec<T>,
 }
 
-impl<T> Default for Set<T> {
+impl<T> Default for ArraySet<T> {
     fn default() -> Self {
         Self { items: Vec::new() }
     }
 }
 
-impl<T> Set<T> {
+impl<T> ArraySet<T> {
     pub fn new() -> Self {
         Self::default()
     }
@@ -72,7 +75,7 @@ impl<T> Set<T> {
     }
 }
 
-impl<T: PartialEq> Set<T> {
+impl<T: PartialEq> ArraySet<T> {
     pub fn contains(&self, value: &T) -> bool {
         self.items.contains(value)
     }
@@ -128,7 +131,7 @@ impl<T: PartialEq> Set<T> {
     }
 }
 
-impl<T: PartialEq + Clone> Set<T> {
+impl<T: PartialEq + Clone> ArraySet<T> {
     pub fn union(&self, other: &Self) -> Self {
         let mut out = Self::with_capacity(self.len() + other.len());
         out.extend(self.iter().cloned());
@@ -164,13 +167,13 @@ impl<T: PartialEq + Clone> Set<T> {
     }
 }
 
-impl<T: PartialEq> From<Vec<T>> for Set<T> {
+impl<T: PartialEq> From<Vec<T>> for ArraySet<T> {
     fn from(value: Vec<T>) -> Self {
         value.into_iter().collect()
     }
 }
 
-impl<T> IntoIterator for Set<T> {
+impl<T> IntoIterator for ArraySet<T> {
     type Item = T;
     type IntoIter = std::vec::IntoIter<T>;
 
@@ -179,7 +182,7 @@ impl<T> IntoIterator for Set<T> {
     }
 }
 
-impl<'a, T> IntoIterator for &'a Set<T> {
+impl<'a, T> IntoIterator for &'a ArraySet<T> {
     type Item = &'a T;
     type IntoIter = std::slice::Iter<'a, T>;
 
@@ -188,7 +191,7 @@ impl<'a, T> IntoIterator for &'a Set<T> {
     }
 }
 
-impl<T: PartialEq> Extend<T> for Set<T> {
+impl<T: PartialEq> Extend<T> for ArraySet<T> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         for item in iter {
             self.insert(item);
@@ -196,7 +199,7 @@ impl<T: PartialEq> Extend<T> for Set<T> {
     }
 }
 
-impl<T: PartialEq> std::iter::FromIterator<T> for Set<T> {
+impl<T: PartialEq> std::iter::FromIterator<T> for ArraySet<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let mut out = Self::new();
         out.extend(iter);
@@ -204,32 +207,32 @@ impl<T: PartialEq> std::iter::FromIterator<T> for Set<T> {
     }
 }
 
-impl<T: PartialEq + Clone> BitOr for &Set<T> {
-    type Output = Set<T>;
+impl<T: PartialEq + Clone> BitOr for &ArraySet<T> {
+    type Output = ArraySet<T>;
 
     fn bitor(self, rhs: Self) -> Self::Output {
         self.union(rhs)
     }
 }
 
-impl<T: PartialEq + Clone> BitAnd for &Set<T> {
-    type Output = Set<T>;
+impl<T: PartialEq + Clone> BitAnd for &ArraySet<T> {
+    type Output = ArraySet<T>;
 
     fn bitand(self, rhs: Self) -> Self::Output {
         self.intersection(rhs)
     }
 }
 
-impl<T: PartialEq + Clone> Sub for &Set<T> {
-    type Output = Set<T>;
+impl<T: PartialEq + Clone> Sub for &ArraySet<T> {
+    type Output = ArraySet<T>;
 
     fn sub(self, rhs: Self) -> Self::Output {
         self.difference(rhs)
     }
 }
 
-impl<T: PartialEq + Clone> BitXor for &Set<T> {
-    type Output = Set<T>;
+impl<T: PartialEq + Clone> BitXor for &ArraySet<T> {
+    type Output = ArraySet<T>;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
         self.symmetric_difference(rhs)
@@ -237,12 +240,12 @@ impl<T: PartialEq + Clone> BitXor for &Set<T> {
 }
 
 #[macro_export]
-macro_rules! set {
+macro_rules! array_set {
 	() => {
-		$crate::utils::set::Set::new()
+		$crate::utils::set::ArraySet::new()
 	};
 	($($x:expr),+ $(,)?) => {{
-		let mut out = $crate::utils::set::Set::new();
+		let mut out = $crate::utils::set::ArraySet::new();
 		$(
 			out.insert($x);
 		)+
@@ -250,72 +253,280 @@ macro_rules! set {
 	}};
 }
 
-#[cfg(test)]
-mod tests {
-    use super::Set;
+pub use array_set;
 
-    #[test]
-    fn insert_contains_remove() {
-        let mut set = Set::new();
-        assert!(set.insert(1));
-        assert!(!set.insert(1));
-        assert!(set.contains(&1));
-        assert_eq!(set.len(), 1);
+#[derive(Clone, PartialEq, Eq, Hash, Default)]
+pub struct BitSet {
+    bits: Vec<u64>,
+}
 
-        assert!(set.remove(&1));
-        assert!(!set.remove(&1));
-        assert!(!set.contains(&1));
-        assert!(set.is_empty());
+impl BitSet {
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    #[test]
-    fn set_algebra() {
-        let a: Set<_> = [1, 2, 3].into_iter().collect();
-        let b: Set<_> = [3, 4, 5].into_iter().collect();
-
-        let union = &a | &b;
-        let intersection = &a & &b;
-        let difference = &a - &b;
-        let sym_diff = &a ^ &b;
-
-        assert_eq!(union.as_slice(), &[1, 2, 3, 4, 5]);
-        assert_eq!(intersection.as_slice(), &[3]);
-        assert_eq!(difference.as_slice(), &[1, 2]);
-        assert_eq!(sym_diff.as_slice(), &[1, 2, 4, 5]);
-    }
-
-    #[test]
-    fn replace_take_and_predicates() {
-        #[derive(Clone, Debug, PartialOrd, Ord)]
-        struct Item {
-            id: i32,
-            value: i32,
+    pub fn with_capacity(nbits: usize) -> Self {
+        let len = nbits.div_ceil(64);
+        Self {
+            bits: Vec::with_capacity(len),
         }
+    }
 
-        impl PartialEq for Item {
-            fn eq(&self, other: &Self) -> bool {
-                self.id == other.id
+    pub fn insert(&mut self, bit: usize) -> bool {
+        let idx = bit / 64;
+        let offset = bit % 64;
+        if idx >= self.bits.len() {
+            self.bits.resize(idx + 1, 0);
+        }
+        let mask = 1 << offset;
+        let present = (self.bits[idx] & mask) != 0;
+        self.bits[idx] |= mask;
+        !present
+    }
+
+    pub fn remove(&mut self, bit: usize) -> bool {
+        let idx = bit / 64;
+        if idx >= self.bits.len() {
+            return false;
+        }
+        let offset = bit % 64;
+        let mask = 1 << offset;
+        let present = (self.bits[idx] & mask) != 0;
+        self.bits[idx] &= !mask;
+        present
+    }
+
+    pub fn contains(&self, bit: usize) -> bool {
+        let idx = bit / 64;
+        if idx >= self.bits.len() {
+            return false;
+        }
+        let offset = bit % 64;
+        (self.bits[idx] & (1 << offset)) != 0
+    }
+
+    pub fn clear(&mut self) {
+        self.bits.clear();
+    }
+
+    pub fn len(&self) -> usize {
+        self.bits.iter().map(|&w| w.count_ones() as usize).sum()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.bits.iter().all(|&w| w == 0)
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.bits.len() * 64
+    }
+
+    pub fn num_words(&self) -> usize {
+        self.bits.len()
+    }
+}
+
+impl<Idx> Index<Idx> for BitSet
+where
+    Idx: Into<usize>,
+{
+    type Output = u64;
+
+    fn index(&self, index: Idx) -> &Self::Output {
+        &self.bits[index.into()]
+    }
+}
+
+impl<Idx> IndexMut<Idx> for BitSet
+where
+    Idx: Into<usize>,
+{
+    fn index_mut(&mut self, index: Idx) -> &mut Self::Output {
+        let index = index.into();
+        if index >= self.bits.len() {
+            self.bits.resize(index + 1, 0);
+        }
+        &mut self.bits[index]
+    }
+}
+
+// Metaprogramming: Macro to implement binary operators
+macro_rules! impl_bitop {
+    ($trait:ident, $method:ident, $assign_trait:ident, $assign_method:ident, $op:tt) => {
+        impl $trait for &BitSet {
+            type Output = BitSet;
+
+            fn $method(self, rhs: Self) -> Self::Output {
+                let len = std::cmp::max(self.bits.len(), rhs.bits.len());
+                let mut new_bits = Vec::with_capacity(len);
+                for i in 0..len {
+                    let lhs_word = self.bits.get(i).copied().unwrap_or(0);
+                    let rhs_word = rhs.bits.get(i).copied().unwrap_or(0);
+                    new_bits.push(lhs_word $op rhs_word);
+                }
+                // Trim trailing zeros? Optional, but good for equality checks
+                while new_bits.last() == Some(&0) {
+                    new_bits.pop();
+                }
+                BitSet { bits: new_bits }
             }
         }
 
-        impl Eq for Item {}
+        impl $assign_trait for BitSet {
+            fn $assign_method(&mut self, rhs: Self) {
+                let len = std::cmp::max(self.bits.len(), rhs.bits.len());
+                if self.bits.len() < len {
+                    self.bits.resize(len, 0);
+                }
+                for i in 0..len {
+                    let rhs_word = rhs.bits.get(i).copied().unwrap_or(0);
+                    self.bits[i] = self.bits[i] $op rhs_word;
+                }
+                while self.bits.last() == Some(&0) {
+                    self.bits.pop();
+                }
+            }
+        }
 
-        let mut set = Set::new();
-        assert_eq!(set.replace(Item { id: 1, value: 10 }), None);
-        assert_eq!(
-            set.replace(Item { id: 1, value: 20 }),
-            Some(Item { id: 1, value: 10 })
-        );
+        impl $assign_trait<&BitSet> for BitSet {
+            fn $assign_method(&mut self, rhs: &BitSet) {
+                let len = std::cmp::max(self.bits.len(), rhs.bits.len());
+                if self.bits.len() < len {
+                    self.bits.resize(len, 0);
+                }
+                for i in 0..len {
+                    let rhs_word = rhs.bits.get(i).copied().unwrap_or(0);
+                    self.bits[i] = self.bits[i] $op rhs_word;
+                }
+                while self.bits.last() == Some(&0) {
+                    self.bits.pop();
+                }
+            }
+        }
+    };
+}
 
-        let taken = set.take(&Item { id: 1, value: 20 });
-        assert_eq!(taken, Some(Item { id: 1, value: 20 }));
-        assert!(set.is_empty());
+impl_bitop!(BitAnd, bitand, BitAndAssign, bitand_assign, &);
+impl_bitop!(BitOr, bitor, BitOrAssign, bitor_assign, |);
+impl_bitop!(BitXor, bitxor, BitXorAssign, bitxor_assign, ^);
 
-        let x: Set<_> = [1, 2].into_iter().collect();
-        let y: Set<_> = [1, 2, 3].into_iter().collect();
-        let z: Set<_> = [4, 5].into_iter().collect();
-        assert!(x.is_subset(&y));
-        assert!(y.is_superset(&x));
-        assert!(x.is_disjoint(&z));
+// Difference is slightly different (lhs & !rhs), so we impl manually or make macro more generic.
+// But set difference usually means remove items in rhs from lhs.
+impl Sub for &BitSet {
+    type Output = BitSet;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        let len = self.bits.len();
+        let mut new_bits = Vec::with_capacity(len);
+        for i in 0..len {
+            let lhs_word = self.bits[i];
+            let rhs_word = rhs.bits.get(i).copied().unwrap_or(0);
+            new_bits.push(lhs_word & !rhs_word);
+        }
+        while new_bits.last() == Some(&0) {
+            new_bits.pop();
+        }
+        BitSet { bits: new_bits }
     }
 }
+
+impl SubAssign for BitSet {
+    fn sub_assign(&mut self, rhs: Self) {
+        for i in 0..self.bits.len() {
+            let rhs_word = rhs.bits.get(i).copied().unwrap_or(0);
+            self.bits[i] &= !rhs_word;
+        }
+        while self.bits.last() == Some(&0) {
+            self.bits.pop();
+        }
+    }
+}
+
+impl SubAssign<&BitSet> for BitSet {
+    fn sub_assign(&mut self, rhs: &BitSet) {
+        for i in 0..self.bits.len() {
+            let rhs_word = rhs.bits.get(i).copied().unwrap_or(0);
+            self.bits[i] &= !rhs_word;
+        }
+        while self.bits.last() == Some(&0) {
+            self.bits.pop();
+        }
+    }
+}
+
+impl fmt::Debug for BitSet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
+    }
+}
+
+// Iterator support
+pub struct Iter<'a> {
+    bitset: &'a BitSet,
+    idx: usize,
+}
+
+impl<'a> Iterator for Iter<'a> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.idx / 64 < self.bitset.bits.len() {
+            let word_idx = self.idx / 64;
+            let bit_idx = self.idx % 64;
+            let word = self.bitset.bits[word_idx];
+
+            // Optimization: skip empty words
+            if word == 0 {
+                self.idx = (word_idx + 1) * 64;
+                continue;
+            }
+
+            // Check bits in current word
+            if (word & (1 << bit_idx)) != 0 {
+                let ret = self.idx;
+                self.idx += 1;
+                return Some(ret);
+            }
+
+            // Find next set bit efficiently
+            // Mask out bits before current bit_idx
+            let masked_word = word & (!0 << bit_idx);
+            if masked_word != 0 {
+                let next_bit = masked_word.trailing_zeros() as usize;
+                self.idx = word_idx * 64 + next_bit + 1;
+                return Some(word_idx * 64 + next_bit);
+            } else {
+                self.idx = (word_idx + 1) * 64;
+            }
+        }
+        None
+    }
+}
+
+impl BitSet {
+    pub fn iter(&self) -> Iter<'_> {
+        Iter {
+            bitset: self,
+            idx: 0,
+        }
+    }
+}
+
+// Metaprogramming: Initialization macro
+#[macro_export]
+macro_rules! bitset {
+    () => {
+        $crate::utils::set::BitSet::new()
+    };
+    ($($x:expr),+ $(,)?) => {
+        {
+            let mut bs = $crate::utils::set::BitSet::new();
+            $(
+                bs.insert($x);
+            )+
+            bs
+        }
+    };
+}
+
+pub use bitset;

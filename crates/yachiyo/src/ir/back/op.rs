@@ -14,7 +14,7 @@ pub struct VirtReg {
     pub uses: Vec<(BOperand, usize)>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum BOperand {
     Func(usize),
     BB(usize),
@@ -22,8 +22,10 @@ pub enum BOperand {
     Reg(Reg),
 
     // Immediate
+
     IntImm(i32),
-    FloatImm(f32),
+    /// Float immediate, stored as its bit representation for the convenience of hashing.
+    FloatImm(u32),
 
     /// Id of frame slot
     Slot(usize),
@@ -112,15 +114,24 @@ pub struct BOp {
     pub data: BOpData,
 }
 
+impl BOp {
+    pub fn new(typ: BType, attrs: Vec<BAttr>, data: BOpData) -> Self {
+        Self { typ, attrs, data }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum BOpData {
     M(MOpData),
     L(LOpData),
 }
 
-impl BOp {
-    pub fn new(typ: BType, attrs: Vec<BAttr>, data: BOpData) -> Self {
-        Self { typ, attrs, data }
+impl BOpData {
+    pub fn is_move(&self) -> bool {
+        match self {
+            BOpData::M(mop_data) => matches!(mop_data, MOpData::Mv {..} | MOpData::FmvS {..}),
+            BOpData::L(lop_data) => matches!(lop_data, LOpData::Move {..}),
+        }
     }
 }
 
@@ -152,6 +163,7 @@ impl From<BOperand> for usize {
             BOperand::Func(id) => id,
             BOperand::BB(id) => id,
             BOperand::Inst(id) => id,
+            BOperand::Reg(Reg::Virt(id)) => id,
             _ => panic!("Cannot convert operand {:?} to usize", operand),
         }
     }

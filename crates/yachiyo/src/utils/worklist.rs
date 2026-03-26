@@ -1,6 +1,6 @@
 //! Worklist implementation for IR optimization passes.
 
-use crate::utils::bitset::BitSet;
+use crate::utils::set::BitSet;
 
 use rustc_hash::FxHashSet;
 use std::collections::VecDeque;

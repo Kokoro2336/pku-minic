@@ -5,8 +5,8 @@ use yachiyo::base::Type;
 use yachiyo::config::PARAM_REG_MAX_NUM;
 use yachiyo::ir::back::*;
 use yachiyo::ir::mid::*;
-use yachiyo::utils::bitset::BitSet;
 use yachiyo::utils::r#match::match_some;
+use yachiyo::utils::set::BitSet;
 use yachiyo::utils::worklist::*;
 
 use rustc_hash::FxHashMap;
@@ -87,7 +87,7 @@ impl Lowering {
                         vec![],
                         LOpData::LoadFloatImm {
                             rd: BOperand::Undef,
-                            imm,
+                            imm: f32::from_bits(imm),
                         }
                         .into(),
                     ));
@@ -142,7 +142,7 @@ impl Lowering {
             // Legalize immediats when getting 'em.
             Operand::Bool(imm) => self.legalize_imm(BOperand::IntImm(imm as i32)),
             Operand::Int(imm) => self.legalize_imm(BOperand::IntImm(imm)),
-            Operand::Float(imm) => self.legalize_imm(BOperand::FloatImm(imm)),
+            Operand::Float(imm) => self.legalize_imm(BOperand::FloatImm(imm.to_bits())),
             Operand::Undefined => BOperand::Undef,
         }
     }
@@ -1109,7 +1109,7 @@ impl Lowering {
 
                                 (typ, values.iter().map(|v| match v {
                                     Literal::Int(i) => BOperand::IntImm(*i),
-                                    Literal::Float(f) => BOperand::FloatImm(*f),
+                                    Literal::Float(f) => BOperand::FloatImm(f.to_bits()),
                                     Literal::String(s) => unimplemented!(
                                         "String literal in global array initializer is not supported yet: {}",
                                         s
@@ -1119,7 +1119,9 @@ impl Lowering {
                             // If global array has no initializer, we need to fill it with default values according to the type.
                             None => match &typ {
                                 Type::Int | Type::Bool => (Type::Int, vec![BOperand::IntImm(0)]),
-                                Type::Float => (Type::Float, vec![BOperand::FloatImm(0.0)]),
+                                Type::Float => {
+                                    (Type::Float, vec![BOperand::FloatImm(0.0f32.to_bits())])
+                                }
                                 Type::Pointer { .. } => unimplemented!(
                                     "Uninitialized global pointer is not supported yet"
                                 ),
@@ -1127,7 +1129,7 @@ impl Lowering {
                                     let base_value = match &**base {
                                         Type::Int
                                         | Type::Bool => BOperand::IntImm(0),
-                                        Type::Float => BOperand::FloatImm(0.0),
+                                        Type::Float => BOperand::FloatImm(0.0f32.to_bits()),
                                         Type::Pointer { .. } => unimplemented!("Uninitialized global pointer is not supported yet"),
                                         Type::Array { .. } => unimplemented!("Multi-dimensional array without initializer is not supported yet"),
                                         Type::Function { .. } | Type::Void | Type::Char => unreachable!("Function, Void and Char type should not be in the global array"),

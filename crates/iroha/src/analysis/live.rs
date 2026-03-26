@@ -3,11 +3,11 @@
 
 use yachiyo::analysis::Analysis;
 use yachiyo::ir::back::{BOperand, BackIR};
-use yachiyo::utils::bitset::BitSet;
-use yachiyo::utils::set::Set;
+use yachiyo::utils::set::BitSet;
+use yachiyo::utils::set::ArraySet;
 use yachiyo::utils::worklist::{Worklist, WorklistTrait};
 
-pub type LiveSet = Set<BOperand>;
+pub type LiveSet = ArraySet<BOperand>;
 pub type LiveIns = Vec<LiveSet>;
 pub type LiveOuts = Vec<LiveSet>;
 

@@ -3,7 +3,7 @@
 use yachiyo::base::{Pass, Type};
 use yachiyo::ir::mid::Builder;
 use yachiyo::ir::mir::{OpData, OpType, Operand, IR};
-use yachiyo::utils::bitset::BitSet;
+use yachiyo::utils::set::BitSet;
 
 pub struct SimplifyCFG<'a> {
     pub program: Option<&'a mut IR>,

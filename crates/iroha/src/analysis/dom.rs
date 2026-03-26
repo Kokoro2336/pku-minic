@@ -3,7 +3,7 @@
 
 use yachiyo::debug::info;
 use yachiyo::ir::mid::{Operand, IR};
-use yachiyo::utils::bitset::BitSet;
+use yachiyo::utils::set::BitSet;
 use yachiyo::analysis::Analysis;
 
 pub type DomTree = Vec<Vec<usize>>;
