@@ -14,7 +14,7 @@ pub struct VirtReg {
     pub uses: Vec<(BOperand, usize)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum BOperand {
     Func(usize),
     BB(usize),

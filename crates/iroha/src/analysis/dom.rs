@@ -4,10 +4,11 @@
 use yachiyo::debug::info;
 use yachiyo::ir::mid::{Operand, IR};
 use yachiyo::utils::bitset::BitSet;
+use yachiyo::analysis::Analysis;
 
 pub type DomTree = Vec<Vec<usize>>;
-pub struct BuildDomTree<'a> {
-    program: &'a mut IR,
+struct BuildDomTree<'a> {
+    program: &'a IR,
     // Vertex number -> DFS number
     dfn: Vec<usize>,
     dfn_cnt: usize,
@@ -38,7 +39,7 @@ pub struct BuildDomTree<'a> {
 }
 
 impl<'a> BuildDomTree<'a> {
-    pub fn new(program: &'a mut IR) -> Self {
+    pub fn new(program: &'a IR) -> Self {
         let current_function = program.funcs.entry;
         Self {
             program,
@@ -236,9 +237,9 @@ impl<'a> BuildDomTree<'a> {
 
 pub type DomFrontier = Vec<Vec<usize>>;
 
-pub struct BuildDomFrontier<'a> {
-    program: &'a mut IR,
-    dom_trees: Vec<DomTree>,
+struct BuildDomFrontier<'a> {
+    program: &'a IR,
+    dom_trees: &'a Vec<DomTree>,
     // FuncId -> BlockId -> Frontier
     frontiers: Vec<DomFrontier>,
     // State field
@@ -246,7 +247,7 @@ pub struct BuildDomFrontier<'a> {
 }
 
 impl<'a> BuildDomFrontier<'a> {
-    pub fn new(program: &'a mut IR, dom_trees: Vec<DomTree>) -> Self {
+    pub fn new(program: &'a IR, dom_trees: &'a Vec<DomTree>) -> Self {
         Self {
             program,
             dom_trees,
@@ -333,5 +334,33 @@ impl<'a> BuildDomFrontier<'a> {
             self.compute(head);
         }
         std::mem::take(&mut self.frontiers)
+    }
+}
+
+#[derive(Default)]
+pub struct DomAnalysis<'a> {
+    program: Option<&'a IR>,
+}
+
+impl<'a> Analysis<'a> for DomAnalysis<'a> {
+    type Input = IR;
+    type Output = (Vec<DomTree>, Vec<DomFrontier>);
+
+    fn name(&self) -> &str {
+        "Dominance Analysis"
+    }
+
+    fn mount(&mut self, ir: &'a Self::Input) {
+        self.program = Some(ir);
+    }
+
+    fn run(&mut self) -> Self::Output {
+        let program = self.program.as_ref().unwrap();
+        let mut dom_tree_builder = BuildDomTree::new(program);
+        let dom_trees = dom_tree_builder.build();
+
+        let mut dom_frontier_builder = BuildDomFrontier::new(program, &dom_trees);
+        let dom_frontiers = dom_frontier_builder.build();
+        (dom_trees, dom_frontiers)
     }
 }

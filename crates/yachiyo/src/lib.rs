@@ -8,3 +8,4 @@ pub mod utils;
 pub mod config;
 pub mod pass;
 pub mod cli;
+pub mod analysis;

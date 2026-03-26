@@ -249,7 +249,7 @@ impl From<FReg> for u8 {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Reg {
     Virt(usize),
     X(XReg),

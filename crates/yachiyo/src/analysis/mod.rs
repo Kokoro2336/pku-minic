@@ -1,0 +1,16 @@
+//! Analysis framework for IR.
+
+pub trait Analysis<'a>: Default {
+    type Input;
+    type Output;
+
+    fn name(&self) -> &str;
+    fn mount(&mut self, ir: &'a Self::Input);
+    fn run(&mut self) -> Self::Output;
+}
+
+pub fn analyze<'a, A: Analysis<'a>>(ir: &'a A::Input) -> A::Output {
+    let mut analysis = A::default();
+    analysis.mount(ir);
+    analysis.run()
+}

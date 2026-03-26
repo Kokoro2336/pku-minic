@@ -1,12 +1,13 @@
 //! SSA construction & Mem2Reg based on Cytron et al. 1991's algorithm.
 //! Reference: https://dl.acm.org/doi/pdf/10.1145/75277.75280
 
-use yachiyo::pass::Pass;
-use crate::analysis::dom::{BuildDomFrontier, BuildDomTree, DomFrontier, DomTree};
+use crate::analysis::{DomAnalysis, DomFrontier, DomTree};
+use yachiyo::analysis::analyze;
 use yachiyo::base::Type;
 use yachiyo::debug::info;
 use yachiyo::ir::mid::{Attr, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::ir::mid::{Builder, BuilderGuard};
+use yachiyo::pass::Pass;
 
 use std::collections::HashMap;
 
@@ -583,17 +584,8 @@ impl<'a> Pass<'a> for Mem2Reg<'a> {
     }
     fn run(&mut self) {
         let program = self.program.as_mut().unwrap();
-        // 1. Build dominator tree
-        info!("Start building dominator tree.");
-        let mut dom_builder = BuildDomTree::new(program);
-        let dom_trees = dom_builder.build();
-        info!("Dominator tree built: {:?}", dom_trees);
-
-        // 2. Build dominator frontier
-        info!("Start building dominator frontier.");
-        let mut df_builder = BuildDomFrontier::new(program, dom_trees.clone());
-        let frontiers = df_builder.build();
-        info!("Dominator frontier built: {:?}", frontiers);
+        let (dom_trees, frontiers) =
+            analyze::<DomAnalysis>(program);
 
         // 3. Insert Phi nodes
         info!("Start inserting phi nodes.");
