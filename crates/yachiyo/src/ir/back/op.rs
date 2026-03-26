@@ -97,6 +97,12 @@ pub enum BAttr {
     Name(String),
     /// Indicates that this move is a phi move. If an instruction has this attribute, ISel won't create.
     PhiMove,
+    /// For call instructions, indicates the operand is a return value.
+    ImplicitDef(BOperand),
+    /// For call instructions, indicates the operand is a used value that is not explicitly passed in the operand list,
+    /// e.g. caller-saved registers.
+    /// Ret value operand is also considered implicit use, since it's not explicitly passed in the operand list of the call instruction.
+    ImplicitUse(Vec<BOperand>),
 }
 
 #[derive(Debug, Clone)]
@@ -136,6 +142,17 @@ impl IndexMut<BOperand> for BDFG {
         match index {
             BOperand::Inst(id) => &mut self[id],
             _ => panic!("Invalid operand index: {:?}", index),
+        }
+    }
+}
+
+impl From<BOperand> for usize {
+    fn from(operand: BOperand) -> Self {
+        match operand {
+            BOperand::Func(id) => id,
+            BOperand::BB(id) => id,
+            BOperand::Inst(id) => id,
+            _ => panic!("Cannot convert operand {:?} to usize", operand),
         }
     }
 }
