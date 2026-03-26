@@ -584,7 +584,7 @@ impl ISel<'_> {
                     // Add it to the constant pool first.
                     let rodata_id = self.alloc_rodata(RoData::new(
                         typ.clone(),
-                        vec![BOperand::FloatImm(*imm)],
+                        vec![BOperand::FloatImm(imm.to_bits())],
                     ));
                     let load_lop_id = self.create(
                         BOp::new(

@@ -6,8 +6,8 @@ use yachiyo::base::Type;
 use yachiyo::ir::mid::{Builder, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::Pass;
 use yachiyo::utils::arena::{Arena, ArenaItem};
-use yachiyo::utils::bitset::BitSet;
 use yachiyo::utils::r#match::match_src;
+use yachiyo::utils::set::BitSet;
 
 use rustc_hash::FxHashSet;
 

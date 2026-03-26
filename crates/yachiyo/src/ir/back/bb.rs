@@ -8,7 +8,7 @@ pub type BCFG = IndexedArena<BBasicBlock>;
 
 #[derive(Debug, Clone, Default)]
 pub struct BBasicBlock {
-    pub prev: Vec<BOperand>,
+    pub preds: Vec<BOperand>,
     pub cur: Vec<BOperand>,
     pub succs: Vec<BOperand>,
 }
@@ -21,8 +21,8 @@ impl BCFG {
     }
 
     pub fn add_pred(&mut self, bb_idx: BOperand, pred_idx: BOperand) {
-        if !self[bb_idx.get_bb_id()].prev.contains(&pred_idx) {
-            self[bb_idx.get_bb_id()].prev.push(pred_idx);
+        if !self[bb_idx.get_bb_id()].preds.contains(&pred_idx) {
+            self[bb_idx.get_bb_id()].preds.push(pred_idx);
         }
     }
 
@@ -45,11 +45,11 @@ impl BCFG {
 
     pub fn remove_pred(&mut self, bb_idx: BOperand, pred_idx: BOperand) {
         if let Some(pos) = self[bb_idx.get_bb_id()]
-            .prev
+            .preds
             .iter()
             .position(|x| *x == pred_idx)
         {
-            self[bb_idx.get_bb_id()].prev.swap_remove(pos);
+            self[bb_idx.get_bb_id()].preds.swap_remove(pos);
         } else {
             panic!(
                 "Remove pred {:?}: not found in preds of block {:?}: {:?}",

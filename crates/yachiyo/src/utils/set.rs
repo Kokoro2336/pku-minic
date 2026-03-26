@@ -1,9 +1,259 @@
-//! A simple BitSet implementation using Vec<u64> as the underlying storage.
+//! Set Implementations.
 
 use std::fmt;
 use std::ops::{
     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, IndexMut, Sub, SubAssign,
 };
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ArraySet<T> {
+    items: Vec<T>,
+}
+
+impl<T> Default for ArraySet<T> {
+    fn default() -> Self {
+        Self { items: Vec::new() }
+    }
+}
+
+impl<T> ArraySet<T> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            items: Vec::with_capacity(capacity),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.items.capacity()
+    }
+
+    pub fn reserve(&mut self, additional: usize) {
+        self.items.reserve(additional);
+    }
+
+    pub fn clear(&mut self) {
+        self.items.clear();
+    }
+
+    pub fn retain<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&T) -> bool,
+    {
+        self.items.retain(|item| f(item));
+    }
+
+    pub fn first(&self) -> Option<&T> {
+        self.items.first()
+    }
+
+    pub fn last(&self) -> Option<&T> {
+        self.items.last()
+    }
+
+    pub fn pop(&mut self) -> Option<T> {
+        self.items.pop()
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, T> {
+        self.items.iter()
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+        &self.items
+    }
+}
+
+impl<T: PartialEq> ArraySet<T> {
+    pub fn contains(&self, value: &T) -> bool {
+        self.items.contains(value)
+    }
+
+    pub fn get(&self, value: &T) -> Option<&T> {
+        self.items.iter().find(|item| *item == value)
+    }
+
+    pub fn insert(&mut self, value: T) -> bool {
+        if self.contains(&value) {
+            false
+        } else {
+            self.items.push(value);
+            true
+        }
+    }
+
+    pub fn replace(&mut self, value: T) -> Option<T> {
+        if let Some(index) = self.items.iter().position(|item| *item == value) {
+            Some(std::mem::replace(&mut self.items[index], value))
+        } else {
+            self.items.push(value);
+            None
+        }
+    }
+
+    pub fn remove(&mut self, value: &T) -> bool {
+        if let Some(index) = self.items.iter().position(|item| item == value) {
+            self.items.remove(index);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn take(&mut self, value: &T) -> Option<T> {
+        self.items
+            .iter()
+            .position(|item| item == value)
+            .map(|index| self.items.remove(index))
+    }
+
+    pub fn is_subset(&self, other: &Self) -> bool {
+        self.iter().all(|item| other.contains(item))
+    }
+
+    pub fn is_superset(&self, other: &Self) -> bool {
+        other.is_subset(self)
+    }
+
+    pub fn is_disjoint(&self, other: &Self) -> bool {
+        self.iter().all(|item| !other.contains(item))
+    }
+}
+
+impl<T: PartialEq + Clone> ArraySet<T> {
+    pub fn union(&self, other: &Self) -> Self {
+        let mut out = Self::with_capacity(self.len() + other.len());
+        out.extend(self.iter().cloned());
+        out.extend(other.iter().cloned());
+        out
+    }
+
+    pub fn intersection(&self, other: &Self) -> Self {
+        let mut out = Self::new();
+        for item in self.iter() {
+            if other.contains(item) {
+                out.insert(item.clone());
+            }
+        }
+        out
+    }
+
+    pub fn difference(&self, other: &Self) -> Self {
+        let mut out = Self::new();
+        for item in self.iter() {
+            if !other.contains(item) {
+                out.insert(item.clone());
+            }
+        }
+        out
+    }
+
+    pub fn symmetric_difference(&self, other: &Self) -> Self {
+        let mut out = Self::new();
+        out.extend(self.iter().filter(|item| !other.contains(item)).cloned());
+        out.extend(other.iter().filter(|item| !self.contains(item)).cloned());
+        out
+    }
+}
+
+impl<T: PartialEq> From<Vec<T>> for ArraySet<T> {
+    fn from(value: Vec<T>) -> Self {
+        value.into_iter().collect()
+    }
+}
+
+impl<T> IntoIterator for ArraySet<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.items.into_iter()
+    }
+}
+
+impl<'a, T> IntoIterator for &'a ArraySet<T> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.items.iter()
+    }
+}
+
+impl<T: PartialEq> Extend<T> for ArraySet<T> {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        for item in iter {
+            self.insert(item);
+        }
+    }
+}
+
+impl<T: PartialEq> std::iter::FromIterator<T> for ArraySet<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let mut out = Self::new();
+        out.extend(iter);
+        out
+    }
+}
+
+impl<T: PartialEq + Clone> BitOr for &ArraySet<T> {
+    type Output = ArraySet<T>;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        self.union(rhs)
+    }
+}
+
+impl<T: PartialEq + Clone> BitAnd for &ArraySet<T> {
+    type Output = ArraySet<T>;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        self.intersection(rhs)
+    }
+}
+
+impl<T: PartialEq + Clone> Sub for &ArraySet<T> {
+    type Output = ArraySet<T>;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        self.difference(rhs)
+    }
+}
+
+impl<T: PartialEq + Clone> BitXor for &ArraySet<T> {
+    type Output = ArraySet<T>;
+
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        self.symmetric_difference(rhs)
+    }
+}
+
+#[macro_export]
+macro_rules! array_set {
+	() => {
+		$crate::utils::set::ArraySet::new()
+	};
+	($($x:expr),+ $(,)?) => {{
+		let mut out = $crate::utils::set::ArraySet::new();
+		$(
+			out.insert($x);
+		)+
+		out
+	}};
+}
+
+pub use array_set;
 
 #[derive(Clone, PartialEq, Eq, Hash, Default)]
 pub struct BitSet {
@@ -76,16 +326,23 @@ impl BitSet {
     }
 }
 
-impl Index<usize> for BitSet {
+impl<Idx> Index<Idx> for BitSet
+where
+    Idx: Into<usize>,
+{
     type Output = u64;
 
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.bits[index]
+    fn index(&self, index: Idx) -> &Self::Output {
+        &self.bits[index.into()]
     }
 }
 
-impl IndexMut<usize> for BitSet {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+impl<Idx> IndexMut<Idx> for BitSet
+where
+    Idx: Into<usize>,
+{
+    fn index_mut(&mut self, index: Idx) -> &mut Self::Output {
+        let index = index.into();
         if index >= self.bits.len() {
             self.bits.resize(index + 1, 0);
         }
@@ -259,11 +516,11 @@ impl BitSet {
 #[macro_export]
 macro_rules! bitset {
     () => {
-        $crate::utils::bitset::BitSet::new()
+        $crate::utils::set::BitSet::new()
     };
     ($($x:expr),+ $(,)?) => {
         {
-            let mut bs = $crate::utils::bitset::BitSet::new();
+            let mut bs = $crate::utils::set::BitSet::new();
             $(
                 bs.insert($x);
             )+
@@ -271,3 +528,5 @@ macro_rules! bitset {
         }
     };
 }
+
+pub use bitset;

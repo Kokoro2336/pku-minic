@@ -161,7 +161,7 @@ fn dump_initializer(
                 written += 4;
             }
             BOperand::FloatImm(v) => {
-                out.push_str(&format!("  .word 0x{:08x}\n", v.to_bits()));
+                out.push_str(&format!("  .word 0x{:08x}\n", v));
                 written += 4;
             }
             BOperand::Undef => {

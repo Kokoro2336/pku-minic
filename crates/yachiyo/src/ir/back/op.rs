@@ -14,7 +14,7 @@ pub struct VirtReg {
     pub uses: Vec<(BOperand, usize)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum BOperand {
     Func(usize),
     BB(usize),
@@ -22,8 +22,10 @@ pub enum BOperand {
     Reg(Reg),
 
     // Immediate
+
     IntImm(i32),
-    FloatImm(f32),
+    /// Float immediate, stored as its bit representation for the convenience of hashing.
+    FloatImm(u32),
 
     /// Id of frame slot
     Slot(usize),
@@ -97,6 +99,12 @@ pub enum BAttr {
     Name(String),
     /// Indicates that this move is a phi move. If an instruction has this attribute, ISel won't create.
     PhiMove,
+    /// For call instructions, indicates the operand is a return value.
+    ImplicitDef(BOperand),
+    /// For call instructions, indicates the operand is a used value that is not explicitly passed in the operand list,
+    /// e.g. caller-saved registers.
+    /// Ret value operand is also considered implicit use, since it's not explicitly passed in the operand list of the call instruction.
+    ImplicitUse(Vec<BOperand>),
 }
 
 #[derive(Debug, Clone)]
@@ -106,15 +114,24 @@ pub struct BOp {
     pub data: BOpData,
 }
 
+impl BOp {
+    pub fn new(typ: BType, attrs: Vec<BAttr>, data: BOpData) -> Self {
+        Self { typ, attrs, data }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum BOpData {
     M(MOpData),
     L(LOpData),
 }
 
-impl BOp {
-    pub fn new(typ: BType, attrs: Vec<BAttr>, data: BOpData) -> Self {
-        Self { typ, attrs, data }
+impl BOpData {
+    pub fn is_move(&self) -> bool {
+        match self {
+            BOpData::M(mop_data) => matches!(mop_data, MOpData::Mv {..} | MOpData::FmvS {..}),
+            BOpData::L(lop_data) => matches!(lop_data, LOpData::Move {..}),
+        }
     }
 }
 
@@ -136,6 +153,18 @@ impl IndexMut<BOperand> for BDFG {
         match index {
             BOperand::Inst(id) => &mut self[id],
             _ => panic!("Invalid operand index: {:?}", index),
+        }
+    }
+}
+
+impl From<BOperand> for usize {
+    fn from(operand: BOperand) -> Self {
+        match operand {
+            BOperand::Func(id) => id,
+            BOperand::BB(id) => id,
+            BOperand::Inst(id) => id,
+            BOperand::Reg(Reg::Virt(id)) => id,
+            _ => panic!("Cannot convert operand {:?} to usize", operand),
         }
     }
 }

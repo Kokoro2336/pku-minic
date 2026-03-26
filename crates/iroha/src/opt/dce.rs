@@ -4,6 +4,7 @@ use yachiyo::pass::Pass;
 use yachiyo::ir::mid::Builder;
 use yachiyo::ir::mid::{OpData, Operand, PhiIncoming, IR};
 use yachiyo::utils::arena::ArenaItem;
+use yachiyo::utils::r#match::match_src;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Default)]
@@ -135,72 +136,50 @@ impl<'a> Pass<'a> for DCE<'a> {
                 };
 
                 // Check the operands of the removed instruction
-                match removed_op.data.clone() {
-                    OpData::AddF { lhs, rhs }
-                    | OpData::SubF { lhs, rhs }
-                    | OpData::MulF { lhs, rhs }
-                    | OpData::DivF { lhs, rhs }
-                    | OpData::AddI { lhs, rhs }
-                    | OpData::SubI { lhs, rhs }
-                    | OpData::MulI { lhs, rhs }
-                    | OpData::DivI { lhs, rhs }
-                    | OpData::ModI { lhs, rhs }
-                    | OpData::SNe { lhs, rhs }
-                    | OpData::SEq { lhs, rhs }
-                    | OpData::SGt { lhs, rhs }
-                    | OpData::SLt { lhs, rhs }
-                    | OpData::SGe { lhs, rhs }
-                    | OpData::SLe { lhs, rhs }
-                    | OpData::Xor { lhs, rhs }
-                    | OpData::Shl { lhs, rhs }
-                    | OpData::Shr { lhs, rhs }
-                    | OpData::Sar { lhs, rhs }
-                    | OpData::ONe { lhs, rhs }
-                    | OpData::OEq { lhs, rhs }
-                    | OpData::OGt { lhs, rhs }
-                    | OpData::OLt { lhs, rhs }
-                    | OpData::OGe { lhs, rhs }
-                    | OpData::OLe { lhs, rhs } => {
+                match_src! {
+                    target: removed_op.data.clone(),
+                    bin_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe],
+                    bin_arm: OpData { lhs, rhs } => {
                         check(self, &lhs);
                         check(self, &rhs);
-                    }
-                    OpData::Sitofp { value }
-                    | OpData::Fptosi { value }
-                    | OpData::Zext { value }
-                    | OpData::Uitofp { value } => {
+                    },
+                    un_ops: [Sitofp, Fptosi, Zext, Uitofp],
+                    un_arm: OpData { value } => {
                         check(self, &value);
-                    }
-                    // In DCE, Load is pure.
-                    OpData::Load { addr } => {
-                        check(self, &addr);
-                    }
-                    OpData::GEP { base, indices } => {
-                        check(self, &base);
-                        for index in indices.iter() {
-                            check(self, index);
+                    },
+                    fallback: {
+                        // In DCE, Load is pure.
+                        OpData::Load { addr } => {
+                            check(self, &addr);
                         }
-                    }
-
-                    OpData::Phi { incomings } => {
-                        for phi_incoming in incomings.iter() {
-                            if let PhiIncoming::Data { value, bb: _ } = phi_incoming {
-                                check(self, value);
+                        OpData::GEP { base, indices } => {
+                            check(self, &base);
+                            for index in indices.iter() {
+                                check(self, index);
                             }
                         }
-                    }
 
-                    OpData::Call { .. }
-                    | OpData::Store { .. }
-                    | OpData::Br { .. }
-                    | OpData::Jump { .. }
-                    | OpData::Ret { .. }
-                    | OpData::Alloca(_)
-                    | OpData::GlobalAlloca(_)
-                    | OpData::Declare { .. } => {
-                        unreachable!(
-                            "DCE: impure instruction should not be in the worklist: {:?}",
-                            removed_op
-                        );
+                        OpData::Phi { incomings } => {
+                            for phi_incoming in incomings.iter() {
+                                if let PhiIncoming::Data { value, bb: _ } = phi_incoming {
+                                    check(self, value);
+                                }
+                            }
+                        }
+
+                        OpData::Call { .. }
+                        | OpData::Store { .. }
+                        | OpData::Br { .. }
+                        | OpData::Jump { .. }
+                        | OpData::Ret { .. }
+                        | OpData::Alloca(_)
+                        | OpData::GlobalAlloca(_)
+                        | OpData::Declare { .. } => {
+                            unreachable!(
+                                "DCE: impure instruction should not be in the worklist: {:?}",
+                                removed_op
+                            );
+                        }
                     }
                 }
             }

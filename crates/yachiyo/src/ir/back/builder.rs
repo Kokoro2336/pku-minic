@@ -20,9 +20,9 @@ pub struct BBuilderGuard<'a> {
 
 impl<'a> BBuilderGuard<'a> {
     pub fn new(builder: &'a mut BBuilder) -> Self {
-        let current_function = builder.current_function.clone();
-        let current_block = builder.current_block.clone();
-        let current_inst = builder.current_inst.clone();
+        let current_function = builder.current_function;
+        let current_block = builder.current_block;
+        let current_inst = builder.current_inst;
         Self {
             builder,
             current_function,
@@ -48,9 +48,9 @@ impl DerefMut for BBuilderGuard<'_> {
 
 impl Drop for BBuilderGuard<'_> {
     fn drop(&mut self) {
-        self.builder.current_function = self.current_function.clone();
-        self.builder.current_block = self.current_block.clone();
-        self.builder.current_inst = self.current_inst.clone();
+        self.builder.current_function = self.current_function;
+        self.builder.current_block = self.current_block;
+        self.builder.current_inst = self.current_inst;
     }
 }
 
@@ -97,13 +97,17 @@ impl BBuilder {
             self.current_inst = None;
             return;
         }
-        if bb.cur.contains(&inst_id.clone().unwrap()) {
-            self.current_inst = inst_id;
+        if let Some(inst_id) = inst_id {
+            if bb.cur.contains(&inst_id) {
+                self.current_inst = Some(inst_id);
+            } else {
+                panic!(
+                    "BBuilder set_before_inst: inst {:?} not in current_block {:?}",
+                    inst_id, self.current_block
+                );
+            }
         } else {
-            panic!(
-                "BBuilder set_before_inst: inst {:?} not in current_block {:?}",
-                inst_id, self.current_block
-            );
+            unreachable!("BBuilder set_before_inst: inst_id checked as Some above")
         }
     }
 
@@ -128,27 +132,31 @@ impl BBuilder {
             return;
         }
 
-        if bb.cur.contains(&inst_id.clone().unwrap()) {
-            let pos = bb
-                .cur
-                .iter()
-                .position(|id| id == &inst_id.clone().unwrap())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "BBuilder set_after_inst: inst {:?} not found in current_block {:?}",
-                        inst_id, self.current_block
-                    )
-                });
-            if pos + 1 < bb.cur.len() {
-                self.current_inst = Some(bb.cur[pos + 1].clone());
+        if let Some(inst_id) = inst_id {
+            if bb.cur.contains(&inst_id) {
+                let pos = bb
+                    .cur
+                    .iter()
+                    .position(|id| *id == inst_id)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "BBuilder set_after_inst: inst {:?} not found in current_block {:?}",
+                            inst_id, self.current_block
+                        )
+                    });
+                if pos + 1 < bb.cur.len() {
+                    self.current_inst = Some(bb.cur[pos + 1]);
+                } else {
+                    self.current_inst = None;
+                }
             } else {
-                self.current_inst = None;
+                panic!(
+                    "BBuilder set_after_inst: inst {:?} not in current_block {:?}",
+                    inst_id, self.current_block
+                );
             }
         } else {
-            panic!(
-                "BBuilder set_after_inst: inst {:?} not in current_block {:?}",
-                inst_id, self.current_block
-            );
+            unreachable!("BBuilder set_after_inst: inst_id checked as Some above")
         }
     }
 
