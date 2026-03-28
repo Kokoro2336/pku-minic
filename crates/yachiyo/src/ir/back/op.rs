@@ -22,7 +22,6 @@ pub enum BOperand {
     Reg(Reg),
 
     // Immediate
-
     IntImm(i32),
     /// Float immediate, stored as its bit representation for the convenience of hashing.
     FloatImm(u32),
@@ -59,38 +58,53 @@ impl std::fmt::Display for BOperand {
 
 #[allow(unused)]
 impl BOperand {
+    #[inline(always)]
     pub fn get_bb_id(&self) -> usize {
         match self {
             BOperand::BB(id) => *id,
             _ => panic!("Not a basic block operand"),
         }
     }
+    #[inline(always)]
     pub fn get_inst_id(&self) -> usize {
         match self {
             BOperand::Inst(id) => *id,
             _ => panic!("Not an instruction operand"),
         }
     }
+    #[inline(always)]
     pub fn get_virt_id(&self) -> usize {
         match self {
             BOperand::Reg(Reg::Virt(id)) => *id,
             _ => panic!("Not a virtual register operand"),
         }
     }
+    #[inline(always)]
     pub fn get_func_id(&self) -> usize {
         match self {
             BOperand::Func(id) => *id,
             _ => panic!("Not a function operand"),
         }
     }
+    #[inline(always)]
     pub fn hi(imm: i32) -> Self {
         BOperand::IntImm(imm >> 16)
     }
+    #[inline(always)]
     pub fn lo(imm: i32) -> Self {
         BOperand::IntImm(imm & 0xFFFF)
     }
+    #[inline(always)]
     pub fn is_literal(&self) -> bool {
         matches!(self, BOperand::IntImm(_) | BOperand::FloatImm(_))
+    }
+    #[inline(always)]
+    pub fn is_phys(&self) -> bool {
+        matches!(self, BOperand::Reg(Reg::X(_)) | BOperand::Reg(Reg::F(_)))
+    }
+    #[inline(always)]
+    pub fn is_virt(&self) -> bool {
+        matches!(self, BOperand::Reg(Reg::Virt(_)))
     }
 }
 
@@ -129,8 +143,8 @@ pub enum BOpData {
 impl BOpData {
     pub fn is_move(&self) -> bool {
         match self {
-            BOpData::M(mop_data) => matches!(mop_data, MOpData::Mv {..} | MOpData::FmvS {..}),
-            BOpData::L(lop_data) => matches!(lop_data, LOpData::Move {..}),
+            BOpData::M(mop_data) => matches!(mop_data, MOpData::Mv { .. } | MOpData::FmvS { .. }),
+            BOpData::L(lop_data) => matches!(lop_data, LOpData::Move { .. }),
         }
     }
 }

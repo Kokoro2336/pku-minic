@@ -6,10 +6,10 @@ use iroha::backend::*;
 use iroha::frontend::*;
 use iroha::opt::*;
 
-use yachiyo::pass::*;
 use yachiyo::cli::Cli;
 use yachiyo::debug::info;
 use yachiyo::debug::log::setup;
+use yachiyo::pass::*;
 use yachiyo::utils::arena::Arena;
 
 lalrpop_mod!(sysy);
@@ -93,6 +93,7 @@ fn main() -> Result<()> {
     // Run Backend Passes.
     BPassManager::default()
         .register(Box::new(ISel::default()))
+        .register(Box::new(RegAlloc::default()))
         .run(&mut back_ir);
 
     // Dump the asm.
