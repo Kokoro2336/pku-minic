@@ -199,8 +199,9 @@ impl Lowering {
         }
     }
 
-    fn init(&mut self, idx: usize) {
-        self.builder.set_current_func(BOperand::Func(idx));
+    fn init(&mut self, func_id: Operand) {
+        let lfunc_id = self.get(func_id.to_owned());
+        self.builder.set_current_func(lfunc_id);
 
         // Clear the maps.
         self.block_map.clear();
@@ -212,10 +213,10 @@ impl Lowering {
 
         // Resize the maps.
         self.block_map
-            .resize(self.ir.funcs[idx].cfg.len(), BOperand::Undef);
+            .resize(self.ir.funcs[func_id.to_owned()].cfg.len(), BOperand::Undef);
         self.value_map
-            .resize(self.ir.funcs[idx].dfg.len(), BOperand::Undef);
-        let param_num = match &self.ir.funcs[idx].typ {
+            .resize(self.ir.funcs[func_id.to_owned()].dfg.len(), BOperand::Undef);
+        let param_num = match &self.ir.funcs[func_id.to_owned()].typ {
             Type::Function { param_types, .. } => param_types.len(),
             _ => unreachable!("Only function type should be in the function arena"),
         };
@@ -280,7 +281,7 @@ impl Lowering {
         let func_id = self
             .builder
             .current_function
-            .clone()
+            .to_owned()
             .expect("No current function");
         let lbb_id = self.lower_ir.funcs[func_id].cfg.alloc(lbb);
         self.set(bb_id, BOperand::BB(lbb_id));
@@ -1163,7 +1164,7 @@ impl Lowering {
         }
 
         // Pre-allocate functions.
-        for func_id in self.ir.funcs.ids() {
+        for func_id in self.ir.funcs.collect_internal() {
             let func = &self.ir.funcs[func_id];
             self.alloc_and_map_func(Operand::Func(func_id), BFunction::new(func.name.clone()));
         }
@@ -1177,7 +1178,7 @@ impl Lowering {
 
         // Pre-allocate functions.
         for func_id in self.ir.funcs.collect_internal() {
-            self.init(func_id);
+            self.init(Operand::Func(func_id));
 
             // Pre-allocate basic blocks.
             let func = &self.ir.funcs[func_id];
