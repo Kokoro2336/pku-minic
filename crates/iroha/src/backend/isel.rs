@@ -538,7 +538,7 @@ impl ISel<'_> {
                                 BType::Void => unreachable!("Move with void type doesn't make sense"),
                             };
                             self.replace_op_no_rauw(
-                                lop_id.clone(),
+                                lop_id.to_owned(),
                                 BOp::new(
                                     typ.clone(),
                                     vec![],
@@ -549,16 +549,16 @@ impl ISel<'_> {
                         },
                         // Else if the destination is a virtual register, we
                         BOperand::Reg(Reg::Virt(_)) => {
-                            let rd = if is_phi_move { rd.clone() } else { BOperand::Undef };
+                            let rd = if is_phi_move { rd.to_owned() } else { BOperand::Undef };
                             let mop_data = match typ {
                                 BType::I32
-                                | BType::U64 => MOpData::Mv { rd, rs: src.clone() },
-                                BType::F32 => MOpData::FmvS { rd, rs: src.clone() },
+                                | BType::U64 => MOpData::Mv { rd, rs: src.to_owned() },
+                                BType::F32 => MOpData::FmvS { rd, rs: src.to_owned() },
                                 BType::Void => unreachable!("Move with void type doesn't make sense"),
                             };
                             if is_phi_move {
                                 self.replace_op_no_rauw(
-                                    lop_id.clone(),
+                                    lop_id.to_owned(),
                                     BOp::new(
                                         typ.clone(),
                                         vec![],
@@ -567,7 +567,7 @@ impl ISel<'_> {
                                 );
                             } else {
                                 self.replace_op_rauw(
-                                    lop_id.clone(),
+                                    lop_id.to_owned(),
                                     BOp::new(
                                         typ.clone(),
                                         vec![],

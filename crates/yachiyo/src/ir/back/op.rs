@@ -4,6 +4,7 @@ use super::{BType, Reg};
 use crate::ir::back::LOpData;
 use crate::ir::back::MOpData;
 use crate::utils::arena::*;
+use crate::debug::info;
 
 use std::ops::{Index, IndexMut};
 
@@ -62,28 +63,28 @@ impl BOperand {
     pub fn get_bb_id(&self) -> usize {
         match self {
             BOperand::BB(id) => *id,
-            _ => panic!("Not a basic block operand"),
+            _ => panic!("Not a basic block operand: {:?}", self),
         }
     }
     #[inline(always)]
     pub fn get_inst_id(&self) -> usize {
         match self {
             BOperand::Inst(id) => *id,
-            _ => panic!("Not an instruction operand"),
+            _ => panic!("Not an instruction operand: {:?}", self),
         }
     }
     #[inline(always)]
     pub fn get_virt_id(&self) -> usize {
         match self {
             BOperand::Reg(Reg::Virt(id)) => *id,
-            _ => panic!("Not a virtual register operand"),
+            _ => panic!("Not a virtual register operand: {:?}", self),
         }
     }
     #[inline(always)]
     pub fn get_func_id(&self) -> usize {
         match self {
             BOperand::Func(id) => *id,
-            _ => panic!("Not a function operand"),
+            _ => panic!("Not a function operand: {:?}", self),
         }
     }
     #[inline(always)]
@@ -180,5 +181,39 @@ impl From<BOperand> for usize {
             BOperand::Reg(Reg::Virt(id)) => id,
             _ => panic!("Cannot convert operand {:?} to usize", operand),
         }
+    }
+}
+
+impl Arena<BOp> for BDFG {
+    fn remove(&mut self, idx: usize) -> BOp {
+        if let ArenaItem::Data(data) = std::mem::replace(&mut self.storage[idx], ArenaItem::None) {
+            data
+        } else {
+            panic!("BDFG remove: index {} points to None or NewIndex", idx);
+        }
+    }
+    fn gc(&mut self) -> Vec<ArenaItem<BOp>> {
+        let new_arena: Vec<ArenaItem<BOp>> = vec![];
+        let mut old_arena = std::mem::replace(&mut self.storage, new_arena);
+
+        // Transport
+        old_arena.iter_mut().for_each(|item| {
+            if matches!(item, ArenaItem::Data(_)) {
+                let new_idx = self.storage.len();
+                let data = item.replace(new_idx);
+                self.storage.push(data);
+            }
+        });
+
+        info!(
+            "BDFG GC: {} instructions collected, recycle rate: {:.2}%",
+            old_arena.len() - self.storage.len(),
+            (old_arena.len() - self.storage.len()) as f64 / old_arena.len() as f64 * 100.0
+        );
+
+        // No entry. No need to remap.
+        // Values of BOp are virtual registers, which should be remapped outside of this function.
+
+        old_arena
     }
 }

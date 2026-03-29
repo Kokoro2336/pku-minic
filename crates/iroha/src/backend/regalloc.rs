@@ -18,6 +18,7 @@ use yachiyo::utils::worklist::{Worklist, WorklistTrait};
 use rustc_hash::FxHashSet;
 
 #[derive(PartialEq, Eq, Default)]
+#[allow(unused)]
 enum AllocatorType {
     #[default]
     Int,
@@ -109,9 +110,12 @@ impl Allocator<'_> {
         }
     }
 
+    #[inline(always)]
     fn init(&mut self, func_id: BOperand) {
         self.current_function = Some(func_id);
+    }
 
+    fn reset(&mut self) {
         // Clear the nodes worklist.
         self.simplify_worklist.clear();
         self.freeze_worklist.clear();
@@ -133,26 +137,49 @@ impl Allocator<'_> {
 
         // Clear the adjacency set.
         self.adj_set.clear();
+
         self.adj_list.clear();
         self.degree.clear();
+        //Resize
+        self.adj_list.resize(
+            self.get_func(self.current_function.unwrap()).vregs.len(),
+            ArraySet::new(),
+        );
+        self.degree
+            .resize(self.get_func(self.current_function.unwrap()).vregs.len(), 0);
 
         // Clear the move list.
         self.move_list.clear();
         self.alias.clear();
         self.color.clear();
+        // Resize
+        self.move_list.resize(
+            self.get_func(self.current_function.unwrap()).vregs.len(),
+            ArraySet::new(),
+        );
+        self.alias.resize(
+            self.get_func(self.current_function.unwrap()).vregs.len(),
+            BOperand::Undef,
+        );
+        self.color.resize(
+            self.get_func(self.current_function.unwrap()).vregs.len(),
+            None,
+        );
     }
 
     // ========= Helper Functions ==========
 
     #[inline(always)]
-    fn is_target(&self, op_id: BOperand) -> bool {
+    fn is_target(&self, vreg_id: BOperand) -> bool {
         let func_id = self.current_function.unwrap();
         match_some! {
-            target: op_id,
+            target: vreg_id,
             enu: BOperand,
             minor_arms: {
                 BOperand::Reg(Reg::Virt(_)) => {
-                    let op = &self.get_func(func_id).dfg[op_id];
+                    let vreg = &self.get_func(func_id).vregs[vreg_id];
+                    let first_def = vreg.defs[0].to_owned();
+                    let op = &self.get_func(func_id).dfg[first_def];
                     match &op.typ {
                         BType::I32 | BType::U64 => self.typ == AllocatorType::Int,
                         BType::F32 => self.typ == AllocatorType::Float,
@@ -265,11 +292,18 @@ impl Allocator<'_> {
                     if self.is_target(rd.to_owned()) {
                         // Add the move instruction to src & rd's moveList.
                         for s in src.iter() {
-                            // To avoid interference between src and rd, we substract src from live set temporarily.
-                            live = live.difference(&array_set![s.to_owned()]);
-                            self.move_list[s.get_virt_id()].insert(*inst_id);
+                            if let BOperand::Reg(_) = s {
+                                // To avoid interference between src and rd, we substract src from live set temporarily.
+                                live = live.difference(&array_set![s.to_owned()]);
+                                // When s is a virtual register, we should alse add the move instruction to s's moveList.
+                                if let BOperand::Reg(Reg::Virt(id)) = s {
+                                    self.move_list[*id].insert(*inst_id);
+                                }
+                            }
                         }
-                        self.move_list[rd.get_virt_id()].insert(*inst_id);
+                        if let BOperand::Reg(Reg::Virt(id)) = rd {
+                            self.move_list[id].insert(*inst_id);
+                        }
                         // Add the move instruction to worklistMoves.
                         self.worklist_moves.push_back(inst_id.to_owned());
                     }
@@ -288,7 +322,9 @@ impl Allocator<'_> {
 
                 // Retrieve src
                 for s in src {
-                    live.insert(s);
+                    if let BOperand::Reg(_) = s {
+                        live.insert(s);
+                    }
                 }
             }
         }
@@ -368,6 +404,9 @@ impl Allocator<'_> {
     }
 
     fn decrement_degree(&mut self, n: BOperand) {
+        if !n.is_virt() {
+            return;
+        }
         let d = self.degree[n.get_virt_id()];
         self.degree[n.get_virt_id()] = d - 1;
         // If the degree of n drops below the number of colors, we can enable n and its adjacent nodes m.
@@ -492,9 +531,14 @@ impl Allocator<'_> {
     }
 
     fn get_alias(&self, n: BOperand) -> BOperand {
-        if self.coalesced_nodes.contains(n.get_virt_id()) {
-            self.get_alias(self.alias[n.get_virt_id()])
+        if let BOperand::Reg(Reg::Virt(id)) = n {
+            if self.coalesced_nodes.contains(id) {
+                self.get_alias(self.alias[id])
+            } else {
+                n
+            }
         } else {
+            // Return physical register directly
             n
         }
     }
@@ -574,6 +618,8 @@ impl Allocator<'_> {
     /// LiveOuts is the result of current function's liveness analysis, which is used for building the interference graph.
     fn allocate(&mut self, live_outs: &LiveOuts) {
         loop {
+            // Reset the worklist.
+            self.reset();
             // Build the interference graph.
             self.build(live_outs);
             // Make the initial worklist.
@@ -637,6 +683,13 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
             // Liveness analysis for the whole program.
             let ir = self.ir.as_mut().unwrap();
             let (_, funcs_live_outs) = analyze::<LiveAnalysis>(ir);
+            yachiyo::debug::info!("Finished liveness analysis for register allocation. funcs_live_outs: {:#?}", funcs_live_outs);
+
+            // Mount IR on allocator
+            let ir_ptr = *self.ir.as_mut().unwrap() as *mut BackIR;
+            unsafe {
+                allocator.ir = Some(&mut *ir_ptr);
+            }
 
             for func_id in self.ir.as_ref().unwrap().funcs.ids() {
                 allocator.init(BOperand::Func(func_id));

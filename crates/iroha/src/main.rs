@@ -93,6 +93,7 @@ fn main() -> Result<()> {
     // Run Backend Passes.
     BPassManager::default()
         .register(Box::new(ISel::default()))
+        .register(Box::new(BCompaction::default()))
         .register(Box::new(RegAlloc::default()))
         .run(&mut back_ir);
 
