@@ -8,9 +8,9 @@ pub type CFG = IndexedArena<BasicBlock>;
 
 #[derive(Debug, Clone, Default)]
 pub struct BasicBlock {
-    pub preds: Vec<Operand>,
+    pub preds: Vec<(Operand, Operand)>,
     pub cur: Vec<Operand>,
-    pub succs: Vec<Operand>,
+    pub succs: Vec<(Operand, Operand)>,
 }
 
 // impl cfg
@@ -69,11 +69,11 @@ impl Arena<BasicBlock> for IndexedArena<BasicBlock> {
         for item in self.storage.iter_mut() {
             // item can't be any other variant than Data here
             if let ArenaItem::Data(node) = item {
-                for pred in node.preds.iter_mut() {
+                for (pred, _) in node.preds.iter_mut() {
                     remap_bb(pred);
                 }
                 // rewrite data.cur needs the old arena of DFG, we'll do it in Compaction pass
-                for succ in node.succs.iter_mut() {
+                for (succ, _) in node.succs.iter_mut() {
                     remap_bb(succ);
                 }
             }
@@ -85,17 +85,17 @@ impl Arena<BasicBlock> for IndexedArena<BasicBlock> {
 }
 
 impl CFG {
-    pub fn add_succ(&mut self, bb_idx: Operand, succ_idx: Operand) {
+    pub fn add_succ(&mut self, bb_idx: Operand, succ_idx: (Operand, Operand)) {
         if !self[bb_idx.get_bb_id()].succs.contains(&succ_idx) {
             self[bb_idx.get_bb_id()].succs.push(succ_idx);
         }
     }
-    pub fn add_pred(&mut self, bb_idx: Operand, pred_idx: Operand) {
+    pub fn add_pred(&mut self, bb_idx: Operand, pred_idx: (Operand, Operand)) {
         if !self[bb_idx.get_bb_id()].preds.contains(&pred_idx) {
             self[bb_idx.get_bb_id()].preds.push(pred_idx);
         }
     }
-    pub fn remove_succ(&mut self, bb_idx: Operand, succ_idx: Operand) {
+    pub fn remove_succ(&mut self, bb_idx: Operand, succ_idx: (Operand, Operand)) {
         if let Some(pos) = self[bb_idx.get_bb_id()]
             .succs
             .iter()
@@ -104,15 +104,14 @@ impl CFG {
             self[bb_idx.get_bb_id()].succs.swap_remove(pos);
         } else {
             panic!(
-                "Remove succ {}: {:?} not found in succs of block {}: {:?}",
-                succ_idx,
+                "Remove succ: {:?} not found in succs of block {}: {:?}",
                 succ_idx,
                 bb_idx,
                 self[bb_idx.get_bb_id()]
             );
         }
     }
-    pub fn remove_pred(&mut self, bb_idx: Operand, pred_idx: Operand) {
+    pub fn remove_pred(&mut self, bb_idx: Operand, pred_idx: (Operand, Operand)) {
         if let Some(pos) = self[bb_idx.get_bb_id()]
             .preds
             .iter()
@@ -121,8 +120,7 @@ impl CFG {
             self[bb_idx.get_bb_id()].preds.swap_remove(pos);
         } else {
             panic!(
-                "Remove pred {}: {:?} not found in preds of block {}: {:?}",
-                pred_idx,
+                "Remove pred: {:?} not found in preds of block {}: {:?}",
                 pred_idx,
                 bb_idx,
                 self[bb_idx.get_bb_id()]

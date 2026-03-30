@@ -415,7 +415,7 @@ impl<'a> Renaming<'a> {
                     }
 
                     // 2. Process successors
-                    for succ in succs {
+                    for (succ, _) in succs {
                         // Calculate k (predecessor index)
                         let k = {
                             let func = &self.program.as_ref().unwrap().funcs
@@ -425,7 +425,7 @@ impl<'a> Renaming<'a> {
                                 .preds
                                 .iter()
                                 .position(|pred| match pred {
-                                    Operand::BB(id) => *id == bb_id,
+                                    (Operand::BB(id), _) => *id == bb_id,
                                     _ => false,
                                 })
                                 .unwrap_or_else(|| {

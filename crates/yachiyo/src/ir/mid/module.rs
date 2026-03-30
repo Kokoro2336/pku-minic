@@ -236,15 +236,15 @@ impl IR {
                 OpData::Br {
                     then_bb, else_bb, ..
                 } => {
-                    cfg.add_pred(then_bb.clone(), bb.clone());
-                    cfg.add_succ(bb.clone(), then_bb);
+                    cfg.add_pred(then_bb.clone(), (bb.clone(), op.clone()));
+                    cfg.add_succ(bb.clone(), (then_bb, op.clone()));
 
-                    cfg.add_pred(else_bb.clone(), bb.clone());
-                    cfg.add_succ(bb, else_bb);
+                    cfg.add_pred(else_bb.clone(), (bb.clone(), op.clone()));
+                    cfg.add_succ(bb, (else_bb, op));
                 }
                 OpData::Jump { target_bb } => {
-                    cfg.add_pred(target_bb.clone(), bb.clone());
-                    cfg.add_succ(bb, target_bb);
+                    cfg.add_pred(target_bb.clone(), (bb.clone(), op.clone()));
+                    cfg.add_succ(bb, (target_bb, op));
                 }
             },
             uni_ops: [AddF, SubF, MulF, DivF, AddI, SubI, MulI, DivI, ModI, Load, Store, Alloca, Phi, GlobalAlloca, Call, GEP, Sitofp, Fptosi, Uitofp, Zext, Ret, Shl, Shr, Sar, SNe, SEq, Xor, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Declare],
@@ -271,14 +271,14 @@ impl IR {
                 OpData::Br {
                     then_bb, else_bb, ..
                 } => {
-                    cfg.remove_pred(then_bb.clone(), bb.clone());
-                    cfg.remove_succ(bb.clone(), then_bb);
-                    cfg.remove_pred(else_bb.clone(), bb.clone());
-                    cfg.remove_succ(bb, else_bb);
+                    cfg.remove_pred(then_bb.clone(), (bb.clone(), op.clone()));
+                    cfg.remove_succ(bb.clone(), (then_bb, op.clone()));
+                    cfg.remove_pred(else_bb.clone(), (bb.clone(), op.clone()));
+                    cfg.remove_succ(bb, (else_bb, op));
                 }
                 OpData::Jump { target_bb } => {
-                    cfg.remove_pred(target_bb.clone(), bb.clone());
-                    cfg.remove_succ(bb, target_bb);
+                    cfg.remove_pred(target_bb.clone(), (bb.clone(), op.clone()));
+                    cfg.remove_succ(bb, (target_bb, op));
                 }
             },
             uni_ops: [AddF, SubF, MulF, DivF, AddI, SubI, MulI, DivI, ModI, Load, Store, Alloca, Phi, GlobalAlloca, Call, GEP, Sitofp, Fptosi, Uitofp, Zext, Ret, Shl, Shr, Sar, SNe, SEq, Xor, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Declare],

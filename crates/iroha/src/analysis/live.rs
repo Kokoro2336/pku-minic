@@ -22,6 +22,7 @@ pub struct LiveAnalysis<'a> {
 
     // Ancillary structures
     dfs_post_order: Worklist<BOperand, BitSet>,
+    visited: BitSet,
 
     /// LiveIn result
     live_ins: LiveIns,
@@ -35,14 +36,16 @@ impl LiveAnalysis<'_> {
     }
 
     fn dfs(&mut self, bb_id: BOperand) {
-        if self.dfs_post_order.contains(&bb_id) {
+        if self.visited.contains(bb_id.get_bb_id()) {
             return;
         }
+
+        self.visited.insert(bb_id.get_bb_id());
 
         let func_id = self.current_function.unwrap();
         let ir = self.ir.unwrap();
         let bb = &ir.funcs[func_id].cfg[bb_id];
-        for succ in &bb.succs {
+        for (succ, _) in &bb.succs {
             self.dfs(succ.to_owned());
         }
 
@@ -61,6 +64,7 @@ impl LiveAnalysis<'_> {
         self.live_outs.resize(cfg_len, LiveSet::new());
 
         self.dfs_post_order.clear();
+        self.visited.clear();
 
         self.current_live.clear();
     }
@@ -124,7 +128,7 @@ impl LiveAnalysis<'_> {
             // Update live_outs of the block based on live_ins of its successors.
             let ir = self.ir.unwrap();
             let bb = &ir.funcs[func_id].cfg[bb_id];
-            for succ in &bb.succs {
+            for (succ, _) in &bb.succs {
                 let succ_live_in = &self.live_ins[succ.get_bb_id()];
                 // Get the union of live_outs of the block and live_ins of its successor.
                 self.live_outs[bb_id.get_bb_id()] =
@@ -141,7 +145,7 @@ impl LiveAnalysis<'_> {
             if old_live_in_len != self.live_ins[bb_id.get_bb_id()].len() {
                 let ir = self.ir.unwrap();
                 let bb = &ir.funcs[func_id].cfg[bb_id];
-                for pred in &bb.preds {
+                for (pred, _) in &bb.preds {
                     self.dfs_post_order.push_back(pred.to_owned());
                 }
             }

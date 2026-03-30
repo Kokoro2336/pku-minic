@@ -9,25 +9,22 @@ pub type BCFG = IndexedArena<BBasicBlock>;
 
 #[derive(Debug, Clone, Default)]
 pub struct BBasicBlock {
-    pub preds: Vec<BOperand>,
+    /// (Predecessor block, Terminator InstId)
+    pub preds: Vec<(BOperand, BOperand)>,
     pub cur: Vec<BOperand>,
-    pub succs: Vec<BOperand>,
+    pub succs: Vec<(BOperand, BOperand)>,
 }
 
 impl BCFG {
-    pub fn add_succ(&mut self, bb_idx: BOperand, succ_idx: BOperand) {
-        if !self[bb_idx.get_bb_id()].succs.contains(&succ_idx) {
-            self[bb_idx.get_bb_id()].succs.push(succ_idx);
-        }
+    pub fn add_succ(&mut self, bb_idx: BOperand, succ_idx: (BOperand, BOperand)) {
+        self[bb_idx.get_bb_id()].succs.push(succ_idx);
     }
 
-    pub fn add_pred(&mut self, bb_idx: BOperand, pred_idx: BOperand) {
-        if !self[bb_idx.get_bb_id()].preds.contains(&pred_idx) {
-            self[bb_idx.get_bb_id()].preds.push(pred_idx);
-        }
+    pub fn add_pred(&mut self, bb_idx: BOperand, pred_idx: (BOperand, BOperand)) {
+        self[bb_idx.get_bb_id()].preds.push(pred_idx);
     }
 
-    pub fn remove_succ(&mut self, bb_idx: BOperand, succ_idx: BOperand) {
+    pub fn remove_succ(&mut self, bb_idx: BOperand, succ_idx: (BOperand, BOperand)) {
         if let Some(pos) = self[bb_idx.get_bb_id()]
             .succs
             .iter()
@@ -44,7 +41,7 @@ impl BCFG {
         }
     }
 
-    pub fn remove_pred(&mut self, bb_idx: BOperand, pred_idx: BOperand) {
+    pub fn remove_pred(&mut self, bb_idx: BOperand, pred_idx: (BOperand, BOperand)) {
         if let Some(pos) = self[bb_idx.get_bb_id()]
             .preds
             .iter()
@@ -135,10 +132,10 @@ impl Arena<BBasicBlock> for BCFG {
         // rewrite idx in preds and succs
         for item in self.storage.iter_mut() {
             if let ArenaItem::Data(bb) = item {
-                for pred in bb.preds.iter_mut() {
+                for (pred, _) in bb.preds.iter_mut() {
                     remap_bb(pred);
                 }
-                for succ in bb.succs.iter_mut() {
+                for (succ, _) in bb.succs.iter_mut() {
                     remap_bb(succ);
                 }
             }

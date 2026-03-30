@@ -198,7 +198,7 @@ impl<'a> SCCP<'a> {
             func.cfg[entry]
                 .succs
                 .iter()
-                .map(|succ| (Operand::BB(entry), succ.clone()))
+                .map(|(succ, _)| (Operand::BB(entry), succ.clone()))
                 .collect::<Vec<(Operand, Operand)>>(),
         );
         self.visited.insert(entry);
@@ -431,7 +431,7 @@ impl<'a> SCCP<'a> {
                     [self.builder.current_function.unwrap()]
                 .cfg;
                 if cfg[to.get_bb_id()].succs.len() == 1 {
-                    let succ = cfg[to.get_bb_id()].succs[0].clone();
+                    let (succ, _) = cfg[to.get_bb_id()].succs[0].clone();
                     self.edge_list.push((to.clone(), succ));
                 }
             }
@@ -546,7 +546,11 @@ impl<'a> SCCP<'a> {
                             let cfg = &mut self.program.as_mut().unwrap().funcs
                                 [self.builder.current_function.unwrap()]
                             .cfg;
-                            let ans_succ = &cfg[*bb_id].succs;
+                            let ans_succ = &cfg[*bb_id]
+                                .succs
+                                .iter()
+                                .map(|(succ, _)| succ.clone())
+                                .collect::<Vec<Operand>>();
 
                             if !self.visited.contains(*bb_id) || !ans_succ.contains(&current_bb) {
                                 self.program.as_deref_mut().unwrap().slay_phi_incoming(

@@ -842,7 +842,7 @@ impl Lowering {
             let entry_bb =
                 &self.ir.funcs[func_id.clone()].cfg[func.cfg.entry.expect("No entry block")];
             let succs = entry_bb.succs.clone();
-            for succ in succs {
+            for (succ, _) in succs {
                 self.worklist.push_back(succ.get_bb_id());
             }
         }

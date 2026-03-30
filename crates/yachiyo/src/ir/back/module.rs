@@ -563,14 +563,14 @@ impl BackIR {
                         LOpData::Br {
                             then_bb, else_bb, ..
                         } => {
-                            cfg.add_pred(then_bb.clone(), bb.clone());
-                            cfg.add_succ(bb.clone(), then_bb);
-                            cfg.add_pred(else_bb.clone(), bb.clone());
-                            cfg.add_succ(bb, else_bb);
+                            cfg.add_pred(then_bb.clone(), (bb.clone(), op));
+                            cfg.add_succ(bb.clone(), (then_bb, op));
+                            cfg.add_pred(else_bb.clone(), (bb.clone(), op));
+                            cfg.add_succ(bb, (else_bb, op));
                         }
                         LOpData::Jump { target_bb } => {
-                            cfg.add_pred(target_bb.clone(), bb.clone());
-                            cfg.add_succ(bb, target_bb);
+                            cfg.add_pred(target_bb.clone(), (bb.clone(), op));
+                            cfg.add_succ(bb, (target_bb, op));
                         }
                     },
                     uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, Call, LoadIntImm, LoadFloatImm, Ret],
@@ -583,12 +583,12 @@ impl BackIR {
                     enu: MOpData,
                     minor_arms: {
                         MOpData::J { target } => {
-                            cfg.add_pred(target.clone(), bb.clone());
-                            cfg.add_succ(bb, target);
+                            cfg.add_pred(target.clone(), (bb.clone(), op));
+                            cfg.add_succ(bb, (target, op));
                         }
                         MOpData::Bnez { target, .. } => {
-                            cfg.add_pred(target.clone(), bb.clone());
-                            cfg.add_succ(bb, target);
+                            cfg.add_pred(target.clone(), (bb.clone(), op));
+                            cfg.add_succ(bb, (target, op));
                         }
                         MOpData::Beq { offset, .. }
                         | MOpData::Bne { offset, .. }
@@ -596,8 +596,8 @@ impl BackIR {
                         | MOpData::Bge { offset, .. }
                         | MOpData::Bltu { offset, .. }
                         | MOpData::Bgeu { offset, .. } => {
-                            cfg.add_pred(offset.clone(), bb.clone());
-                            cfg.add_succ(bb, offset);
+                            cfg.add_pred(offset.clone(), (bb.clone(), op));
+                            cfg.add_succ(bb, (offset, op));
                         }
                     },
                     uni_ops: [Li, La, Mv, FmvS, Addw, Subw, Mulw, Divw, Remw, Addiw, Subiw, Muliw, Diviw, Remiw, Slliw, Srliw, Sraiw, Sllw, Srlw, Sraw, Slt, Slti, Sltu, Sltiu, Xor, Xori, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FneS, FgtS, FgeS, FcvtWS, FcvtSW, FmvWX, FmvXW, Lw, Sw, Flw, Fsw, Ld, Sd, Call, Ret],
@@ -628,14 +628,14 @@ impl BackIR {
                         LOpData::Br {
                             then_bb, else_bb, ..
                         } => {
-                            cfg.remove_pred(then_bb.clone(), bb.clone());
-                            cfg.remove_succ(bb.clone(), then_bb);
-                            cfg.remove_pred(else_bb.clone(), bb.clone());
-                            cfg.remove_succ(bb, else_bb);
+                            cfg.remove_pred(then_bb.clone(), (bb.clone(), op));
+                            cfg.remove_succ(bb.clone(), (then_bb, op));
+                            cfg.remove_pred(else_bb.clone(), (bb.clone(), op));
+                            cfg.remove_succ(bb, (else_bb, op));
                         }
                         LOpData::Jump { target_bb } => {
-                            cfg.remove_pred(target_bb.clone(), bb.clone());
-                            cfg.remove_succ(bb, target_bb);
+                            cfg.remove_pred(target_bb.clone(), (bb.clone(), op));
+                            cfg.remove_succ(bb, (target_bb, op));
                         }
                     },
                     uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, Call, LoadIntImm, LoadFloatImm, Ret],
@@ -648,12 +648,12 @@ impl BackIR {
                     enu: MOpData,
                     minor_arms: {
                         MOpData::J { target } => {
-                            cfg.remove_pred(target.clone(), bb.clone());
-                            cfg.remove_succ(bb, target);
+                            cfg.remove_pred(target.clone(), (bb.clone(), op));
+                            cfg.remove_succ(bb, (target, op));
                         }
                         MOpData::Bnez { target, .. } => {
-                            cfg.remove_pred(target.clone(), bb.clone());
-                            cfg.remove_succ(bb, target);
+                            cfg.remove_pred(target.clone(), (bb.clone(), op));
+                            cfg.remove_succ(bb, (target, op));
                         }
                         MOpData::Beq { offset, .. }
                         | MOpData::Bne { offset, .. }
@@ -661,8 +661,8 @@ impl BackIR {
                         | MOpData::Bge { offset, .. }
                         | MOpData::Bltu { offset, .. }
                         | MOpData::Bgeu { offset, .. } => {
-                            cfg.remove_pred(offset.clone(), bb.clone());
-                            cfg.remove_succ(bb, offset);
+                            cfg.remove_pred(offset.clone(), (bb.clone(), op));
+                            cfg.remove_succ(bb, (offset, op));
                         }
                     },
                     uni_ops: [Li, La, Mv, FmvS, Addw, Subw, Mulw, Divw, Remw, Addiw, Subiw, Muliw, Diviw, Remiw, Slliw, Srliw, Sraiw, Sllw, Srlw, Sraw, Slt, Slti, Sltu, Sltiu, Xor, Xori, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FneS, FgtS, FgeS, FcvtWS, FcvtSW, FmvWX, FmvXW, Lw, Sw, Flw, Fsw, Ld, Sd, Call, Ret],

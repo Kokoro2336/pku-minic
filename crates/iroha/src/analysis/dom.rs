@@ -99,7 +99,7 @@ impl<'a> BuildDomTree<'a> {
                 let func = &self.program.funcs[func_idx];
                 let block = &func.cfg[src];
                 match &block.succs[i] {
-                    Operand::BB(id) => *id,
+                    (Operand::BB(id), _) => *id,
                     _ => panic!("BuildDomTree: successor is not a basic block"),
                 }
             };
@@ -167,7 +167,7 @@ impl<'a> BuildDomTree<'a> {
                         let func = &self.program.funcs[self.current_function.unwrap()];
                         let block = &func.cfg[u];
                         match &block.preds[idx] {
-                            Operand::BB(id) => *id,
+                            (Operand::BB(id), _) => *id,
                             _ => continue,
                         }
                     };
@@ -292,7 +292,7 @@ impl<'a> BuildDomFrontier<'a> {
             let mut succs = Vec::new();
             for op in &block.succs {
                 match op {
-                    Operand::BB(id) => succs.push(*id),
+                    (Operand::BB(id), _) => succs.push(*id),
                     _ => panic!("DomFrontier: successor is not a basic block"),
                 }
             }
