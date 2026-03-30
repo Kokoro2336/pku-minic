@@ -60,6 +60,7 @@ impl IndexMut<BOperand> for BCG {
 
 impl VRegs {
     pub fn add_use(&mut self, vreg_id: BOperand, use_op_id: (BOperand, usize)) {
+        crate::debug::info!("Add use {:?} to vreg {:?}", use_op_id, vreg_id);
         let op_id = match_some! {
             target: vreg_id,
             enu: BOperand,
@@ -77,6 +78,7 @@ impl VRegs {
 
     /// op_idx: VReg, use_idx: Inst that uses the VReg.
     pub fn remove_use(&mut self, vreg_id: BOperand, use_tuple: (BOperand, usize)) {
+        crate::debug::info!("Remove use {:?} from vreg {:?}", use_tuple, vreg_id);
         let vreg_id = match_some! {
             target: vreg_id,
             enu: BOperand,
@@ -458,9 +460,10 @@ impl Arena<BFunction> for BCG {
                                             remap_with_cfg(target, &old_arena_cfg);
                                         }
                                         MOpData::Call { target } => {
-                                            remap_with_cfg(target, &old_arena_cfg);
+                                            if let BOperand::Func(func_id) = target {
+                                                remap_idx(func_id, &old_arena);
+                                            }
                                         }
-                                        MOpData::Ret => {}
                                         MOpData::Bnez { rs, target } => {
                                             if rs.is_virt() {
                                                 remap_with_vregs(rs, &old_arena_vregs);
@@ -481,6 +484,7 @@ impl Arena<BFunction> for BCG {
                                             }
                                             remap_with_cfg(offset, &old_arena_cfg);
                                         }
+                                        MOpData::Ret => {}
                                     }
                                 }
                             }

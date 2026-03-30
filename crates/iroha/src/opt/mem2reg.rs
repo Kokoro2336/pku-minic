@@ -584,8 +584,7 @@ impl<'a> Pass<'a> for Mem2Reg<'a> {
     }
     fn run(&mut self) {
         let program = self.program.as_mut().unwrap();
-        let (dom_trees, frontiers) =
-            analyze::<DomAnalysis>(program);
+        let (dom_trees, frontiers) = analyze::<DomAnalysis>(program);
 
         // 3. Insert Phi nodes
         info!("Start inserting phi nodes.");

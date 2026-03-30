@@ -1,7 +1,7 @@
 //! Remove Trivial Phi.
 
-use yachiyo::pass::Pass;
 use yachiyo::ir::mid::{Attr, Builder, OpData, OpType, Operand, PhiIncoming, IR};
+use yachiyo::pass::Pass;
 use yachiyo::utils::arena::ArenaItem;
 
 enum CheckType {

@@ -1,10 +1,10 @@
 //! Definition of Lower IR (LIR) instructions.
 
 use super::{BType, Reg};
+use crate::debug::info;
 use crate::ir::back::LOpData;
 use crate::ir::back::MOpData;
 use crate::utils::arena::*;
-use crate::debug::info;
 
 use std::ops::{Index, IndexMut};
 

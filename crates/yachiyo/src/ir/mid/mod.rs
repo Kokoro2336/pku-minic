@@ -1,10 +1,10 @@
 mod bb;
-mod func;
-mod op;
-mod module;
 mod builder;
+mod func;
+mod module;
+mod op;
 pub use bb::*;
-pub use func::*;
-pub use op::*;
-pub use module::*;
 pub use builder::*;
+pub use func::*;
+pub use module::*;
+pub use op::*;

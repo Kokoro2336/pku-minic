@@ -1,7 +1,7 @@
 //! Dump customized IR into LLVM format for debugging.
 
-use crate::base::Type;
 use crate::ast;
+use crate::base::Type;
 use crate::ir::mid::*;
 use crate::utils::arena::{ArenaItem, IndexedArena};
 use std::fmt::Write;

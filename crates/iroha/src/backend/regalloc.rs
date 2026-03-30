@@ -209,13 +209,23 @@ impl Allocator<'_> {
     }
 
     #[inline(always)]
-    fn get_func<'a>(&'a self, func_id: BOperand) -> &'a BFunction {
+    fn get_func(&self, func_id: BOperand) -> &BFunction {
         &self.ir.as_ref().unwrap().funcs[func_id]
     }
 
     #[inline(always)]
-    fn get_func_mut<'a>(&'a mut self, func_id: BOperand) -> &'a mut BFunction {
+    fn get_func_mut(&mut self, func_id: BOperand) -> &mut BFunction {
         &mut self.ir.as_mut().unwrap().funcs[func_id]
+    }
+
+    #[inline(always)]
+    fn get_degree(&self, reg: BOperand) -> usize {
+        if reg.is_phys() {
+            // Physical registers' degree is considered infinite, since they can't be spilled.
+            usize::MAX
+        } else {
+            self.degree[reg.get_virt_id()]
+        }
     }
 
     #[inline(always)]
@@ -224,14 +234,14 @@ impl Allocator<'_> {
             AllocatorType::Int => CALLEE_SAVED_XREGS
                 .to_vec()
                 .into_iter()
-                .map(|r| Reg::X(r))
-                .chain(CALLER_SAVED_XREGS.to_vec().into_iter().map(|r| Reg::X(r)))
+                .map(Reg::X)
+                .chain(CALLER_SAVED_XREGS.to_vec().into_iter().map(Reg::X))
                 .collect(),
             AllocatorType::Float => CALLEE_SAVED_FREGS
                 .to_vec()
                 .into_iter()
-                .map(|r| Reg::F(r))
-                .chain(CALLER_SAVED_FREGS.to_vec().into_iter().map(|r| Reg::F(r)))
+                .map(Reg::F)
+                .chain(CALLER_SAVED_FREGS.to_vec().into_iter().map(Reg::F))
                 .collect(),
             AllocatorType::Vector => unimplemented!(),
         }
@@ -331,7 +341,7 @@ impl Allocator<'_> {
     }
 
     #[inline(always)]
-    fn adjacent(&self, n: BOperand) -> Vec<BOperand> {
+    fn adjacent(&self, n: BOperand) -> ArraySet<BOperand> {
         let mut select_stack = ArraySet::new();
         for s in self.select_stack.iter() {
             select_stack.insert(s.to_owned());
@@ -340,31 +350,30 @@ impl Allocator<'_> {
         for n in self.coalesced_nodes.iter() {
             coalesced_nodes.insert(BOperand::Reg(Reg::Virt(n)));
         }
-        self.adj_list[n.get_virt_id()]
-            .clone()
-            .difference(&select_stack)
-            .difference(&coalesced_nodes)
-            .iter()
-            .cloned()
-            .collect()
+        if let BOperand::Reg(Reg::Virt(id)) = n {
+            self.adj_list[id]
+                .difference(&select_stack)
+                .difference(&coalesced_nodes)
+        } else {
+            ArraySet::new()
+        }
     }
 
     #[inline(always)]
-    fn node_moves(&self, n: BOperand) -> Vec<BOperand> {
-        let mut included_moves = ArraySet::new();
-        for m in self
-            .active_moves
-            .bitor(self.worklist_moves.get_in_list())
-            .iter()
-        {
-            included_moves.insert(BOperand::Inst(m));
+    fn node_moves(&self, n: BOperand) -> ArraySet<BOperand> {
+        if let BOperand::Reg(Reg::Virt(id)) = n {
+            let mut included_moves = ArraySet::new();
+            for m in self
+                .active_moves
+                .bitor(self.worklist_moves.get_in_list())
+                .iter()
+            {
+                included_moves.insert(BOperand::Inst(m));
+            }
+            self.move_list[id].intersection(&included_moves)
+        } else {
+            ArraySet::new()
         }
-        self.move_list[n.get_virt_id()]
-            .clone()
-            .intersection(&included_moves)
-            .iter()
-            .cloned()
-            .collect()
     }
 
     #[inline(always)]
@@ -412,8 +421,8 @@ impl Allocator<'_> {
         // If the degree of n drops below the number of colors, we can enable n and its adjacent nodes m.
         if d == self.get_colors_num() {
             // Enable n and its adjacent nodes m.
-            let mut nodes = vec![n];
-            nodes.extend(self.adjacent(n));
+            let nodes = array_set![n];
+            nodes.union(&self.adjacent(n));
             for m in nodes {
                 self.enable_moves(m);
             }
@@ -457,10 +466,14 @@ impl Allocator<'_> {
             self.coalesced_moves.insert(m.into());
             self.add_worklist(u);
         } else if v.is_phys() || self.adj_set.contains(&(u, v)) {
+            // In ideal case, u can't interfere with v, since v was removed during the interference graph building of u.
+            // If this edge is found, then v must interfere with u in some other place, so we can't coalesce them.
             self.frozen_moves.insert(m.into());
             self.add_worklist(u);
             self.add_worklist(v);
-        } else if (u.is_phys() && self.ok(u, v)) || (u.is_virt() && self.conservative(u, v)) {
+        } else if (u.is_phys() && self.adjacent(u).iter().all(|t| self.ok(t.to_owned(), u)))
+            || (u.is_virt() && self.conservative(self.adjacent(u).union(&self.adjacent(v))))
+        {
             self.coalesced_moves.insert(m.into());
             self.combine(u, v);
             // Since v is combined, we just need to add u to worklist.
@@ -472,62 +485,66 @@ impl Allocator<'_> {
     }
 
     fn combine(&mut self, u: BOperand, v: BOperand) {
-        if self.freeze_worklist.contains(&v) {
-            self.freeze_worklist.remove(&v);
-        } else {
-            self.spill_worklist.remove(&v);
+        if let BOperand::Reg(Reg::Virt(v_id)) = v {
+            if self.freeze_worklist.contains(&v) {
+                self.freeze_worklist.remove(&v);
+            } else {
+                self.spill_worklist.remove(&v);
+            }
+            self.coalesced_nodes.insert(v_id);
+            // Set alias
+            self.alias[v_id] = u;
+
+            if let BOperand::Reg(Reg::Virt(u_id)) = u {
+                // Combine the nodes' node_moves(NOT original move_list).
+                self.move_list[u_id] = self.move_list[u_id].union(&self.move_list[v_id]);
+            }
+
+            // Update interference graph of u.
+            for t in self.adjacent(v) {
+                self.add_edge(t, u);
+                // Decrease degree of t since add_edge increase the degree of t.
+                self.decrement_degree(t);
+            }
         }
-        self.coalesced_nodes.insert(v.get_virt_id());
-        // Set alias
-        self.alias[v.get_virt_id()] = u;
-        // Combine the nodes' node_moves(NOT original move_list).
-        self.move_list[u.get_virt_id()] = self.move_list[u.get_virt_id()]
-            .clone()
-            .union(&self.move_list[v.get_virt_id()]);
-        // Update interference graph of u.
-        for t in self.adjacent(v) {
-            self.add_edge(t, u);
-            // Decrease degree of t since add_edge increase the degree of t.
-            self.decrement_degree(t);
-        }
-        // u can't be in simplify_worklist now.
-        if self.degree[u.get_virt_id()] >= self.get_colors_num()
-            && self.freeze_worklist.contains(&u)
-        {
-            self.freeze_worklist.remove(&u);
-            self.spill_worklist.push_back(u);
+        if let BOperand::Reg(Reg::Virt(u_id)) = u {
+            // u can't be in simplify_worklist now.
+            if self.degree[u_id] >= self.get_colors_num() && self.freeze_worklist.contains(&u) {
+                self.freeze_worklist.remove(&u);
+                self.spill_worklist.push_back(u);
+            }
         }
     }
 
     /// TODO: Briggs' conservative coalescing test.
-    fn conservative(&self, u: BOperand, v: BOperand) -> bool {
-        let mut adjacent_nodes = self.adjacent(u);
-        adjacent_nodes.extend(self.adjacent(v));
+    fn conservative(&self, adjacent_nodes: ArraySet<BOperand>) -> bool {
         let k = adjacent_nodes
             .iter()
-            .filter(|n| self.degree[n.get_virt_id()] >= self.get_colors_num())
+            .filter(|n| self.get_degree(*n.to_owned()) >= self.get_colors_num())
             .count();
         k < self.get_colors_num()
     }
 
     /// TODO: George test.
     fn ok(&self, t: BOperand, r: BOperand) -> bool {
-        self.degree[t.get_virt_id()] < self.get_colors_num()
-            || t.is_phys()
-            || self.adj_set.contains(&(t, r))
+        self.get_degree(t) < self.get_colors_num() || t.is_phys() || self.adj_set.contains(&(t, r))
     }
 
     /// Add n to simplify_worklist.
     fn add_worklist(&mut self, n: BOperand) {
-        if self.colored_nodes.contains(n.get_virt_id())
-            // n might still lie in freeze_worklist but no longer be move-related after coalescing.
-            || self.move_related(n)
-            || self.degree[n.get_virt_id()] >= self.get_colors_num()
-        {
+        if let BOperand::Reg(Reg::Virt(id)) = n {
+            if self.degree[id] >= self.get_colors_num() || self.colored_nodes.contains(id) {
+                return;
+            }
+        }
+        // n might still lie in freeze_worklist but no longer be move-related after coalescing.
+        if self.move_related(n) {
             return;
         }
-        self.freeze_worklist.remove(&n);
-        self.simplify_worklist.push_back(n);
+        if let BOperand::Reg(Reg::Virt(_)) = n {
+            self.freeze_worklist.remove(&n);
+            self.simplify_worklist.push_back(n);
+        }
     }
 
     fn get_alias(&self, n: BOperand) -> BOperand {
@@ -572,8 +589,7 @@ impl Allocator<'_> {
             if v == n {
                 continue;
             }
-            if self.degree[v.get_virt_id()] < self.get_colors_num() && self.node_moves(v).is_empty()
-            {
+            if self.get_degree(v) < self.get_colors_num() && self.node_moves(v).is_empty() {
                 self.freeze_worklist.remove(&v);
                 self.simplify_worklist.push_back(v);
             }
@@ -590,9 +606,23 @@ impl Allocator<'_> {
     fn assign_colors(&mut self) {
         while let Some(n) = self.select_stack.pop() {
             let mut ok_colors = self.get_colors();
+            // Use physical adjacent list rather than adjacent().
             for w in self.adj_list[n.get_virt_id()].iter() {
-                if let Some(c) = self.color[w.get_virt_id()] {
-                    ok_colors.retain(|&color| color != c);
+                if w.is_phys() {
+                    ok_colors.retain(|&color| {
+                        color
+                            != match w {
+                                BOperand::Reg(Reg::F(r)) => Reg::F(r.to_owned()),
+                                BOperand::Reg(Reg::X(r)) => Reg::X(r.to_owned()),
+                                _ => unreachable!("Neighbor can't be non-reg"),
+                            }
+                    });
+                } else if let BOperand::Reg(Reg::Virt(id)) = w {
+                    if let Some(c) = self.color[*id] {
+                        ok_colors.retain(|&color| color != c);
+                    }
+                } else {
+                    unreachable!("Node in adjacent list can't be non-reg: {:?}", w);
                 }
             }
             // If no color is available, we have to spill the node.
@@ -605,7 +635,21 @@ impl Allocator<'_> {
         }
         // For coalesced nodes, we just assign them the color of their alias.
         for n in self.coalesced_nodes.iter() {
-            self.color[n] = self.color[self.get_alias(BOperand::Reg(Reg::Virt(n))).get_virt_id()];
+            let alias = self.get_alias(BOperand::Reg(Reg::Virt(n)));
+            if alias.is_virt() {
+                let alias_color =
+                    self.color[self.get_alias(BOperand::Reg(Reg::Virt(n))).get_virt_id()];
+                self.color[n] = alias_color;
+            } else if alias.is_phys() {
+                self.color[n] = match alias {
+                    BOperand::Reg(Reg::F(r)) => Some(Reg::F(r)),
+                    BOperand::Reg(Reg::X(r)) => Some(Reg::X(r)),
+                    _ => None,
+                };
+            } else {
+                // This should never happen since physical registers can't be coalesced.
+                unreachable!("Alias can't be non-reg");
+            }
         }
     }
 
@@ -625,7 +669,7 @@ impl Allocator<'_> {
             // Make the initial worklist.
             self.make_worklist();
 
-            // Main loop.
+            // Main loop(The state machine).
             loop {
                 if !self.simplify_worklist.is_empty() {
                     self.simplify();
@@ -683,7 +727,10 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
             // Liveness analysis for the whole program.
             let ir = self.ir.as_mut().unwrap();
             let (_, funcs_live_outs) = analyze::<LiveAnalysis>(ir);
-            yachiyo::debug::info!("Finished liveness analysis for register allocation. funcs_live_outs: {:#?}", funcs_live_outs);
+            yachiyo::debug::info!(
+                "Finished liveness analysis for register allocation. funcs_live_outs: {:#?}",
+                funcs_live_outs
+            );
 
             // Mount IR on allocator
             let ir_ptr = *self.ir.as_mut().unwrap() as *mut BackIR;

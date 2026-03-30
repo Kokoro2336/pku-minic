@@ -1,5 +1,5 @@
-use crate::config::RISCV_BITS;
 use crate::base::Type;
+use crate::config::RISCV_BITS;
 
 #[derive(Debug, Clone)]
 pub enum BType {

@@ -1,8 +1,8 @@
 //! Dead Code Elimination (DCE).
 
-use yachiyo::pass::Pass;
 use yachiyo::ir::mid::Builder;
 use yachiyo::ir::mid::{OpData, Operand, PhiIncoming, IR};
+use yachiyo::pass::Pass;
 use yachiyo::utils::arena::ArenaItem;
 use yachiyo::utils::r#match::match_src;
 

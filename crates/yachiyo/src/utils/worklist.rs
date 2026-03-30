@@ -93,7 +93,8 @@ impl<T: Eq + Hash + Clone> WorklistTrait<T> for Worklist<T, FxHashSet<T>> {
 
     fn remove(&mut self, item: &T) -> bool {
         if self.in_list.remove(item) {
-            self.list.remove(self.list.iter().position(|x| x == item).unwrap());
+            self.list
+                .remove(self.list.iter().position(|x| x == item).unwrap());
             true
         } else {
             false
@@ -159,7 +160,8 @@ impl<T: Into<usize> + Copy + PartialEq> WorklistTrait<T> for Worklist<T, BitSet>
 
     fn remove(&mut self, item: &T) -> bool {
         if self.in_list.remove((*item).into()) {
-            self.list.remove(self.list.iter().position(|x| x == item).unwrap());
+            self.list
+                .remove(self.list.iter().position(|x| x == item).unwrap());
             true
         } else {
             false

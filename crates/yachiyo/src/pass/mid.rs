@@ -1,9 +1,9 @@
 //! Pass management for IR optimization and transformation.
 
+use crate::cli::Cli;
 use crate::debug::info;
 use crate::debug::DumpLLVM;
 use crate::ir::mid::IR;
-use crate::cli::Cli;
 
 use std::collections::VecDeque;
 

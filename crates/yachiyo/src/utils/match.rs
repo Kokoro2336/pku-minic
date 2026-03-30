@@ -150,6 +150,6 @@ macro_rules! match_rd {
 }
 
 pub use match_full_ops;
+pub use match_rd;
 pub use match_some;
 pub use match_src;
-pub use match_rd;

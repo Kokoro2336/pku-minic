@@ -3,8 +3,8 @@
 
 use yachiyo::analysis::Analysis;
 use yachiyo::ir::back::{BOperand, BackIR};
-use yachiyo::utils::set::BitSet;
 use yachiyo::utils::set::ArraySet;
+use yachiyo::utils::set::BitSet;
 use yachiyo::utils::worklist::{Worklist, WorklistTrait};
 
 pub type LiveSet = ArraySet<BOperand>;
@@ -35,7 +35,7 @@ impl LiveAnalysis<'_> {
     }
 
     fn dfs(&mut self, bb_id: BOperand) {
-        if !self.dfs_post_order.contains(&bb_id) {
+        if self.dfs_post_order.contains(&bb_id) {
             return;
         }
 
@@ -118,7 +118,7 @@ impl LiveAnalysis<'_> {
         let func_id = self
             .current_function
             .expect("LiveAnalysis analyze: no current function");
-        while let Some(bb_id) = self.dfs_post_order.pop_back() {
+        while let Some(bb_id) = self.dfs_post_order.pop_front() {
             let old_live_in_len = self.live_ins[bb_id.get_bb_id()].len();
 
             // Update live_outs of the block based on live_ins of its successors.
@@ -127,11 +127,15 @@ impl LiveAnalysis<'_> {
             for succ in &bb.succs {
                 let succ_live_in = &self.live_ins[succ.get_bb_id()];
                 // Get the union of live_outs of the block and live_ins of its successor.
-                self.live_outs[bb_id.get_bb_id()].union(succ_live_in);
+                self.live_outs[bb_id.get_bb_id()] =
+                    self.live_outs[bb_id.get_bb_id()].union(succ_live_in);
             }
 
             // Process the block to update live_ins.
             self.process_block(bb_id);
+
+            // Update live_ins of the block with current_live.
+            self.live_ins[bb_id.get_bb_id()] = std::mem::take(&mut self.current_live);
 
             // If the live-in set changes, we need to reprocess the predecessors.
             if old_live_in_len != self.live_ins[bb_id.get_bb_id()].len() {

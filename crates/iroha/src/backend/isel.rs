@@ -21,7 +21,7 @@ impl ISel<'_> {
             target: &lop_data,
             bin_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe],
             bin_arm: LOpData { lhs, rhs } => {
-                if let (BOperand::IntImm(l), BOperand::IntImm(r)) = (lhs.clone(), rhs.clone()) {
+                if let (BOperand::IntImm(l), BOperand::IntImm(r)) = (lhs.to_owned(), rhs.to_owned()) {
                     match lop_data {
                         LOpData::AddI { .. } => BOperand::IntImm(l + r),
                         LOpData::SubI { .. } => BOperand::IntImm(l - r),
@@ -40,7 +40,7 @@ impl ISel<'_> {
                         LOpData::Sar { .. } => BOperand::IntImm(l >> r),
                         _ => unreachable!("{:?} doesn't support int immediate folding", lop_data),
                     }
-                } else if let (BOperand::FloatImm(l), BOperand::FloatImm(r)) = (lhs.clone(), rhs.clone()) {
+                } else if let (BOperand::FloatImm(l), BOperand::FloatImm(r)) = (lhs.to_owned(), rhs.to_owned()) {
                     match lop_data {
                         LOpData::AddF { .. } => BOperand::FloatImm(l + r),
                         LOpData::SubF { .. } => BOperand::FloatImm(l - r),
@@ -89,7 +89,7 @@ impl ISel<'_> {
     fn create(&mut self, bop: BOp) -> BOperand {
         self.builder.create(
             self.ir.as_mut().unwrap(),
-            self.builder.current_function.clone(),
+            self.builder.current_function.to_owned(),
             bop,
         )
     }
@@ -99,7 +99,7 @@ impl ISel<'_> {
         let func_id = self
             .builder
             .current_function
-            .clone()
+            .to_owned()
             .expect("ISel: not in a function");
         self.ir
             .as_ref()
@@ -113,12 +113,12 @@ impl ISel<'_> {
         let func_id = self
             .builder
             .current_function
-            .clone()
+            .to_owned()
             .expect("ISel: not in a function");
         let current_block = self
             .builder
             .current_block
-            .clone()
+            .to_owned()
             .expect("Not current block found");
         self.ir.as_mut().unwrap().replace_op_rauw(
             &mut self.builder,
@@ -134,12 +134,12 @@ impl ISel<'_> {
         let func_id = self
             .builder
             .current_function
-            .clone()
+            .to_owned()
             .expect("ISel: not in a function");
         let current_block = self
             .builder
             .current_block
-            .clone()
+            .to_owned()
             .expect("Not current block found");
         self.ir.as_mut().unwrap().replace_op_no_rauw(
             &mut self.builder,
@@ -154,10 +154,10 @@ impl ISel<'_> {
         let func_id = self
             .builder
             .current_function
-            .clone()
+            .to_owned()
             .expect("ISel: not in a function");
-        let func = &self.ir.as_ref().unwrap().funcs[func_id.clone()];
-        let bop = &func.dfg[lop_id.clone()];
+        let func = &self.ir.as_ref().unwrap().funcs[func_id.to_owned()];
+        let bop = &func.dfg[lop_id.to_owned()];
         let (lop_data, is_phi_move, typ) = (
             bop.data.clone().into(),
             bop.attrs.contains(&BAttr::PhiMove),
@@ -591,12 +591,12 @@ impl ISel<'_> {
                             BType::I32,
                             vec![],
                             // CAUTION: Create LOpData::Load here.
-                            LOpData::Load { rd: BOperand::Undef, addr: rodata_id.clone() }.into(),
+                            LOpData::Load { rd: BOperand::Undef, addr: rodata_id.to_owned() }.into(),
                         )
                     );
                     let load_vreg_id = self.get_vreg_id(load_lop_id);
                     self.replace_op_rauw(
-                        lop_id.clone(),
+                        lop_id.to_owned(),
                         BOp::new(
                             BType::F32,
                             vec![],
@@ -607,7 +607,7 @@ impl ISel<'_> {
 
                 LOpData::LoadIntImm { imm, .. } => {
                     self.replace_op_rauw(
-                        lop_id.clone(),
+                        lop_id.to_owned(),
                         BOp::new(
                             typ.clone(),
                             vec![],
@@ -619,7 +619,7 @@ impl ISel<'_> {
                 LOpData::Ret => {
                     // For non-binbinary/unary ops, we simply emit them as is.
                     self.replace_op_rauw(
-                        lop_id.clone(),
+                        lop_id.to_owned(),
                         BOp::new(
                             BType::Void,
                             vec![],

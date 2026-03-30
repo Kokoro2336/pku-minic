@@ -1,10 +1,10 @@
 //! Building dominator tree based on Lengauer-Tarjan algorithm.
 //! Reference: https://dl.acm.org/doi/10.1145/357062.357071
 
+use yachiyo::analysis::Analysis;
 use yachiyo::debug::info;
 use yachiyo::ir::mid::{Operand, IR};
 use yachiyo::utils::set::BitSet;
-use yachiyo::analysis::Analysis;
 
 pub type DomTree = Vec<Vec<usize>>;
 struct BuildDomTree<'a> {
