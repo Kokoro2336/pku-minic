@@ -651,9 +651,5 @@ impl<'a> BPass<'a> for ISel<'a> {
                 }
             }
         }
-        yachiyo::debug::info!(
-            "Instruction selection completed, BackIR: {:#?}",
-            self.ir.as_ref().unwrap()
-        );
     }
 }

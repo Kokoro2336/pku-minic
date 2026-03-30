@@ -757,12 +757,7 @@ impl Lowering {
                     .entry
                     .expect("No entry block")
             {
-                // Create prologue.
-                let func = &self.ir.funcs[func_id.clone()];
-                let lentry = self.alloc_and_map_block(
-                    Operand::BB(func.cfg.entry.expect("No entry block")),
-                    BBasicBlock::default(),
-                );
+                let lentry = self.get(Operand::BB(bb_id), false);
 
                 let func = &self.ir.funcs[func_id.clone()];
                 let param_types = match &func.typ {
@@ -826,10 +821,9 @@ impl Lowering {
             }
 
             // push successors to the worklist for later processing.
-            let func = &self.ir.funcs[func_id.clone()];
-            let entry_bb =
-                &self.ir.funcs[func_id.clone()].cfg[func.cfg.entry.expect("No entry block")];
-            let succs = entry_bb.succs.clone();
+            let bb =
+                &self.ir.funcs[func_id.clone()].cfg[bb_id];
+            let succs = bb.succs.clone();
             for (succ, _) in succs {
                 self.worklist.push_back(succ.get_bb_id());
             }
