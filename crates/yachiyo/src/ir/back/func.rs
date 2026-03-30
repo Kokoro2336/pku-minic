@@ -69,7 +69,7 @@ impl VRegs {
                 BOperand::Reg(Reg::X(_))
                 | BOperand::Reg(Reg::F(_)) => return,
             },
-            uni_ops: [IntImm, FloatImm, Func, Inst, Slot, Data, RoData, BB, Undef],
+            uni_ops: [IntImm, FloatImm, Func, Inst, Slot, Data, RoData, BB, Undef, Extern],
             uni_arm: return
         };
         let vreg = &mut self[op_id];
@@ -87,7 +87,7 @@ impl VRegs {
                 BOperand::Reg(Reg::X(_))
                 | BOperand::Reg(Reg::F(_)) => return,
             },
-            uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, BB, Undef],
+            uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, BB, Undef, Extern],
             uni_arm: return
         };
         let vreg = &mut self[vreg_id];
@@ -110,7 +110,7 @@ impl VRegs {
                 BOperand::Reg(Reg::X(_))
                 | BOperand::Reg(Reg::F(_)) => return,
             },
-            uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, BB, Undef],
+            uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, BB, Undef, Extern],
             uni_arm: return
         };
         let vreg = &mut self[vreg_id];
@@ -131,7 +131,7 @@ impl VRegs {
                 BOperand::Reg(Reg::X(_))
                 | BOperand::Reg(Reg::F(_)) => return,
             },
-            uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, BB, Undef],
+            uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, BB, Undef, Extern],
             uni_arm: return
         };
         let vreg = &mut self[vreg_id];

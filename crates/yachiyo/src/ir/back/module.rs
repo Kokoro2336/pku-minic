@@ -7,6 +7,7 @@ use super::{
 use crate::utils::arena::ArenaItem;
 use crate::utils::r#match::{match_rd, match_some, match_src};
 
+#[derive(Debug, Clone)]
 pub struct BackIR {
     pub data_info: DataInfo,
     pub rodata_info: RoDataInfo,
@@ -342,6 +343,7 @@ impl BackIR {
                     | BOperand::FloatImm(_)
                     | BOperand::Slot(_)
                     | BOperand::Undef
+                    | BOperand::Extern(_)
                     | BOperand::RoData(_)
                     | BOperand::BB(_)
                     | BOperand::Inst(_)
@@ -356,6 +358,7 @@ impl BackIR {
             | BOperand::IntImm(_)
             | BOperand::FloatImm(_)
             | BOperand::Slot(_)
+            | BOperand::Extern(_)
             | BOperand::Undef
             | BOperand::RoData(_)
             | BOperand::BB(_)
@@ -377,6 +380,7 @@ impl BackIR {
             | BOperand::FloatImm(_)
             | BOperand::Slot(_)
             | BOperand::Undef
+            | BOperand::Extern(_)
             | BOperand::RoData(_) => new,
 
             BOperand::BB(_) | BOperand::Func(_) => {
@@ -392,7 +396,7 @@ impl BackIR {
                 minor_arms: {
                     BOperand::Inst(op_id) => op_id,
                 },
-                uni_ops: [Reg, IntImm, FloatImm, Func, Slot, Data, RoData, BB, Undef],
+                uni_ops: [Reg, IntImm, FloatImm, Func, Slot, Data, RoData, BB, Undef, Extern],
                 uni_arm: return
             };
 
@@ -757,6 +761,7 @@ impl BackIR {
                         | BOperand::BB(_)
                         | BOperand::Slot(_)
                         | BOperand::IntImm(_)
+                        | BOperand::Extern(_)
                         | BOperand::FloatImm(_)
                         | BOperand::Func(_)
                         | BOperand::Inst(_) => unreachable!("Invalid rd operand {:?} in LOpData", rd),
@@ -806,6 +811,7 @@ impl BackIR {
                         | BOperand::Slot(_)
                         | BOperand::IntImm(_)
                         | BOperand::FloatImm(_)
+                        | BOperand::Extern(_)
                         | BOperand::Func(_)
                         | BOperand::Inst(_) => unreachable!("Invalid rd operand {:?} in MOpData", rd),
                     }

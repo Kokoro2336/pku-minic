@@ -34,6 +34,9 @@ pub enum BOperand {
     /// Id of .rodata arena.
     RoData(usize),
 
+    /// External function
+    Extern(&'static str),
+
     #[default]
     /// If an instruction instance is created with its rd undef, the builder will automatically assign it a new virtual register.
     /// Else if the undef lies in other kinds of operands, then the operand is really undefined.
@@ -52,6 +55,7 @@ impl std::fmt::Display for BOperand {
             BOperand::Slot(id) => write!(f, "slot.{id}"),
             BOperand::Data(id) => write!(f, "data.{id}"),
             BOperand::RoData(id) => write!(f, "rodata.{id}"),
+            BOperand::Extern(name) => write!(f, "extern.{name}"),
             BOperand::Undef => write!(f, "undef"),
         }
     }

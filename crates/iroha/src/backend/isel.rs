@@ -270,6 +270,7 @@ impl ISel<'_> {
                                         | BOperand::Inst(_)
                                         | BOperand::Slot(_)
                                         | BOperand::Data(_)
+                                        | BOperand::Extern(_)
                                         | BOperand::RoData(_)
                                         | BOperand::Undef => panic!("Expected an integer immediate for SGt, but got {:?}", imm),
                                     };
@@ -312,6 +313,7 @@ impl ISel<'_> {
                                         | BOperand::Func(_)
                                         | BOperand::Inst(_)
                                         | BOperand::Slot(_)
+                                        | BOperand::Extern(_)
                                         | BOperand::Data(_)
                                         | BOperand::RoData(_)
                                         | BOperand::Undef => panic!("Expected an integer immediate for SLe, but got {:?}", imm),
@@ -576,7 +578,7 @@ impl ISel<'_> {
                                 );
                             }
                         },
-                        BOperand::Slot(_) | BOperand::Data(_) | BOperand::RoData(_) | BOperand::Func(_) | BOperand::BB(_) | BOperand::Inst(_) | BOperand::Undef | BOperand::FloatImm(_) | BOperand::IntImm(_) => unreachable!("Unexpected destination operand for Move: {:?}", rd),
+                        BOperand::Slot(_) | BOperand::Data(_) | BOperand::RoData(_) | BOperand::Func(_) | BOperand::BB(_) | BOperand::Inst(_) | BOperand::Undef | BOperand::FloatImm(_) | BOperand::IntImm(_) | BOperand::Extern(_) => unreachable!("Unexpected destination operand for Move: {:?}", rd),
                     };
                 }
 
@@ -661,5 +663,9 @@ impl<'a> BPass<'a> for ISel<'a> {
                 }
             }
         }
+        yachiyo::debug::info!(
+            "Instruction selection completed, BackIR: {:#?}",
+            self.ir.as_ref().unwrap()
+        );
     }
 }

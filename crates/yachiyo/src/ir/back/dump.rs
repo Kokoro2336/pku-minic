@@ -183,6 +183,10 @@ fn dump_initializer(
                 out.push_str(&format!("  .dword {}\n", label));
                 written += 8;
             }
+            BOperand::Extern(name) => {
+                out.push_str(&format!("  .extern {}\n", name));
+                written += 8;
+            }
             BOperand::Reg(_) | BOperand::BB(_) | BOperand::Inst(_) | BOperand::Slot(_) => {
                 panic!(
                     "dump_initializer: unsupported operand in global initializer: {:?}",

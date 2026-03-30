@@ -106,7 +106,7 @@ impl Lowering {
                     self.lower_ir.get_rd(self.builder.current_function.to_owned(), lop_id).unwrap()
                 }
             },
-            uni_ops: [Undef, Reg, Func, BB, Inst, Data, Slot, RoData],
+            uni_ops: [Undef, Reg, Func, BB, Inst, Data, Slot, RoData, Extern],
             uni_arm: {
                 unreachable!("Only IntImm and FloatImm can be immediats, but got {:?}", imm)
             }
@@ -720,7 +720,7 @@ impl Lowering {
                                 BOperand::Reg(Reg::Virt(id)) => self.lower_ir.funcs[lfunc_id].vregs[id].defs[0].to_owned(),
                                 BOperand::Reg(_) => unreachable!("Only VirtReg can be the source of GEP, but got physical register"),
                             },
-                            uni_ops: [Data, Slot, BB, Func, Inst, Undef, IntImm, FloatImm, RoData],
+                            uni_ops: [Data, Slot, BB, Func, Inst, Undef, IntImm, FloatImm, RoData, Extern],
                             uni_arm: {
                                 current_lop_id
                             }
@@ -857,9 +857,9 @@ impl Lowering {
             let move_bop = &self.lower_ir.funcs[self
                 .builder
                 .current_function
-                .clone()
+                .to_owned()
                 .expect("No current function")]
-            .dfg[move_lop_id.clone()];
+            .dfg[move_lop_id.to_owned()];
 
             let move_lop_data = match move_bop.data.clone() {
                 BOpData::L(l_op) => l_op,
@@ -868,7 +868,7 @@ impl Lowering {
             let edge = match move_lop_data {
                 LOpData::Move { src, rd } => {
                     if let (BOperand::Reg(Reg::Virt(src_id)), BOperand::Reg(Reg::Virt(rd_id))) =
-                        (src.clone(), rd.clone())
+                        (src.to_owned(), rd.to_owned())
                     {
                         (src_id, rd_id)
                     } else {
@@ -888,9 +888,9 @@ impl Lowering {
                 let move_bop = &self.lower_ir.funcs[self
                     .builder
                     .current_function
-                    .clone()
+                    .to_owned()
                     .expect("No current function")]
-                .dfg[move_lop_id.clone()];
+                .dfg[move_lop_id.to_owned()];
 
                 let move_lop_data = match move_bop.data.clone() {
                     BOpData::L(l_op) => l_op,
@@ -899,7 +899,7 @@ impl Lowering {
                 let edge = match move_lop_data {
                     LOpData::Move { src, rd } => {
                         if let (BOperand::Reg(Reg::Virt(src_id)), BOperand::Reg(Reg::Virt(rd_id))) =
-                            (src.clone(), rd.clone())
+                            (src.to_owned(), rd.to_owned())
                         {
                             (src_id, rd_id)
                         } else {
@@ -909,7 +909,7 @@ impl Lowering {
                     _ => unreachable!("Only Move LOp should be in the move_lop_ids"),
                 };
                 if !edges.contains(&edge) {
-                    new.push(move_lop_id.clone());
+                    new.push(move_lop_id.to_owned());
                     // Remove those edges starting from the source of the current move.
                     edges.retain(|(src, _)| *src != edge.0);
                 }
@@ -1168,9 +1168,15 @@ impl Lowering {
         }
 
         // Pre-allocate functions.
-        for func_id in self.ir.funcs.collect_internal() {
+        for func_id in self.ir.funcs.ids() {
             let func = &self.ir.funcs[func_id];
-            self.alloc_and_map_func(Operand::Func(func_id), BFunction::new(func.name.clone()));
+            let name = func.name.clone();
+            if func.is_external {
+                // Simply map external functions to Extern operand with the function name.
+                self.set(Operand::Func(func_id), BOperand::Extern(String::leak(name)));
+            } else {
+                self.alloc_and_map_func(Operand::Func(func_id), BFunction::new(name));
+            }
         }
     }
 
@@ -1180,7 +1186,6 @@ impl Lowering {
             .resize(self.ir.globals.len(), BOperand::Undef);
         self.lower_global();
 
-        // Pre-allocate functions.
         for func_id in self.ir.funcs.collect_internal() {
             self.init(Operand::Func(func_id));
 
