@@ -154,7 +154,7 @@ impl Lowering {
             // Legalize immediats when getting 'em.
             Operand::Bool(imm) => self.legalize_imm(BOperand::IntImm(imm as i32), force_load),
             Operand::Int(imm) => self.legalize_imm(BOperand::IntImm(imm), force_load),
-            Operand::Float(imm) => self.legalize_imm(BOperand::FloatImm(imm.to_bits()), force_load),
+            Operand::Float(imm) => self.legalize_imm(BOperand::FloatImm(imm), force_load),
             Operand::Undefined => BOperand::Undef,
         }
     }
@@ -321,6 +321,13 @@ impl Lowering {
         let func_id = self.builder.current_function.expect("No current function");
         let slot_id = self.lower_ir.funcs[func_id].frame_info.alloc(slot);
         BOperand::Slot(slot_id)
+    }
+
+    #[inline(always)]
+    fn alloc_vreg(&mut self) -> BOperand {
+        let func_id = self.builder.current_function.expect("No current function");
+        let vreg_id = self.lower_ir.funcs[func_id].vregs.alloc(VirtReg::default());
+        BOperand::Reg(Reg::Virt(vreg_id))
     }
 
     fn get_param_regs(param_types: &[Type]) -> Vec<Reg> {
@@ -821,8 +828,7 @@ impl Lowering {
             }
 
             // push successors to the worklist for later processing.
-            let bb =
-                &self.ir.funcs[func_id.clone()].cfg[bb_id];
+            let bb = &self.ir.funcs[func_id.clone()].cfg[bb_id];
             let succs = bb.succs.clone();
             for (succ, _) in succs {
                 self.worklist.push_back(succ.get_bb_id());
@@ -945,8 +951,8 @@ impl Lowering {
         new
     }
 
-    fn create_trampoline(&mut self, edge: (usize, usize), new: Vec<BOperand>) {
-        let (from, to) = (BOperand::BB(edge.0), BOperand::BB(edge.1));
+    fn create_trampoline(&mut self, edge: (Operand, Operand), new: Vec<BOperand>) {
+        let (from, to) = (self.get(edge.0, false), self.get(edge.1, false));
         let tramp_id = self
             .builder
             .create_new_block(&mut self.lower_ir, self.builder.current_function);
@@ -1156,7 +1162,7 @@ impl Lowering {
             self.lower_bbs(Operand::Func(func_id));
 
             // Process phis.
-            let mut phi_moves: FxHashMap<(usize, usize), Vec<BOperand>> = FxHashMap::default();
+            let mut phi_moves: FxHashMap<(Operand, Operand), Vec<BOperand>> = FxHashMap::default();
             for (phi_id, phi_bb_id) in std::mem::take(&mut self.phis) {
                 let (typ, phi_op_data) = {
                     let op = &self.ir.funcs[func_id].dfg[Operand::Value(phi_id)];
@@ -1164,6 +1170,10 @@ impl Lowering {
                 };
 
                 if let OpData::Phi { incomings } = phi_op_data {
+                    // Pre-allocate a VReg for the Phi instruction and bind it.
+                    let phi_vreg_id = self.alloc_vreg();
+                    self.set(Operand::Value(phi_id), phi_vreg_id);
+
                     for incoming in incomings {
                         let (value, bb_id) = match incoming {
                             PhiIncoming::Data {
@@ -1182,7 +1192,7 @@ impl Lowering {
                             typ.clone().into(),
                             vec![BAttr::PhiMove],
                             LOpData::Move {
-                                rd: BOperand::Undef,
+                                rd: phi_vreg_id,
                                 src: incoming_vreg_id,
                             }
                             .into(),
@@ -1192,7 +1202,7 @@ impl Lowering {
                         let move_lop_id = self.create_and_map_lop(Operand::Value(phi_id), move_lop);
                         // Record the move_lop_id for later resorting and trampoline insertion.
                         phi_moves
-                            .entry((bb_id.get_bb_id(), phi_bb_id))
+                            .entry((bb_id, Operand::BB(phi_bb_id)))
                             .or_default()
                             .push(move_lop_id);
                     }

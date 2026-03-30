@@ -118,19 +118,22 @@ impl<'a> SCCP<'a> {
                 OpType::SLe => Lattice::Constant(Operand::Bool(i1 <= i2)),
                 _ => panic!("{:?}'s operands can't be folded as integers", op_typ),
             },
-            (Operand::Float(f1), Operand::Float(f2)) => match &op_typ {
-                OpType::AddF => Lattice::Constant(Operand::Float(f1 + f2)),
-                OpType::SubF => Lattice::Constant(Operand::Float(f1 - f2)),
-                OpType::MulF => Lattice::Constant(Operand::Float(f1 * f2)),
-                OpType::DivF => Lattice::Constant(Operand::Float(f1 / f2)),
-                OpType::ONe => Lattice::Constant(Operand::Bool(f1 != f2)),
-                OpType::OEq => Lattice::Constant(Operand::Bool(f1 == f2)),
-                OpType::OGt => Lattice::Constant(Operand::Bool(f1 > f2)),
-                OpType::OLt => Lattice::Constant(Operand::Bool(f1 < f2)),
-                OpType::OLe => Lattice::Constant(Operand::Bool(f1 <= f2)),
-                OpType::OGe => Lattice::Constant(Operand::Bool(f1 >= f2)),
-                _ => panic!("{:?}'s operands can't be folded as floats", op_typ),
-            },
+            (Operand::Float(f1), Operand::Float(f2)) => {
+                let (f1, f2) = (f32::from_bits(f1), f32::from_bits(f2));
+                match &op_typ {
+                    OpType::AddF => Lattice::Constant(Operand::Float((f1 + f2).to_bits())),
+                    OpType::SubF => Lattice::Constant(Operand::Float((f1 - f2).to_bits())),
+                    OpType::MulF => Lattice::Constant(Operand::Float((f1 * f2).to_bits())),
+                    OpType::DivF => Lattice::Constant(Operand::Float((f1 / f2).to_bits())),
+                    OpType::ONe => Lattice::Constant(Operand::Bool(f1 != f2)),
+                    OpType::OEq => Lattice::Constant(Operand::Bool(f1 == f2)),
+                    OpType::OGt => Lattice::Constant(Operand::Bool(f1 > f2)),
+                    OpType::OLt => Lattice::Constant(Operand::Bool(f1 < f2)),
+                    OpType::OLe => Lattice::Constant(Operand::Bool(f1 <= f2)),
+                    OpType::OGe => Lattice::Constant(Operand::Bool(f1 >= f2)),
+                    _ => panic!("{:?}'s operands can't be folded as floats", op_typ),
+                }
+            }
             (Operand::Bool(b1), Operand::Bool(b2)) => match &op_typ {
                 OpType::Xor => Lattice::Constant(Operand::Bool(b1 ^ b2)),
                 _ => panic!("{:?}'s operands can't be folded as booleans", op_typ),
@@ -142,22 +145,22 @@ impl<'a> SCCP<'a> {
     fn cast(lattice: Lattice, new_typ: Type) -> Lattice {
         match (&lattice, &new_typ) {
             (Lattice::Constant(Operand::Int(i)), Type::Float) => {
-                Lattice::Constant(Operand::Float(*i as f32))
+                Lattice::Constant(Operand::Float((*i as f32).to_bits()))
             }
             (Lattice::Constant(Operand::Int(i)), Type::Bool) => {
                 Lattice::Constant(Operand::Bool(*i != 0))
             }
             (Lattice::Constant(Operand::Float(f)), Type::Int) => {
-                Lattice::Constant(Operand::Int(*f as i32))
+                Lattice::Constant(Operand::Int(f32::from_bits(*f) as i32))
             }
             (Lattice::Constant(Operand::Float(f)), Type::Bool) => {
-                Lattice::Constant(Operand::Bool(*f != 0.0))
+                Lattice::Constant(Operand::Bool(f32::from_bits(*f) != 0.0))
             }
             (Lattice::Constant(Operand::Bool(b)), Type::Int) => {
                 Lattice::Constant(Operand::Int(if *b { 1 } else { 0 }))
             }
             (Lattice::Constant(Operand::Bool(b)), Type::Float) => {
-                Lattice::Constant(Operand::Float(if *b { 1.0 } else { 0.0 }))
+                Lattice::Constant(Operand::Float(if *b { 1.0f32 } else { 0.0f32 }.to_bits()))
             }
             /*Don't need to cast*/
             _ => lattice,

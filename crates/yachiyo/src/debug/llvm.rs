@@ -44,10 +44,6 @@ fn global_operand_name(id: usize, ctx: &DumpContext) -> String {
     format!("@{}", id)
 }
 
-fn format_float_literal(value: f32) -> String {
-    format!("0x{:016X}", (value as f64).to_bits())
-}
-
 fn operand_type(operand: &Operand, ctx: &DumpContext, default: Type) -> Type {
     match operand {
         Operand::Value(id) => {
@@ -114,7 +110,7 @@ impl Dump for Operand {
             Operand::Value(id) => write!(s, "{}", value_operand_name(*id, ctx))?,
             Operand::Global(id) => write!(s, "{}", global_operand_name(*id, ctx))?,
             Operand::Int(val) => write!(s, "{}", val)?,
-            Operand::Float(val) => write!(s, "{}", format_float_literal(*val))?,
+            Operand::Float(val) => write!(s, "0x{:016X}", (f32::from_bits(*val) as f64).to_bits())?,
             Operand::Bool(val) => write!(s, "{}", val)?,
             Operand::BB(id) => write!(s, "%bb_{}", id)?,
             Operand::Param { idx, .. } => write!(s, "%arg{}", idx)?,
@@ -847,7 +843,7 @@ impl Dump for IR {
                                         match v {
                                             ast::Literal::Int(x) => write!(s, "i32 {}", x)?,
                                             ast::Literal::Float(x) => {
-                                                write!(s, "float {}", format_float_literal(*x))?
+                                                write!(s, "float 0x{:016X}", (*x as f64).to_bits())?
                                             }
                                             _ => {}
                                         }
@@ -890,7 +886,9 @@ impl Dump for IR {
                                 if let Some(v) = values.first() {
                                     match v {
                                         ast::Literal::Int(x) => Ok(x.to_string()),
-                                        ast::Literal::Float(x) => Ok(format_float_literal(*x)),
+                                        ast::Literal::Float(x) => {
+                                            Ok(format!("0x{:016X}", (*x as f64).to_bits()))
+                                        }
                                         _ => Ok("zeroinitializer".to_string()),
                                     }
                                 } else {

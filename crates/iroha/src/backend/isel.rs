@@ -41,11 +41,12 @@ impl ISel<'_> {
                         _ => unreachable!("{:?} doesn't support int immediate folding", lop_data),
                     }
                 } else if let (BOperand::FloatImm(l), BOperand::FloatImm(r)) = (*lhs, *rhs) {
+                    let (l, r) = (f32::from_bits(l), f32::from_bits(r));
                     match lop_data {
-                        LOpData::AddF { .. } => BOperand::FloatImm(l + r),
-                        LOpData::SubF { .. } => BOperand::FloatImm(l - r),
-                        LOpData::MulF { .. } => BOperand::FloatImm(l * r),
-                        LOpData::DivF { .. } => BOperand::FloatImm(l / r),
+                        LOpData::AddF { .. } => BOperand::FloatImm((l + r).to_bits()),
+                        LOpData::SubF { .. } => BOperand::FloatImm((l - r).to_bits()),
+                        LOpData::MulF { .. } => BOperand::FloatImm((l * r).to_bits()),
+                        LOpData::DivF { .. } => BOperand::FloatImm((l / r).to_bits()),
                         LOpData::ONe { .. } => BOperand::IntImm((l != r) as i32),
                         LOpData::OEq { .. } => BOperand::IntImm((l == r) as i32),
                         LOpData::OGt { .. } => BOperand::IntImm((l > r) as i32),

@@ -262,7 +262,7 @@ impl Emit {
                 },
                 (Type::Float, Type::Bool) => OpData::ONe {
                     lhs: operand,
-                    rhs: Operand::Float(0.0),
+                    rhs: Operand::Float(0.0f32.to_bits()),
                 },
                 (Type::Bool, Type::Float) => OpData::Uitofp { value: operand },
                 (Type::Int, Type::Float) => OpData::Sitofp { value: operand },
@@ -382,7 +382,7 @@ impl Emit {
                                 value: Some(Operand::Int(0)),
                             },
                             Type::Float => OpData::Ret {
-                                value: Some(Operand::Float(0.0)),
+                                value: Some(Operand::Float(0.0f32.to_bits())),
                             },
                             Type::Bool => OpData::Ret {
                                 value: Some(Operand::Bool(false)),
@@ -779,7 +779,7 @@ impl Emit {
                                         addr,
                                         value: match init_value.clone() {
                                             Literal::Int(i) => Operand::Int(i),
-                                            Literal::Float(f) => Operand::Float(f),
+                                            Literal::Float(f) => Operand::Float(f.to_bits()),
                                             Literal::String(_) => unreachable!("String literal is not supported in array initialization"),
                                         },
                                     },
@@ -1684,7 +1684,7 @@ impl Emit {
                             }
                         } else {
                             OpData::SubF {
-                                lhs: Operand::Float(0.0),
+                                lhs: Operand::Float(0.0f32.to_bits()),
                                 rhs: operand_op,
                             }
                         }
@@ -1712,7 +1712,7 @@ impl Emit {
                     ast::Op::Bool2Float => OpData::Uitofp { value: operand_op },
                     ast::Op::Float2Bool => OpData::ONe {
                         lhs: operand_op,
-                        rhs: Operand::Float(0.0),
+                        rhs: Operand::Float(0.0f32.to_bits()),
                     },
                     _ => {
                         panic!(
@@ -1730,7 +1730,7 @@ impl Emit {
                 Some(un_op)
             }
             Node::Literal(Literal::Int(val)) => Some(Operand::Int(*val)),
-            Node::Literal(Literal::Float(val)) => Some(Operand::Float(*val)),
+            Node::Literal(Literal::Float(val)) => Some(Operand::Float((*val).to_bits())),
             Node::Literal(Literal::String(string)) => {
                 let string = string.clone();
                 self.str_counter += 1;
