@@ -567,13 +567,13 @@ impl BackIR {
                         LOpData::Br {
                             then_bb, else_bb, ..
                         } => {
-                            cfg.add_pred(then_bb.clone(), (bb.clone(), op));
-                            cfg.add_succ(bb.clone(), (then_bb, op));
-                            cfg.add_pred(else_bb.clone(), (bb.clone(), op));
+                            cfg.add_pred(then_bb, (bb, op));
+                            cfg.add_succ(bb, (then_bb, op));
+                            cfg.add_pred(else_bb, (bb, op));
                             cfg.add_succ(bb, (else_bb, op));
                         }
                         LOpData::Jump { target_bb } => {
-                            cfg.add_pred(target_bb.clone(), (bb.clone(), op));
+                            cfg.add_pred(target_bb, (bb, op));
                             cfg.add_succ(bb, (target_bb, op));
                         }
                     },
@@ -587,11 +587,11 @@ impl BackIR {
                     enu: MOpData,
                     minor_arms: {
                         MOpData::J { target } => {
-                            cfg.add_pred(target.clone(), (bb.clone(), op));
+                            cfg.add_pred(target, (bb, op));
                             cfg.add_succ(bb, (target, op));
                         }
                         MOpData::Bnez { target, .. } => {
-                            cfg.add_pred(target.clone(), (bb.clone(), op));
+                            cfg.add_pred(target, (bb, op));
                             cfg.add_succ(bb, (target, op));
                         }
                         MOpData::Beq { offset, .. }
@@ -600,7 +600,7 @@ impl BackIR {
                         | MOpData::Bge { offset, .. }
                         | MOpData::Bltu { offset, .. }
                         | MOpData::Bgeu { offset, .. } => {
-                            cfg.add_pred(offset.clone(), (bb.clone(), op));
+                            cfg.add_pred(offset, (bb, op));
                             cfg.add_succ(bb, (offset, op));
                         }
                     },
@@ -632,13 +632,13 @@ impl BackIR {
                         LOpData::Br {
                             then_bb, else_bb, ..
                         } => {
-                            cfg.remove_pred(then_bb.clone(), (bb.clone(), op));
-                            cfg.remove_succ(bb.clone(), (then_bb, op));
-                            cfg.remove_pred(else_bb.clone(), (bb.clone(), op));
+                            cfg.remove_pred(then_bb, (bb, op));
+                            cfg.remove_succ(bb, (then_bb, op));
+                            cfg.remove_pred(else_bb, (bb, op));
                             cfg.remove_succ(bb, (else_bb, op));
                         }
                         LOpData::Jump { target_bb } => {
-                            cfg.remove_pred(target_bb.clone(), (bb.clone(), op));
+                            cfg.remove_pred(target_bb, (bb, op));
                             cfg.remove_succ(bb, (target_bb, op));
                         }
                     },
@@ -652,11 +652,11 @@ impl BackIR {
                     enu: MOpData,
                     minor_arms: {
                         MOpData::J { target } => {
-                            cfg.remove_pred(target.clone(), (bb.clone(), op));
+                            cfg.remove_pred(target, (bb, op));
                             cfg.remove_succ(bb, (target, op));
                         }
                         MOpData::Bnez { target, .. } => {
-                            cfg.remove_pred(target.clone(), (bb.clone(), op));
+                            cfg.remove_pred(target, (bb, op));
                             cfg.remove_succ(bb, (target, op));
                         }
                         MOpData::Beq { offset, .. }
@@ -665,7 +665,7 @@ impl BackIR {
                         | MOpData::Bge { offset, .. }
                         | MOpData::Bltu { offset, .. }
                         | MOpData::Bgeu { offset, .. } => {
-                            cfg.remove_pred(offset.clone(), (bb.clone(), op));
+                            cfg.remove_pred(offset, (bb, op));
                             cfg.remove_succ(bb, (offset, op));
                         }
                     },
@@ -721,7 +721,6 @@ impl BackIR {
         self.add_uses(current_function, op_id);
         let current_block = builder
             .current_block
-            .to_owned()
             .unwrap_or_else(|| panic!("BackIR create: current_block is None"));
         self.add_control_flow(current_function, op_id, current_block);
         op_id
@@ -745,7 +744,7 @@ impl BackIR {
                         BOperand::Reg(_) => {
                             crate::debug::info!("Bind existing vreg {:?} with op {:?} in function {:?}", rd, op, current_function);
                             // Bind the operation with the existing virt reg.
-                            vregs.add_def(rd.to_owned(), op);
+                            vregs.add_def(*rd, op);
                         }
                         BOperand::Undef => {
                             // Allocate a new virt reg for the operation.
@@ -796,7 +795,7 @@ impl BackIR {
                     match rd {
                         BOperand::Reg(_) => {
                             // Bind the operation with the existing virt reg.
-                            vregs.add_def(rd.clone(), op);
+                            vregs.add_def(*rd, op);
                         }
                         BOperand::Undef => {
                             let new_vreg = vregs.alloc(VirtReg::default());
@@ -856,7 +855,7 @@ impl BackIR {
             if bb.cur.is_empty() {
                 None
             } else {
-                Some(bb.cur[0].clone())
+                Some(bb.cur[0])
             }
         };
 
@@ -888,7 +887,7 @@ impl BackIR {
 
         self.remove_def(current_function, op);
         self.remove_uses(current_function, op);
-        if let Some(bb_id) = bb.clone() {
+        if let Some(bb_id) = bb {
             self.remove_control_flow(current_function, op, bb_id);
         }
 
@@ -1104,7 +1103,7 @@ impl BackIR {
                 target: lop_data,
                 op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, Move],
                 rd_arm: LOpData(rd) => {
-                    Some(rd.to_owned())
+                    Some(*rd)
                 },
                 fallback: {
                     // For other LOpData which doesn't have rd field (e.g. Call and Store), we return Undef.
@@ -1131,7 +1130,7 @@ impl BackIR {
                     Lw, Flw, Ld
                 ],
                 rd_arm: MOpData(rd) => {
-                    Some(rd.clone())
+                    Some(*rd)
                 },
                 fallback: {
                     // For other MOpData which doesn't have rd field (e.g. J and Call), we return Undef.

@@ -178,7 +178,7 @@ impl Allocator<'_> {
             minor_arms: {
                 BOperand::Reg(Reg::Virt(_)) => {
                     let vreg = &self.get_func(func_id).vregs[vreg_id];
-                    let first_def = vreg.defs[0].to_owned();
+                    let first_def = vreg.defs[0];
                     let op = &self.get_func(func_id).dfg[first_def];
                     match &op.typ {
                         BType::I32 | BType::U64 => self.typ == AllocatorType::Int,
@@ -299,12 +299,12 @@ impl Allocator<'_> {
                 if op.data.is_move() {
                     let rd = rd.expect("Move instruction should have rd");
                     // Ignore move that is irrelevant to current allocator.
-                    if self.is_target(rd.to_owned()) {
+                    if self.is_target(rd) {
                         // Add the move instruction to src & rd's moveList.
                         for s in src.iter() {
                             if let BOperand::Reg(_) = s {
                                 // To avoid interference between src and rd, we substract src from live set temporarily.
-                                live = live.difference(&array_set![s.to_owned()]);
+                                live = live.difference(&array_set![*s]);
                                 // When s is a virtual register, we should alse add the move instruction to s's moveList.
                                 if let BOperand::Reg(Reg::Virt(id)) = s {
                                     self.move_list[*id].insert(*inst_id);
@@ -315,7 +315,7 @@ impl Allocator<'_> {
                             self.move_list[id].insert(*inst_id);
                         }
                         // Add the move instruction to worklistMoves.
-                        self.worklist_moves.push_back(inst_id.to_owned());
+                        self.worklist_moves.push_back(*inst_id);
                     }
                 }
 
@@ -326,7 +326,7 @@ impl Allocator<'_> {
                     // Add interference edges between rd and all live-out nodes.
                     // All of the current live nodes are included, but we'll filter out non-target nodes in add_edge function.
                     for live_var in live.iter() {
-                        self.add_edge(rd, live_var.to_owned());
+                        self.add_edge(rd, *live_var);
                     }
                 }
 
@@ -344,7 +344,7 @@ impl Allocator<'_> {
     fn adjacent(&self, n: BOperand) -> ArraySet<BOperand> {
         let mut select_stack = ArraySet::new();
         for s in self.select_stack.iter() {
-            select_stack.insert(s.to_owned());
+            select_stack.insert(*s);
         }
         let mut coalesced_nodes = ArraySet::new();
         for n in self.coalesced_nodes.iter() {
@@ -471,7 +471,7 @@ impl Allocator<'_> {
             self.frozen_moves.insert(m.into());
             self.add_worklist(u);
             self.add_worklist(v);
-        } else if (u.is_phys() && self.adjacent(u).iter().all(|t| self.ok(t.to_owned(), u)))
+        } else if (u.is_phys() && self.adjacent(u).iter().all(|t| self.ok(*t, u)))
             || (u.is_virt() && self.conservative(self.adjacent(u).union(&self.adjacent(v))))
         {
             self.coalesced_moves.insert(m.into());
@@ -520,7 +520,7 @@ impl Allocator<'_> {
     fn conservative(&self, adjacent_nodes: ArraySet<BOperand>) -> bool {
         let k = adjacent_nodes
             .iter()
-            .filter(|n| self.get_degree(*n.to_owned()) >= self.get_colors_num())
+            .filter(|n| self.get_degree(**n) >= self.get_colors_num())
             .count();
         k < self.get_colors_num()
     }
@@ -612,8 +612,8 @@ impl Allocator<'_> {
                     ok_colors.retain(|&color| {
                         color
                             != match w {
-                                BOperand::Reg(Reg::F(r)) => Reg::F(r.to_owned()),
-                                BOperand::Reg(Reg::X(r)) => Reg::X(r.to_owned()),
+                                BOperand::Reg(Reg::F(r)) => Reg::F(*r),
+                                BOperand::Reg(Reg::X(r)) => Reg::X(*r),
                                 _ => unreachable!("Neighbor can't be non-reg"),
                             }
                     });

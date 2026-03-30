@@ -223,6 +223,53 @@ impl LOpData {
     }
 }
 
+impl std::fmt::Display for LOpData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LOpData::AddI { rd, lhs, rhs } => write!(f, "addI {rd}, {lhs}, {rhs}"),
+            LOpData::SubI { rd, lhs, rhs } => write!(f, "subI {rd}, {lhs}, {rhs}"),
+            LOpData::MulI { rd, lhs, rhs } => write!(f, "mulI {rd}, {lhs}, {rhs}"),
+            LOpData::DivI { rd, lhs, rhs } => write!(f, "divI {rd}, {lhs}, {rhs}"),
+            LOpData::ModI { rd, lhs, rhs } => write!(f, "modI {rd}, {lhs}, {rhs}"),
+            LOpData::Xor { rd, lhs, rhs } => write!(f, "xor {rd}, {lhs}, {rhs}"),
+            LOpData::SNe { rd, lhs, rhs } => write!(f, "sne {rd}, {lhs}, {rhs}"),
+            LOpData::SEq { rd, lhs, rhs } => write!(f, "seq {rd}, {lhs}, {rhs}"),
+            LOpData::SGt { rd, lhs, rhs } => write!(f, "sgt {rd}, {lhs}, {rhs}"),
+            LOpData::SLt { rd, lhs, rhs } => write!(f, "slt {rd}, {lhs}, {rhs}"),
+            LOpData::SGe { rd, lhs, rhs } => write!(f, "sge {rd}, {lhs}, {rhs}"),
+            LOpData::SLe { rd, lhs, rhs } => write!(f, "sle {rd}, {lhs}, {rhs}"),
+            LOpData::Shl { rd, lhs, rhs } => write!(f, "shl {rd}, {lhs}, {rhs}"),
+            LOpData::Shr { rd, lhs, rhs } => write!(f, "shr {rd}, {lhs}, {rhs}"),
+            LOpData::Sar { rd, lhs, rhs } => write!(f, "sar {rd}, {lhs}, {rhs}"),
+            LOpData::AddF { rd, lhs, rhs } => write!(f, "addF {rd}, {lhs}, {rhs}"),
+            LOpData::SubF { rd, lhs, rhs } => write!(f, "subF {rd}, {lhs}, {rhs}"),
+            LOpData::MulF { rd, lhs, rhs } => write!(f, "mulF {rd}, {lhs}, {rhs}"),
+            LOpData::DivF { rd, lhs, rhs } => write!(f, "divF {rd}, {lhs}, {rhs}"),
+            LOpData::ONe { rd, lhs, rhs } => write!(f, "one {rd}, {lhs}, {rhs}"),
+            LOpData::OEq { rd, lhs, rhs } => write!(f, "oeq {rd}, {lhs}, {rhs}"),
+            LOpData::OGt { rd, lhs, rhs } => write!(f, "ogt {rd}, {lhs}, {rhs}"),
+            LOpData::OLt { rd, lhs, rhs } => write!(f, "olt {rd}, {lhs}, {rhs}"),
+            LOpData::OGe { rd, lhs, rhs } => write!(f, "oge {rd}, {lhs}, {rhs}"),
+            LOpData::OLe { rd, lhs, rhs } => write!(f, "ole {rd}, {lhs}, {rhs}"),
+            LOpData::Sitofp { rd, value } => write!(f, "sitofp {rd}, {value}"),
+            LOpData::Fptosi { rd, value } => write!(f, "fptosi {rd}, {value}"),
+            LOpData::Store { addr, value } => write!(f, "store {addr}, {value}"),
+            LOpData::Load { rd, addr } => write!(f, "load {rd}, {addr}"),
+            LOpData::Move { rd, src } => write!(f, "move {rd}, {src}"),
+            LOpData::LoadIntImm { rd, imm } => write!(f, "loadIntImm {rd}, {imm}"),
+            LOpData::LoadFloatImm { rd, imm } => write!(f, "loadFloatImm {rd}, {imm}"),
+            LOpData::Call { func } => write!(f, "call {func}"),
+            LOpData::Br {
+                cond,
+                then_bb,
+                else_bb,
+            } => write!(f, "br {cond}, {then_bb}, {else_bb}"),
+            LOpData::Jump { target_bb } => write!(f, "jump {target_bb}"),
+            LOpData::Ret => write!(f, "ret"),
+        }
+    }
+}
+
 impl From<LOpData> for BOpData {
     fn from(op_data: LOpData) -> Self {
         BOpData::L(op_data)

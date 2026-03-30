@@ -46,7 +46,7 @@ impl LiveAnalysis<'_> {
         let ir = self.ir.unwrap();
         let bb = &ir.funcs[func_id].cfg[bb_id];
         for (succ, _) in &bb.succs {
-            self.dfs(succ.to_owned());
+            self.dfs(*succ);
         }
 
         // Post-order traversal.
@@ -146,7 +146,7 @@ impl LiveAnalysis<'_> {
                 let ir = self.ir.unwrap();
                 let bb = &ir.funcs[func_id].cfg[bb_id];
                 for (pred, _) in &bb.preds {
-                    self.dfs_post_order.push_back(pred.to_owned());
+                    self.dfs_post_order.push_back(*pred);
                 }
             }
         }

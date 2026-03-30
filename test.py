@@ -211,6 +211,7 @@ def main():
     logs_dir = "./logs"
     graphs_dir = "./graphs"
     dump_llvm_dir = "./dump_llvm"
+    dump_asm_dir = "./dump_asm"
     test_output_base = "./test"
     sylib_ll = "./sylib/sylib.ll"
 
@@ -235,6 +236,7 @@ def main():
             clean_directory(logs_dir)
             clean_directory(graphs_dir)
             clean_directory(dump_llvm_dir)
+            clean_directory(dump_asm_dir)
             
             # Expected output file (if any)
             # We specify an output file in CWD, then move it.
@@ -462,6 +464,16 @@ def main():
                     for f in os.listdir(dump_llvm_dir):
                         src = os.path.join(dump_llvm_dir, f)
                         if f.endswith('.ll'):
+                            dst = os.path.join(target_dir, f)
+                        else:
+                            dst = os.path.join(work_test_output_dir, f)
+                        shutil.move(src, dst)
+
+                # Move dumped assembly
+                if os.path.exists(dump_asm_dir):
+                    for f in os.listdir(dump_asm_dir):
+                        src = os.path.join(dump_asm_dir, f)
+                        if f.endswith('.asm'):
                             dst = os.path.join(target_dir, f)
                         else:
                             dst = os.path.join(work_test_output_dir, f)

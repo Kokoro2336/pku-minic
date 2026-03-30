@@ -7,8 +7,8 @@ use iroha::frontend::*;
 use iroha::opt::*;
 
 use yachiyo::cli::Cli;
-use yachiyo::debug::info;
 use yachiyo::debug::log::setup;
+use yachiyo::debug::{info, DumpASM};
 use yachiyo::pass::*;
 use yachiyo::utils::arena::Arena;
 
@@ -97,7 +97,14 @@ fn main() -> Result<()> {
         .register(Box::new(RegAlloc::default()))
         .run(&mut back_ir);
 
-    // Dump the asm.
+    info!("Start Dumping Assembly.");
+    let asm_filename = input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output")
+        .to_string();
+    DumpASM::new(&back_ir, asm_filename).run();
+    info!("Finish Dumping Assembly.");
 
     Ok(())
 }
