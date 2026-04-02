@@ -11,7 +11,7 @@ use yachiyo::ir::back::{
     CALLER_SAVED_FREGS, CALLER_SAVED_XREGS, COLOR_FREGS, COLOR_XREGS,
 };
 use yachiyo::pass::BPass;
-use yachiyo::utils::r#match::match_some;
+use yachiyo::utils::r#match::{match_some, match_full_ops};
 use yachiyo::utils::set::{array_set, ArraySet, BitSet};
 use yachiyo::utils::worklist::{Worklist, WorklistTrait};
 
@@ -153,18 +153,10 @@ impl Allocator<'_> {
         self.alias.clear();
         self.color.clear();
         // Resize
-        self.move_list.resize(
-            self.get_func(self.current_function.unwrap()).vregs.len(),
-            ArraySet::new(),
-        );
-        self.alias.resize(
-            self.get_func(self.current_function.unwrap()).vregs.len(),
-            BOperand::Undef,
-        );
-        self.color.resize(
-            self.get_func(self.current_function.unwrap()).vregs.len(),
-            None,
-        );
+        let vregs_len = self.get_func(self.current_function.unwrap()).vregs.len();
+        self.move_list.resize(vregs_len, ArraySet::new());
+        self.alias.resize(vregs_len, BOperand::Undef);
+        self.color.resize(vregs_len, None);
     }
 
     // ========= Helper Functions ==========
@@ -653,14 +645,27 @@ impl Allocator<'_> {
         }
     }
 
-    /// TODO: rewrite the program after coloring.
-    fn rewrite_program(&mut self) {
+    /// TODO: insert spill code for spilled nodes and rewrite the program, then rerun the whole process until there is no spill.
+    fn insert_spills(&mut self) {
         todo!()
+    }
+
+    /// TODO: rewrite the program after successfully coloring.
+    fn rewrite(&mut self) {
+        let func_id = self.current_function.unwrap();
+        let dfg = &self.get_func_mut(func_id).dfg;
+        let ids = dfg.ids();
+
+        for op_id in ids {
+            let op_id = BOperand::Inst(op_id);
+            let dfg = &mut self.get_func_mut(func_id).dfg;
+            let op_data = &mut dfg[op_id].data;
+        }
     }
 
     /// Main function of register allocation.
     /// LiveOuts is the result of current function's liveness analysis, which is used for building the interference graph.
-    fn allocate(&mut self, live_outs: &LiveOuts) {
+    fn run(&mut self, live_outs: &LiveOuts) {
         loop {
             // Reset the worklist.
             self.reset();
@@ -689,9 +694,10 @@ impl Allocator<'_> {
             if self.spilled_nodes.is_empty() {
                 break;
             }
-            // Rewrite the program to insert spill code, and then rerun the whole process until there is no spill.
-            self.rewrite_program();
+            self.insert_spills();
         }
+        // Rewrite the program to insert spill code, and then rerun the whole process until there is no spill.
+        self.rewrite();
     }
 }
 
@@ -728,7 +734,7 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
             let ir = self.ir.as_mut().unwrap();
             let (_, funcs_live_outs) = analyze::<LiveAnalysis>(ir);
             yachiyo::debug::info!(
-                "Finished liveness analysis for register allocation. funcs_live_outs: {:#?}",
+                "Finished liveness analysis for register allocation. funcs_live_outs: {:?}",
                 funcs_live_outs
             );
 
@@ -740,7 +746,7 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
 
             for func_id in self.ir.as_ref().unwrap().funcs.ids() {
                 allocator.init(BOperand::Func(func_id));
-                allocator.allocate(&funcs_live_outs[func_id]);
+                allocator.run(&funcs_live_outs[func_id]);
             }
         }
     }

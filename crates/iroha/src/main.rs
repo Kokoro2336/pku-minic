@@ -27,7 +27,7 @@ fn main() -> Result<()> {
     };
 
     let input_path = cli.input.clone();
-    let _ = cli.output.clone();
+    let output_path = cli.output.clone();
 
     // Get input str.
     let input_str = read_to_string(&input_path)?;
@@ -94,14 +94,14 @@ fn main() -> Result<()> {
     BPassManager::default()
         .register(Box::new(ISel::default()))
         .register(Box::new(BCompaction::default()))
-        .register(Box::new(RegAlloc::default()))
+        // .register(Box::new(RegAlloc::default()))
         .run(&mut back_ir);
 
     info!("Start Dumping Assembly.");
-    let asm_filename = input_path
+    let asm_filename = output_path
         .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("output")
+        .unwrap()
+        .to_string_lossy()
         .to_string();
     DumpASM::new(&back_ir, asm_filename).run();
     info!("Finish Dumping Assembly.");
