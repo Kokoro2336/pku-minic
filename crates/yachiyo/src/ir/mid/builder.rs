@@ -14,7 +14,7 @@ pub struct LoopInfo {
 #[derive(Default)]
 pub struct Builder {
     pub loop_stack: Vec<LoopInfo>,
-    pub current_function: Option<usize>,
+    pub current_function: Option<Operand>,
     // current basic block
     pub current_block: Option<Operand>,
     // insertion point: insert before this instruction; None means append at block end.
@@ -24,7 +24,7 @@ pub struct Builder {
 pub struct BuilderGuard<'a> {
     pub builder: &'a mut Builder,
     loop_stack: Vec<LoopInfo>,
-    current_function: Option<usize>,
+    current_function: Option<Operand>,
     current_block: Option<Operand>,
     current_inst: Option<Operand>,
 }
@@ -32,7 +32,7 @@ pub struct BuilderGuard<'a> {
 impl<'a> BuilderGuard<'a> {
     pub fn new(builder: &'a mut Builder) -> Self {
         let loop_stack = builder.loop_stack.clone();
-        let current_function = builder.current_function;
+        let current_function = builder.current_function.clone();
         let current_block = builder.current_block.clone();
         let current_inst = builder.current_inst.clone();
         Self {
@@ -62,7 +62,7 @@ impl DerefMut for BuilderGuard<'_> {
 impl Drop for BuilderGuard<'_> {
     fn drop(&mut self) {
         self.builder.loop_stack = self.loop_stack.clone();
-        self.builder.current_function = self.current_function;
+        self.builder.current_function = self.current_function.clone();
         self.builder.current_block = self.current_block.clone();
         self.builder.current_inst = self.current_inst.clone();
     }
@@ -80,7 +80,7 @@ impl Builder {
     }
 
     #[inline(always)]
-    pub fn set_current_func(&mut self, func_id: Option<usize>) {
+    pub fn set_current_func(&mut self, func_id: Option<Operand>) {
         self.current_function = func_id;
         self.current_block = None;
         self.current_inst = None;
@@ -108,7 +108,7 @@ impl Builder {
     pub fn set_before_inst(
         &mut self,
         program: &mut IR,
-        current_function: Option<usize>,
+        current_function: Option<Operand>,
         inst_id: Option<Operand>,
     ) {
         let cfg = program.cfg_mut_or_panic(
@@ -138,7 +138,7 @@ impl Builder {
     pub fn set_after_inst(
         &mut self,
         program: &mut IR,
-        current_function: Option<usize>,
+        current_function: Option<Operand>,
         inst_id: Option<Operand>,
     ) {
         let cfg = program.cfg_mut_or_panic(
@@ -179,14 +179,19 @@ impl Builder {
         }
     }
 
-    pub fn create(&mut self, program: &mut IR, current_function: Option<usize>, op: Op) -> Operand {
+    pub fn create(
+        &mut self,
+        program: &mut IR,
+        current_function: Option<Operand>,
+        op: Op,
+    ) -> Operand {
         program.create(self, current_function, op)
     }
 
     pub fn create_at_head(
         &mut self,
         program: &mut IR,
-        current_function: Option<usize>,
+        current_function: Option<Operand>,
         op: Op,
     ) -> Operand {
         program.create_at_head(self, current_function, op)
@@ -195,7 +200,7 @@ impl Builder {
     pub fn create_new_block(
         &mut self,
         program: &mut IR,
-        current_function: Option<usize>,
+        current_function: Option<Operand>,
     ) -> Operand {
         program.create_new_block(current_function)
     }

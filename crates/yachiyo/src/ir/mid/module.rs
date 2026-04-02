@@ -26,21 +26,21 @@ impl IR {
 
     pub(crate) fn cfg_mut_or_panic(
         &mut self,
-        current_function: Option<usize>,
+        current_function: Option<Operand>,
         msg: &str,
     ) -> &mut CFG {
         let idx = current_function.unwrap_or_else(|| panic!("{}", msg));
         &mut self.funcs[idx].cfg
     }
 
-    fn dfg_mut_or_panic(&mut self, current_function: Option<usize>, msg: &str) -> &mut DFG {
+    fn dfg_mut_or_panic(&mut self, current_function: Option<Operand>, msg: &str) -> &mut DFG {
         let idx = current_function.unwrap_or_else(|| panic!("{}", msg));
         &mut self.funcs[idx].dfg
     }
 
     fn cfg_dfg_mut_or_panic(
         &mut self,
-        current_function: Option<usize>,
+        current_function: Option<Operand>,
         msg: &str,
     ) -> (&mut CFG, &mut DFG) {
         let idx = current_function.unwrap_or_else(|| panic!("{}", msg));
@@ -48,7 +48,7 @@ impl IR {
         (&mut func.cfg, &mut func.dfg)
     }
 
-    pub fn add_uses(&mut self, current_function: Option<usize>, op: Operand) {
+    pub fn add_uses(&mut self, current_function: Option<Operand>, op: Operand) {
         let dfg = self.dfg_mut_or_panic(current_function, "IR add_uses: no current function");
         let data = dfg[op.get_op_id()].data.clone();
 
@@ -129,7 +129,7 @@ impl IR {
         }
     }
 
-    pub fn remove_uses(&mut self, current_function: Option<usize>, op: Operand) {
+    pub fn remove_uses(&mut self, current_function: Option<Operand>, op: Operand) {
         let dfg = self.dfg_mut_or_panic(current_function, "IR remove_uses: no current function");
         let data = dfg[op.get_op_id()].data.clone();
 
@@ -212,7 +212,7 @@ impl IR {
 
     pub fn replace_all_uses(
         &mut self,
-        current_function: Option<usize>,
+        current_function: Option<Operand>,
         old: Operand,
         new: Operand,
     ) {
@@ -224,7 +224,12 @@ impl IR {
         }
     }
 
-    pub fn add_control_flow(&mut self, current_function: Option<usize>, op: Operand, bb: Operand) {
+    pub fn add_control_flow(
+        &mut self,
+        current_function: Option<Operand>,
+        op: Operand,
+        bb: Operand,
+    ) {
         let (cfg, dfg) =
             self.cfg_dfg_mut_or_panic(current_function, "IR add_control_flow: no current function");
         let data = dfg[op.get_op_id()].data.clone();
@@ -254,7 +259,7 @@ impl IR {
 
     pub fn remove_control_flow(
         &mut self,
-        current_function: Option<usize>,
+        current_function: Option<Operand>,
         op: Operand,
         bb: Operand,
     ) {
@@ -289,7 +294,7 @@ impl IR {
     pub fn create(
         &mut self,
         builder: &Builder,
-        current_function: Option<usize>,
+        current_function: Option<Operand>,
         op: Op,
     ) -> Operand {
         match_some! {
@@ -304,7 +309,7 @@ impl IR {
             uni_ops: [AddF, SubF, MulF, DivF, AddI, SubI, MulI, DivI, ModI, Load, Store, Alloca, Phi, GlobalAlloca, Call, GEP, Sitofp, Fptosi, Uitofp, Zext, Ret, Shl, Shr, Sar, SNe, SEq, Xor, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Declare, Jump, Br],
             uni_arm: {
                 let (cfg, dfg) =
-                    self.cfg_dfg_mut_or_panic(current_function, "IR create: no current function");
+                    self.cfg_dfg_mut_or_panic(current_function.clone(), "IR create: no current function");
 
                 let new_id = dfg.alloc(op);
                 let current_block = if let Some(block) = &builder.current_block {
@@ -334,7 +339,7 @@ impl IR {
                     op_id
                 };
 
-                self.add_uses(current_function, op_id.clone());
+                self.add_uses(current_function.clone(), op_id.clone());
                 let current_block = builder
                     .current_block
                     .clone()
@@ -348,7 +353,7 @@ impl IR {
     pub fn create_at_head(
         &mut self,
         builder: &mut Builder,
-        current_function: Option<usize>,
+        current_function: Option<Operand>,
         op: Op,
     ) -> Operand {
         let bb_id = match &builder.current_block {
@@ -357,8 +362,10 @@ impl IR {
         };
 
         let inst_id = {
-            let cfg =
-                self.cfg_mut_or_panic(current_function, "IR create_at_head: no current function");
+            let cfg = self.cfg_mut_or_panic(
+                current_function.clone(),
+                "IR create_at_head: no current function",
+            );
             let bb = &cfg[bb_id];
             if bb.cur.is_empty() {
                 None
@@ -367,18 +374,22 @@ impl IR {
             }
         };
 
-        builder.set_before_inst(self, current_function, inst_id);
+        builder.set_before_inst(self, current_function.clone(), inst_id);
         self.create(builder, current_function, op)
     }
 
-    pub fn create_new_block(&mut self, current_function: Option<usize>) -> Operand {
+    pub fn create_new_block(&mut self, current_function: Option<Operand>) -> Operand {
         let cfg =
             self.cfg_mut_or_panic(current_function, "IR create_new_block: no current function");
         let bb_id = cfg.alloc(BasicBlock::default());
         Operand::BB(bb_id)
     }
 
-    pub fn get_all_ops(&mut self, current_function: Option<usize>, op_typ: OpType) -> Vec<Operand> {
+    pub fn get_all_ops(
+        &mut self,
+        current_function: Option<Operand>,
+        op_typ: OpType,
+    ) -> Vec<Operand> {
         let dfg = self.dfg_mut_or_panic(current_function, "IR get_all_ops: no current function");
         dfg.storage
             .iter()
@@ -399,7 +410,7 @@ impl IR {
 
     pub fn get_all_ops_in_block(
         &mut self,
-        current_function: Option<usize>,
+        current_function: Option<Operand>,
         block: Operand,
         op_typ: OpType,
     ) -> Vec<Operand> {
@@ -423,7 +434,7 @@ impl IR {
 
     pub fn get_all_non_phi_in_block(
         &mut self,
-        current_function: Option<usize>,
+        current_function: Option<Operand>,
         block: Operand,
     ) -> Vec<Operand> {
         let (cfg, dfg) = self.cfg_dfg_mut_or_panic(
@@ -446,7 +457,7 @@ impl IR {
 
     pub fn remove_op(
         &mut self,
-        current_function: Option<usize>,
+        current_function: Option<Operand>,
         op: Operand,
         bb: Option<Operand>,
     ) -> Op {
@@ -461,9 +472,9 @@ impl IR {
             return removed_op;
         }
 
-        self.remove_uses(current_function, op.clone());
+        self.remove_uses(current_function.clone(), op.clone());
         if let Some(bb_id) = bb.clone() {
-            self.remove_control_flow(current_function, op.clone(), bb_id);
+            self.remove_control_flow(current_function.clone(), op.clone(), bb_id);
         }
 
         let (cfg, dfg) =
@@ -502,13 +513,16 @@ impl IR {
     pub fn replace_op(
         &mut self,
         builder: &mut Builder,
-        current_function: Option<usize>,
+        current_function: Option<Operand>,
         op_id: Operand,
         bb_id: Operand,
         new_op: Op,
     ) -> Operand {
         let pos = {
-            let cfg = self.cfg_mut_or_panic(current_function, "IR replace_op: no current function");
+            let cfg = self.cfg_mut_or_panic(
+                current_function.clone(),
+                "IR replace_op: no current function",
+            );
             let bb = &cfg[bb_id.clone()];
             bb.cur
                 .iter()
@@ -522,7 +536,10 @@ impl IR {
         };
 
         let next_inst = {
-            let cfg = self.cfg_mut_or_panic(current_function, "IR replace_op: no current function");
+            let cfg = self.cfg_mut_or_panic(
+                current_function.clone(),
+                "IR replace_op: no current function",
+            );
             let bb = &cfg[bb_id.get_bb_id()];
             bb.cur.get(pos + 1).cloned()
         };
@@ -531,10 +548,10 @@ impl IR {
             let mut guard = BuilderGuard::new(builder);
             guard.set_current_block(bb_id.clone());
             // Create new instruction first.
-            guard.set_before_inst(self, current_function, next_inst);
-            let new_op_id = self.create(&guard, current_function, new_op);
+            guard.set_before_inst(self, current_function.clone(), next_inst);
+            let new_op_id = self.create(&guard, current_function.clone(), new_op);
             // RAUW
-            self.replace_all_uses(current_function, op_id.clone(), new_op_id.clone());
+            self.replace_all_uses(current_function.clone(), op_id.clone(), new_op_id.clone());
             // Remove old instruction.
             self.remove_op(current_function, op_id, Some(bb_id.clone()));
             new_op_id
@@ -543,7 +560,7 @@ impl IR {
 
     pub fn move_op_to_bb_at(
         &mut self,
-        current_function: Option<usize>,
+        current_function: Option<Operand>,
         op: Operand,
         old_bb: Operand,
         new_bb: Operand,
@@ -588,7 +605,7 @@ impl IR {
 
     pub fn add_phi_incoming(
         &mut self,
-        current_function: Option<usize>,
+        current_function: Option<Operand>,
         phi: Operand,
         idx: usize,
         value: Operand,
@@ -613,7 +630,7 @@ impl IR {
     #[allow(unused)]
     pub fn remove_phi_incoming(
         &mut self,
-        current_function: Option<usize>,
+        current_function: Option<Operand>,
         phi: Operand,
         idx: usize,
     ) {
@@ -623,7 +640,7 @@ impl IR {
     /// Eliminate the phi edge from the incomings.
     pub fn slay_phi_incoming(
         &mut self,
-        current_function: Option<usize>,
+        current_function: Option<Operand>,
         phi: Operand,
         bb: Operand,
     ) {

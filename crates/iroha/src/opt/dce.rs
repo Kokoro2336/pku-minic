@@ -20,7 +20,7 @@ pub struct DCE<'a> {
 impl<'a> DCE<'a> {
     pub fn is_dead(&self, operand: &Operand) -> bool {
         let program = self.program.as_ref().unwrap();
-        let current_func = match self.builder.current_function {
+        let current_func = match self.builder.current_function.clone() {
             Some(idx) => &program.funcs[idx],
             None => panic!("DCE: not in a function"),
         };
@@ -33,10 +33,10 @@ impl<'a> DCE<'a> {
         }
     }
 
-    pub fn init(&mut self, func_id: usize) {
-        self.builder.set_current_func(Some(func_id));
+    pub fn init(&mut self, func_id: Operand) {
+        self.builder.set_current_func(Some(func_id.clone()));
         let program = self.program.as_ref().unwrap();
-        let func = &program.funcs[self.builder.current_function.unwrap()];
+        let func = &program.funcs[func_id];
         self.worklist.clear();
 
         // map OpId to BBId
@@ -84,7 +84,7 @@ impl<'a> Pass<'a> for DCE<'a> {
     fn run(&mut self) {
         fn check(this: &mut DCE, operand: &Operand) {
             let program = this.program.as_ref().unwrap();
-            let func = match this.builder.current_function {
+            let func = match this.builder.current_function.clone() {
                 Some(idx) => &program.funcs[idx],
                 None => panic!("DCE: not in a function"),
             };
@@ -111,11 +111,11 @@ impl<'a> Pass<'a> for DCE<'a> {
         }
         let func_ids = self.program.as_ref().unwrap().funcs.collect_internal();
         for func_id in func_ids {
-            self.init(func_id);
+            self.init(Operand::Func(func_id));
             while let Some((op_id, bb_id)) = self.worklist.pop() {
                 if let Operand::Value(id) = op_id {
                     let func = &self.program.as_ref().unwrap().funcs
-                        [self.builder.current_function.unwrap()];
+                        [self.builder.current_function.clone().unwrap()];
                     let bb = bb_id.get_bb_id();
                     if !func.cfg[bb].cur.iter().any(|inst| inst.get_op_id() == id) {
                         continue;
@@ -124,12 +124,12 @@ impl<'a> Pass<'a> for DCE<'a> {
                 self.builder.set_current_block(bb_id.clone());
                 let removed_op = match op_id {
                     Operand::Global(_) => self.program.as_deref_mut().unwrap().remove_op(
-                        self.builder.current_function,
+                        self.builder.current_function.clone(),
                         op_id,
                         None,
                     ),
                     _ => self.program.as_deref_mut().unwrap().remove_op(
-                        self.builder.current_function,
+                        self.builder.current_function.clone(),
                         op_id.clone(),
                         Some(bb_id.clone()),
                     ),
