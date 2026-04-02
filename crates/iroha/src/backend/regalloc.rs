@@ -11,7 +11,7 @@ use yachiyo::ir::back::{
     CALLER_SAVED_FREGS, CALLER_SAVED_XREGS, COLOR_FREGS, COLOR_XREGS,
 };
 use yachiyo::pass::BPass;
-use yachiyo::utils::r#match::{match_some, match_full_ops};
+use yachiyo::utils::r#match::{match_full_ops, match_some};
 use yachiyo::utils::set::{array_set, ArraySet, BitSet};
 use yachiyo::utils::worklist::{Worklist, WorklistTrait};
 

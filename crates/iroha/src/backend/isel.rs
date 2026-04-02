@@ -153,6 +153,9 @@ impl ISel<'_> {
             bop.typ.clone(),
         );
 
+        // Set before current inst.
+        self.builder.set_current_inst(lop_id);
+
         // For non-phi instructions, we still try to keep SSA form.
         match_full_ops! {
             target: &lop_data,

@@ -154,7 +154,7 @@ impl Lowering {
                         .unwrap()
                 }
             }
-            Operand::Param { idx, .. } => self.param_map[idx],
+            Operand::Param { idx, .. } => self.get_rd(self.param_map[idx]),
 
             // Legalize immediats when getting 'em.
             Operand::Bool(imm) => self.legalize_imm(BOperand::IntImm(imm as i32), force_load),
@@ -278,8 +278,8 @@ impl Lowering {
             Some(name) => self.lower_ir.rodata_info.insert(rodata, name),
             None => self.lower_ir.rodata_info.alloc(rodata),
         };
-        self.set(global_id, BOperand::Data(rodata_id));
-        BOperand::Data(rodata_id)
+        self.set(global_id, BOperand::RoData(rodata_id));
+        BOperand::RoData(rodata_id)
     }
 
     #[inline(always)]
@@ -632,7 +632,7 @@ impl Lowering {
                     };
 
                     // Initialize the current base address with the base pointer.
-                    let mut current_lop_id = self.get(base.clone(), false);
+                    let mut current_lop_vreg_id = self.get(base.clone(), false);
                     for (dim, index) in indices.iter().enumerate() {
                         match &base_typ {
                             Type::Array { .. } => {
@@ -655,8 +655,8 @@ impl Lowering {
                                             vec![],
                                             LOpData::AddI {
                                                 rd: BOperand::Undef,
-                                                lhs: current_lop_id,
-                                                rhs: mul_lop_id,
+                                                lhs: current_lop_vreg_id,
+                                                rhs: self.get_rd(mul_lop_id),
                                             }
                                             .into(),
                                         );
@@ -670,7 +670,7 @@ impl Lowering {
                                         add_lop,
                                     );
                                     // Update current base address.
-                                    current_lop_id = add_lop_id;
+                                    current_lop_vreg_id = self.get_rd(add_lop_id);
                                 }
                             }
                             _ => {
@@ -690,6 +690,7 @@ impl Lowering {
 
                                 // If the pointee is scalar, the iteration will only has one step.
                                 // We don't need to update current_lop_id, and we can directly bind the vreg of GEP to the Add.
+                                let mul_op_vreg_id = self.get_rd(mul_op);
                                 self.create_and_map_lop(
                                     op_id.clone(),
                                     BOp::new(
@@ -697,8 +698,8 @@ impl Lowering {
                                         vec![],
                                         LOpData::AddI {
                                             rd: BOperand::Undef,
-                                            lhs: current_lop_id,
-                                            rhs: mul_op,
+                                            lhs: current_lop_vreg_id,
+                                            rhs: mul_op_vreg_id,
                                         }
                                         .into(),
                                     ),
@@ -709,19 +710,7 @@ impl Lowering {
 
                     // If the truncated indices is empty, we need to map the GEP to the base pointer's LOp InstId directly.
                     if indices.is_empty() {
-                        let lfunc_id = self.get(func_id, false);
-                        let target_id = match_some!(
-                            target: current_lop_id,
-                            enu: BOperand,
-                            minor_arms: {
-                                BOperand::Reg(Reg::Virt(id)) => self.lower_ir.funcs[lfunc_id].vregs[id].defs[0],
-                                BOperand::Reg(_) => unreachable!("Only VirtReg can be the source of GEP, but got physical register"),
-                            },
-                            uni_ops: [Data, Slot, BB, Func, Inst, Undef, IntImm, FloatImm, RoData, Extern],
-                            uni_arm: {
-                                current_lop_id
-                            }
-                        );
+                        let target_id = self.get(base.clone(), false);
                         self.set(op_id, target_id);
                     }
                 }
@@ -1025,7 +1014,10 @@ impl Lowering {
                     )
                 }
             }
-            _ => unreachable!("The terminator of the from block should be either Br or Jump: {:?}", from_term_data),
+            _ => unreachable!(
+                "The terminator of the from block should be either Br or Jump: {:?}",
+                from_term_data
+            ),
         };
 
         let current_function = self.builder.current_function;
