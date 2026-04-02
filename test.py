@@ -106,7 +106,8 @@ def main():
     parser.add_argument('--clean', action='store_true', help='Clean test directories before running')
     parser.add_argument('--graph', action='store_true', help='Generate CFG graphs (.dot/.svg) from linked LLVM IR using opt + graphviz')
     parser.add_argument('--trace', action='store_true', help='Enable trace logging')
-    parser.add_argument('--dump-after', type=str, default='', help='Dump LLVM IR after a specific pass (pass name)')
+    parser.add_argument('--dump-llvm-after', type=str, default='', help='Dump LLVM IR after a specific pass (pass name)')
+    parser.add_argument('--dump-asm-after', type=str, default='', help='Dump assembly after a specific backend pass (pass name)')
     parser.add_argument('--emit-llvm', action='store_true', help='Enable compiler --emit-llvm explicitly for dumping LLVM IR')
     backend_group = parser.add_mutually_exclusive_group()
     backend_group.add_argument('--lli', action='store_true', help='Use lli to interpret linked .ll')
@@ -121,7 +122,7 @@ def main():
         exec_mode = 'compiler'
 
     # LLVM dump is required for IR-level workflows and is auto-enabled for --lli.
-    need_emit_llvm = args.emit_llvm or args.lli or args.llc or args.graph or bool(args.dump_after)
+    need_emit_llvm = args.emit_llvm or args.lli or args.llc or args.graph or bool(args.dump_llvm_after)
     need_runtime_exec = args.lli or args.llc
 
     if args.clean and not (args.test or args.basic):
@@ -255,8 +256,10 @@ def main():
             cmd = [compiler_binary, test_file, "-o", output_file_name]
             if need_emit_llvm:
                 cmd.append("--emit-llvm")
-            if args.dump_after:
-                cmd.append(f"--dump-after={args.dump_after}")
+            if args.dump_llvm_after:
+                cmd.append(f"--dump-llvm-after={args.dump_llvm_after}")
+            if args.dump_asm_after:
+                cmd.append(f"--dump-asm-after={args.dump_asm_after}")
             if args.graph:
                 cmd.append("--graph")
             

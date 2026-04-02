@@ -91,10 +91,11 @@ fn main() -> Result<()> {
     info!("Finish Lowering.");
 
     // Run Backend Passes.
-    BPassManager::default()
+    BPassManager::new(&cli)
         .register(Box::new(ISel::default()))
+        .register(Box::new(BDCE::default()))
         .register(Box::new(BCompaction::default()))
-        // .register(Box::new(RegAlloc::default()))
+        .register(Box::new(RegAlloc::default()))
         .run(&mut back_ir);
 
     info!("Start Dumping Assembly.");

@@ -152,6 +152,13 @@ impl BOpData {
             BOpData::L(lop_data) => matches!(lop_data, LOpData::Move { .. }),
         }
     }
+    #[inline(always)]
+    pub fn is_impure(&self) -> bool {
+        match self {
+            BOpData::M(mop_data) => mop_data.is_impure(),
+            BOpData::L(lop_data) => lop_data.is_impure(),
+        }
+    }
 }
 
 pub type BDFG = IndexedArena<BOp>;

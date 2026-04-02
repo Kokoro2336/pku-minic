@@ -294,6 +294,28 @@ pub enum MOpData {
     },
 }
 
+impl MOpData {
+    pub fn is_impure(&self) -> bool {
+        matches!(
+            self,
+            MOpData::Sw { .. }
+                | MOpData::Flw { .. }
+                | MOpData::Fsw { .. }
+                | MOpData::Sd { .. }
+                | MOpData::J { .. }
+                | MOpData::Call { .. }
+                | MOpData::Bnez { .. }
+                | MOpData::Beq { .. }
+                | MOpData::Bne { .. }
+                | MOpData::Blt { .. }
+                | MOpData::Bge { .. }
+                | MOpData::Bltu { .. }
+                | MOpData::Bgeu { .. }
+                | MOpData::Ret
+        )
+    }
+}
+
 impl From<MOpData> for BOpData {
     fn from(op_data: MOpData) -> Self {
         BOpData::M(op_data)

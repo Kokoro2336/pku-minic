@@ -1,6 +1,8 @@
 //! Pass management for BackIR.
 
+use crate::cli::Cli;
 use crate::debug::info;
+use crate::debug::DumpASM;
 use crate::ir::back::BackIR;
 
 use std::collections::VecDeque;
@@ -14,15 +16,22 @@ pub trait BPass<'a> {
     fn run(&mut self);
 }
 
-#[derive(Default)]
 pub struct BPassManager<'a> {
     // The lifetime 'a is tied to the IR that the passes will operate on.
     // The `+ 'a` bound is necessary because the passes themselves (like DCE<'a>)
     // contain a mutable reference to the IR with lifetime 'a.
     passes: VecDeque<Box<dyn BPass<'a> + 'a>>,
+    cli: &'a Cli,
 }
 
 impl<'a> BPassManager<'a> {
+    pub fn new(cli: &'a Cli) -> Self {
+        BPassManager {
+            passes: VecDeque::new(),
+            cli,
+        }
+    }
+
     pub fn register(mut self, pass: Box<dyn BPass<'a> + 'a>) -> Self {
         self.passes.push_back(pass);
         self
@@ -36,6 +45,26 @@ impl<'a> BPassManager<'a> {
             unsafe { pass.mount(&mut *ir_ptr) };
             pass.run();
             info!("Finished backend pass: {}", pass.name());
+
+            if self.cli.dump_asm_after == pass.name() {
+                info!("Dumping assembly after backend pass: {}", pass.name());
+                let filename = self
+                    .cli
+                    .input
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("output")
+                    .to_string();
+                unsafe {
+                    DumpASM::new(&*ir_ptr, filename).run();
+                }
+                info!(
+                    "Finished dumping assembly after backend pass: {}",
+                    pass.name()
+                );
+                info!("Quit after dumping.");
+                std::process::exit(0)
+            }
         }
     }
 }

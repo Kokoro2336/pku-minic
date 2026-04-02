@@ -221,6 +221,17 @@ impl LOpData {
                 | LOpData::OLe { .. }
         )
     }
+
+    pub fn is_impure(&self) -> bool {
+        matches!(
+            self,
+            LOpData::Store { .. }
+                | LOpData::Call { .. }
+                | LOpData::Br { .. }
+                | LOpData::Jump { .. }
+                | LOpData::Ret
+        )
+    }
 }
 
 impl std::fmt::Display for LOpData {
