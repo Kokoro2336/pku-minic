@@ -50,7 +50,7 @@ impl<'a> BPassManager<'a> {
                 info!("Dumping assembly after backend pass: {}", pass.name());
                 let filename = self
                     .cli
-                    .input
+                    .output
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("output")
@@ -63,8 +63,19 @@ impl<'a> BPassManager<'a> {
                     pass.name()
                 );
                 info!("Quit after dumping.");
-                std::process::exit(0)
+                std::process::exit(0);
             }
         }
+
+        info!("Start Dumping Assembly.");
+        let asm_filename = self
+            .cli
+            .output
+            .file_stem()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        DumpASM::new(ir, asm_filename).run();
+        info!("Finish Dumping Assembly.");
     }
 }

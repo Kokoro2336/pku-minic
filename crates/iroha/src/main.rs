@@ -8,7 +8,7 @@ use iroha::opt::*;
 
 use yachiyo::cli::Cli;
 use yachiyo::debug::log::setup;
-use yachiyo::debug::{info, DumpASM};
+use yachiyo::debug::info;
 use yachiyo::pass::*;
 use yachiyo::utils::arena::Arena;
 
@@ -27,8 +27,6 @@ fn main() -> Result<()> {
     };
 
     let input_path = cli.input.clone();
-    let output_path = cli.output.clone();
-
     // Get input str.
     let input_str = read_to_string(&input_path)?;
 
@@ -97,15 +95,6 @@ fn main() -> Result<()> {
         .register(Box::new(BCompaction::default()))
         .register(Box::new(RegAlloc::default()))
         .run(&mut back_ir);
-
-    info!("Start Dumping Assembly.");
-    let asm_filename = output_path
-        .file_stem()
-        .unwrap()
-        .to_string_lossy()
-        .to_string();
-    DumpASM::new(&back_ir, asm_filename).run();
-    info!("Finish Dumping Assembly.");
 
     Ok(())
 }

@@ -13,7 +13,6 @@ mod r#type;
 
 pub use bb::*;
 pub use builder::*;
-pub use dump::*;
 pub use func::*;
 pub use mem::*;
 pub use module::*;

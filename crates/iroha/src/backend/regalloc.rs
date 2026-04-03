@@ -7,15 +7,16 @@ use std::ops::BitOr;
 use crate::analysis::{LiveAnalysis, LiveOuts};
 use yachiyo::analysis::analyze;
 use yachiyo::ir::back::{
-    BFunction, BOperand, BType, BackIR, Reg, CALLEE_SAVED_FREGS, CALLEE_SAVED_XREGS,
-    CALLER_SAVED_FREGS, CALLER_SAVED_XREGS, COLOR_FREGS, COLOR_XREGS,
+    BBuilder, BFunction, BOp, BOpData, BOperand, BType, BackIR, LOpData, MOpData, Reg, Slot,
+    CALLEE_SAVED_FREGS, CALLEE_SAVED_XREGS, CALLER_SAVED_FREGS, CALLER_SAVED_XREGS, COLOR_FREGS,
+    COLOR_XREGS,
 };
 use yachiyo::pass::BPass;
-use yachiyo::utils::r#match::{match_full_ops, match_some};
+use yachiyo::utils::r#match::{match_full_ops, match_some, match_src};
 use yachiyo::utils::set::{array_set, ArraySet, BitSet};
 use yachiyo::utils::worklist::{Worklist, WorklistTrait};
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 #[derive(PartialEq, Eq, Default)]
 #[allow(unused)]
@@ -29,6 +30,7 @@ enum AllocatorType {
 #[derive(Default)]
 struct Allocator<'a> {
     ir: Option<&'a mut BackIR>,
+    builder: BBuilder,
     current_function: Option<BOperand>,
 
     // Allocator Type
@@ -88,6 +90,7 @@ impl Allocator<'_> {
     pub fn new(typ: AllocatorType) -> Self {
         Self {
             ir: None,
+            builder: BBuilder::default(),
             current_function: None,
             typ,
             simplify_worklist: Worklist::new(),
@@ -211,6 +214,12 @@ impl Allocator<'_> {
     }
 
     #[inline(always)]
+    fn get_op_type(&self, op_id: BOperand) -> BType {
+        let op = &self.get_func(self.current_function.unwrap()).dfg[op_id];
+        op.typ.clone()
+    }
+
+    #[inline(always)]
     fn get_degree(&self, reg: BOperand) -> usize {
         if reg.is_phys() {
             // Physical registers' degree is considered infinite, since they can't be spilled.
@@ -218,6 +227,19 @@ impl Allocator<'_> {
         } else {
             self.degree[reg.get_virt_id()]
         }
+    }
+
+    #[inline(always)]
+    fn alloc_slot(&mut self, slot: Slot) -> BOperand {
+        let func = self.get_func_mut(self.current_function.unwrap());
+        let slot_id = func.frame_info.alloc(slot);
+        BOperand::Slot(slot_id)
+    }
+
+    #[inline(always)]
+    fn create(&mut self, op: BOp) -> BOperand {
+        let ir = self.ir.as_mut().unwrap();
+        ir.create(&self.builder, self.current_function, op)
     }
 
     #[inline(always)]
@@ -645,32 +667,350 @@ impl Allocator<'_> {
         }
     }
 
-    /// TODO: insert spill code for spilled nodes and rewrite the program, then rerun the whole process until there is no spill.
-    fn insert_spills(&mut self) {
-        todo!()
+    fn insert_spills(&mut self) -> ArraySet<BOperand> {
+        // Build a map op -> bb
+        let op_to_bb = {
+            let func_id = self.current_function.unwrap();
+            let mut map = vec![BOperand::Undef; self.get_func(func_id).dfg.len()];
+
+            for bb_id in self.get_func(func_id).cfg.ids() {
+                let cur = &self.get_func(func_id).cfg[bb_id].cur;
+                for op_id in cur.iter() {
+                    map[op_id.get_inst_id()] = BOperand::BB(bb_id);
+                }
+            }
+            map
+        };
+        // Initialize a map original VirtId -> (SlotId, Type).
+        let mut virt_to_slot: FxHashMap<BOperand, (BOperand, BType)> = FxHashMap::default();
+        let mut new_temps = array_set![];
+
+        for spilled in std::mem::take(&mut self.spilled_nodes).iter() {
+            let vreg_id = BOperand::Reg(Reg::Virt(spilled));
+            let (defs, uses) = {
+                let vreg = &self.get_func(self.current_function.unwrap()).vregs[vreg_id];
+                (vreg.defs.clone(), vreg.uses.clone())
+            };
+
+            // Insert store after each definition of the spilled node.
+            for def in defs {
+                let bb_id = op_to_bb[def.get_inst_id()];
+                self.builder.set_current_block(bb_id);
+                self.builder.set_after_inst(
+                    self.ir.as_mut().unwrap(),
+                    self.builder.current_function,
+                    Some(def),
+                );
+
+                // Allocate new slot
+                let typ = self.get_op_type(def);
+                let slot_id = self.alloc_slot(Slot::Local {
+                    size: typ.size(),
+                    align: typ.align(),
+                    offset: 0,
+                });
+                virt_to_slot.insert(vreg_id, (slot_id, typ.clone()));
+
+                let store_op = BOp::new(
+                    typ,
+                    vec![],
+                    LOpData::Store {
+                        addr: slot_id,
+                        value: self.get_rd(def).unwrap(),
+                    }
+                    .into(),
+                );
+
+                self.create(store_op);
+            }
+
+            for (r#use, _) in uses {
+                let bb_id = op_to_bb[r#use.get_inst_id()];
+                self.builder.set_current_block(bb_id);
+                self.builder.set_before_inst(
+                    self.ir.as_mut().unwrap(),
+                    self.builder.current_function,
+                    Some(r#use),
+                );
+
+                let (slot_id, typ) = virt_to_slot[&vreg_id].clone();
+                let load_op = BOp::new(
+                    typ,
+                    vec![],
+                    LOpData::Load {
+                        rd: BOperand::Undef,
+                        addr: slot_id,
+                    }
+                    .into(),
+                );
+
+                let load_id = self.create(load_op);
+                let load_vreg_id = self.get_rd(load_id).unwrap();
+                new_temps.insert(load_vreg_id);
+
+                // Replace the following use
+                let remap_use = |operand: &mut BOperand| {
+                    if *operand == vreg_id {
+                        *operand = load_vreg_id;
+                    }
+                };
+                let op_data =
+                    &mut self.get_func_mut(self.current_function.unwrap()).dfg[r#use].data;
+                match op_data {
+                    BOpData::L(lop_data) => match_src! {
+                        target: lop_data,
+                        bin_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe],
+                        bin_arm: LOpData { lhs, rhs } => {
+                            remap_use(lhs);
+                            remap_use(rhs);
+                        },
+                        un_ops: [Sitofp, Fptosi],
+                        un_arm: LOpData { value } => {
+                            remap_use(value);
+                        },
+                        fallback: {
+                            LOpData::Store { addr, value } => {
+                                remap_use(addr);
+                                remap_use(value);
+                            }
+                            LOpData::Load { addr, .. } => {
+                                remap_use(addr);
+                            }
+                            LOpData::Move { src, .. } => {
+                                remap_use(src);
+                            }
+                            LOpData::Br { cond, .. } => {
+                                remap_use(cond);
+                            }
+                            LOpData::Call { func } => {
+                                remap_use(func);
+                            }
+                            LOpData::Jump { .. }
+                            | LOpData::Ret
+                            | LOpData::LoadIntImm { .. }
+                            | LOpData::LoadFloatImm { .. } => {}
+                        }
+                    },
+                    BOpData::M(mop_data) => match_src! {
+                        target: mop_data,
+                        bin_ops: [Addw, Subw, Mulw, Divw, Remw, Sllw, Srlw, Sraw, Slt, Sltu, Xor, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FneS, FgtS, FgeS],
+                        bin_arm: MOpData { rs1, rs2 } => {
+                            remap_use(rs1);
+                            remap_use(rs2);
+                        },
+                        un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
+                        un_arm: MOpData { rs } => {
+                            remap_use(rs);
+                        },
+                        fallback: {
+                            MOpData::La { target, .. } => {
+                                remap_use(target);
+                            }
+                            MOpData::Slti { rs1, imm, .. }
+                            | MOpData::Sltiu { rs1, imm, .. }
+                            | MOpData::Addiw { rs1, imm, .. }
+                            | MOpData::Subiw { rs1, imm, .. }
+                            | MOpData::Muliw { rs1, imm, .. }
+                            | MOpData::Diviw { rs1, imm, .. }
+                            | MOpData::Remiw { rs1, imm, .. }
+                            | MOpData::Slliw { rs1, imm, .. }
+                            | MOpData::Srliw { rs1, imm, .. }
+                            | MOpData::Sraiw { rs1, imm, .. }
+                            | MOpData::Xori { rs1, imm, .. } => {
+                                remap_use(rs1);
+                                remap_use(imm);
+                            }
+                            MOpData::Lw { base, offset, .. }
+                            | MOpData::Flw { base, offset, .. }
+                            | MOpData::Ld { base, offset, .. } => {
+                                remap_use(base);
+                                remap_use(offset);
+                            }
+                            MOpData::Sw { rs, base, offset }
+                            | MOpData::Fsw { rs, base, offset }
+                            | MOpData::Sd { rs, base, offset } => {
+                                remap_use(rs);
+                                remap_use(base);
+                                remap_use(offset);
+                            }
+                            MOpData::Bnez { rs, .. } => {
+                                remap_use(rs);
+                            }
+                            MOpData::Beq { rs1, rs2, offset }
+                            | MOpData::Bne { rs1, rs2, offset }
+                            | MOpData::Blt { rs1, rs2, offset }
+                            | MOpData::Bge { rs1, rs2, offset }
+                            | MOpData::Bltu { rs1, rs2, offset }
+                            | MOpData::Bgeu { rs1, rs2, offset } => {
+                                remap_use(rs1);
+                                remap_use(rs2);
+                                remap_use(offset);
+                            }
+                            MOpData::Li { .. }
+                            | MOpData::J { .. }
+                            | MOpData::Call { .. }
+                            | MOpData::Ret => {}
+                        }
+                    },
+                }
+            }
+        }
+        new_temps
     }
 
-    /// TODO: rewrite the program after successfully coloring.
     fn rewrite(&mut self) {
         let func_id = self.current_function.unwrap();
-        let dfg = &self.get_func_mut(func_id).dfg;
-        let ids = dfg.ids();
+        for inst_id in self.get_func(func_id).dfg.ids() {
+            let inst_id = BOperand::Inst(inst_id);
 
-        for op_id in ids {
-            let op_id = BOperand::Inst(op_id);
-            let dfg = &mut self.get_func_mut(func_id).dfg;
-            let op_data = &mut dfg[op_id].data;
+            let remap_operand = |operand: &mut BOperand| {
+                if let BOperand::Reg(Reg::Virt(id)) = *operand {
+                    if !self.colored_nodes.contains(id) {
+                        panic!("rewrite: virtual register v{} is not in colored_nodes", id);
+                    }
+                    let color = self.color[id].unwrap_or_else(|| {
+                        panic!("rewrite: virtual register v{} has no assigned color", id)
+                    });
+                    *operand = BOperand::Reg(color);
+                }
+            };
+
+            let op_data = &mut self.ir.as_mut().unwrap().funcs[func_id].dfg[inst_id].data;
+            match op_data {
+                BOpData::L(lop_data) => {
+                    match_full_ops! {
+                        target: lop_data,
+                        bin_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, Xor, SNe, SEq, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Shl, Shr, Sar],
+                        bin_arm: LOpData { rd, lhs, rhs } => {
+                            remap_operand(rd);
+                            remap_operand(lhs);
+                            remap_operand(rhs);
+                        },
+                        un_ops: [Sitofp, Fptosi],
+                        un_arm: LOpData { rd, value } => {
+                            remap_operand(rd);
+                            remap_operand(value);
+                        },
+                        fallback: {
+                            LOpData::Store { addr, value } => {
+                                remap_operand(addr);
+                                remap_operand(value);
+                            }
+                            LOpData::Load { rd, addr } => {
+                                remap_operand(rd);
+                                remap_operand(addr);
+                            }
+                            LOpData::Br { cond, .. } => {
+                                remap_operand(cond);
+                            }
+                            LOpData::Move { rd, src } => {
+                                remap_operand(rd);
+                                remap_operand(src);
+                            }
+                            LOpData::Call { func } => {
+                                remap_operand(func);
+                            }
+                            LOpData::Jump { .. }
+                            | LOpData::Ret
+                            | LOpData::LoadIntImm { .. }
+                            | LOpData::LoadFloatImm { .. } => {}
+                        }
+                    }
+                }
+                BOpData::M(mop_data) => {
+                    match_full_ops! {
+                        target: mop_data,
+                        bin_ops: [Addw, Subw, Mulw, Divw, Remw, Sllw, Srlw, Sraw, Slt, Sltu, Xor, FaddS, FsubS, FmulS, FdivS, FeqS, FneS, FltS, FgeS, FleS, FgtS],
+                        bin_arm: MOpData { rd, rs1, rs2 } => {
+                            remap_operand(rd);
+                            remap_operand(rs1);
+                            remap_operand(rs2);
+                        },
+                        un_ops: [FcvtWS, FcvtSW, FmvWX, FmvXW, Mv, FmvS],
+                        un_arm: MOpData { rd, rs } => {
+                            remap_operand(rd);
+                            remap_operand(rs);
+                        },
+                        fallback: {
+                            MOpData::Li { rd, .. } => {
+                                remap_operand(rd);
+                            }
+                            MOpData::La { rd, target } => {
+                                remap_operand(rd);
+                                remap_operand(target);
+                            }
+                            MOpData::Addiw { rd, rs1, imm }
+                            | MOpData::Subiw { rd, rs1, imm }
+                            | MOpData::Muliw { rd, rs1, imm }
+                            | MOpData::Diviw { rd, rs1, imm }
+                            | MOpData::Remiw { rd, rs1, imm }
+                            | MOpData::Slliw { rd, rs1, imm }
+                            | MOpData::Srliw { rd, rs1, imm }
+                            | MOpData::Sraiw { rd, rs1, imm }
+                            | MOpData::Slti { rd, rs1, imm }
+                            | MOpData::Sltiu { rd, rs1, imm }
+                            | MOpData::Xori { rd, rs1, imm } => {
+                                remap_operand(rd);
+                                remap_operand(rs1);
+                                remap_operand(imm);
+                            }
+                            MOpData::Lw { rd, base, offset }
+                            | MOpData::Ld { rd, base, offset }
+                            | MOpData::Flw { rd, base, offset } => {
+                                remap_operand(rd);
+                                remap_operand(base);
+                                remap_operand(offset);
+                            }
+                            MOpData::Sw { rs, base, offset }
+                            | MOpData::Sd { rs, base, offset }
+                            | MOpData::Fsw { rs, base, offset } => {
+                                remap_operand(rs);
+                                remap_operand(base);
+                                remap_operand(offset);
+                            }
+                            MOpData::J { target } => {
+                                remap_operand(target);
+                            }
+                            MOpData::Call { target } => {
+                                remap_operand(target);
+                            }
+                            MOpData::Bnez { rs, target } => {
+                                remap_operand(rs);
+                                remap_operand(target);
+                            }
+                            MOpData::Beq { rs1, rs2, offset }
+                            | MOpData::Bne { rs1, rs2, offset }
+                            | MOpData::Bge { rs1, rs2, offset }
+                            | MOpData::Blt { rs1, rs2, offset }
+                            | MOpData::Bgeu { rs1, rs2, offset }
+                            | MOpData::Bltu { rs1, rs2, offset } => {
+                                remap_operand(rs1);
+                                remap_operand(rs2);
+                                remap_operand(offset);
+                            }
+                            MOpData::Ret => {}
+                        }
+                    }
+                }
+            }
         }
     }
 
     /// Main function of register allocation.
     /// LiveOuts is the result of current function's liveness analysis, which is used for building the interference graph.
-    fn run(&mut self, live_outs: &LiveOuts) {
+    fn run(&mut self) {
         loop {
             // Reset the worklist.
             self.reset();
+            // Run live analysis.
+            let (_, live_outs) =
+                analyze::<LiveAnalysis>(self.get_func(self.current_function.unwrap()));
+            yachiyo::debug::info!(
+                "Finished liveness analysis for register allocation. funcs_live_outs: {:?}",
+                live_outs
+            );
             // Build the interference graph.
-            self.build(live_outs);
+            self.build(&live_outs);
             // Make the initial worklist.
             self.make_worklist();
 
@@ -698,6 +1038,7 @@ impl Allocator<'_> {
         }
         // Rewrite the program to insert spill code, and then rerun the whole process until there is no spill.
         self.rewrite();
+        // TODO: Translate high-level Load/Store.
     }
 }
 
@@ -730,23 +1071,14 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
 
     fn run(&mut self) {
         for allocator in self.allocators.iter_mut() {
-            // Liveness analysis for the whole program.
-            let ir = self.ir.as_mut().unwrap();
-            let (_, funcs_live_outs) = analyze::<LiveAnalysis>(ir);
-            yachiyo::debug::info!(
-                "Finished liveness analysis for register allocation. funcs_live_outs: {:?}",
-                funcs_live_outs
-            );
-
             // Mount IR on allocator
             let ir_ptr = *self.ir.as_mut().unwrap() as *mut BackIR;
             unsafe {
                 allocator.ir = Some(&mut *ir_ptr);
             }
-
             for func_id in self.ir.as_ref().unwrap().funcs.ids() {
                 allocator.init(BOperand::Func(func_id));
-                allocator.run(&funcs_live_outs[func_id]);
+                allocator.run();
             }
         }
     }
