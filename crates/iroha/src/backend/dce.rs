@@ -4,7 +4,7 @@
 use yachiyo::ir::back::{BBuilder, BFunction, BOpData, BOperand, BackIR, LOpData, MOpData, Reg};
 use yachiyo::pass::BPass;
 use yachiyo::utils::arena::ArenaItem;
-use yachiyo::utils::r#match::match_src;
+use yachiyo::utils::r#match::{match_some, match_src};
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Default)]
@@ -41,38 +41,28 @@ impl<'a> BDCE<'a> {
         let current_func = self.get_func(self.current_func());
         let vregs = &current_func.vregs;
 
-        match operand {
-            BOperand::Inst(_) => {
-                let Some(rd) = self.get_rd(operand) else {
-                    return false;
-                };
-
-                match rd {
-                    BOperand::Reg(Reg::Virt(_)) => vregs[rd].uses.is_empty(),
-                    BOperand::Reg(Reg::X(_) | Reg::F(_))
-                    | BOperand::Undef
-                    | BOperand::BB(_)
-                    | BOperand::IntImm(_)
-                    | BOperand::FloatImm(_)
-                    | BOperand::Inst(_)
-                    | BOperand::Func(_)
-                    | BOperand::Data(_)
-                    | BOperand::RoData(_)
-                    | BOperand::Extern(_)
-                    | BOperand::Slot(_) => false,
+        match_some! {
+            target: operand,
+            enu: BOperand,
+            minor_arms: {
+                BOperand::Inst(_) => {
+                    let Some(rd) = self.get_rd(operand) else {
+                        return false;
+                    };
+                    match_some! {
+                        target: rd,
+                        enu: BOperand,
+                        minor_arms: {
+                            BOperand::Reg(Reg::Virt(_)) => vregs[rd].uses.is_empty(),
+                        },
+                        uni_ops: [Reg, Undef, BB, IntImm, FloatImm, Inst, Func, Data, RoData, Extern, Slot],
+                        uni_arm: false
+                    }
                 }
-            }
-            BOperand::Reg(Reg::Virt(_)) => vregs[operand].uses.is_empty(),
-            BOperand::Reg(Reg::X(_) | Reg::F(_))
-            | BOperand::Undef
-            | BOperand::BB(_)
-            | BOperand::IntImm(_)
-            | BOperand::FloatImm(_)
-            | BOperand::Func(_)
-            | BOperand::Data(_)
-            | BOperand::RoData(_)
-            | BOperand::Extern(_)
-            | BOperand::Slot(_) => false,
+                BOperand::Reg(Reg::Virt(_)) => vregs[operand].uses.is_empty(),
+            },
+            uni_ops: [Reg, Undef, BB, IntImm, FloatImm, Func, Data, RoData, Extern, Slot],
+            uni_arm: false
         }
     }
 
@@ -128,56 +118,52 @@ impl<'a> BPass<'a> for BDCE<'a> {
                 return;
             }
 
-            match operand {
-                BOperand::Inst(op_id) => {
-                    let op = BOperand::Inst(op_id);
-                    let bb_id = match this.op_to_bb.get(op_id).copied() {
-                        Some(BOperand::BB(bb)) => BOperand::BB(bb),
-                        _ => unreachable!(),
-                    };
-
-                    let should_push = {
-                        let func = this.get_func(this.current_func());
-                        !func.dfg[op].data.is_impure()
-                    };
-
-                    if should_push {
-                        this.worklist.push((op, bb_id));
-                    }
-                }
-                BOperand::Reg(Reg::Virt(_)) => {
-                    let defs = {
-                        let func = this.get_func(this.current_func());
-                        func.vregs[operand].defs.clone()
-                    };
-
-                    for def in defs {
-                        let def_id = def.get_inst_id();
-                        let bb_id = match this.op_to_bb.get(def_id).copied() {
+            match_some! {
+                target: operand,
+                enu: BOperand,
+                minor_arms: {
+                    BOperand::Inst(op_id) => {
+                        let op = BOperand::Inst(op_id);
+                        let bb_id = match this.op_to_bb.get(op_id).copied() {
                             Some(BOperand::BB(bb)) => BOperand::BB(bb),
-                            _ => continue,
+                            _ => unreachable!(),
                         };
 
                         let should_push = {
                             let func = this.get_func(this.current_func());
-                            !func.dfg[def].data.is_impure()
+                            !func.dfg[op].data.is_impure()
                         };
 
                         if should_push {
-                            this.worklist.push((def, bb_id));
+                            this.worklist.push((op, bb_id));
                         }
                     }
-                }
-                BOperand::Reg(Reg::X(_) | Reg::F(_))
-                | BOperand::Undef
-                | BOperand::BB(_)
-                | BOperand::IntImm(_)
-                | BOperand::FloatImm(_)
-                | BOperand::Func(_)
-                | BOperand::Data(_)
-                | BOperand::RoData(_)
-                | BOperand::Extern(_)
-                | BOperand::Slot(_) => {}
+                    BOperand::Reg(Reg::Virt(_)) => {
+                        let defs = {
+                            let func = this.get_func(this.current_func());
+                            func.vregs[operand].defs.clone()
+                        };
+
+                        for def in defs {
+                            let def_id = def.get_inst_id();
+                            let bb_id = match this.op_to_bb.get(def_id).copied() {
+                                Some(BOperand::BB(bb)) => BOperand::BB(bb),
+                                _ => continue,
+                            };
+
+                            let should_push = {
+                                let func = this.get_func(this.current_func());
+                                !func.dfg[def].data.is_impure()
+                            };
+
+                            if should_push {
+                                this.worklist.push((def, bb_id));
+                            }
+                        }
+                    }
+                },
+                uni_ops: [Reg, Undef, BB, IntImm, FloatImm, Func, Data, RoData, Extern, Slot],
+                uni_arm: {}
             }
         }
 
