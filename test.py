@@ -24,6 +24,34 @@ def find_files(directory, extension):
                 matches.append(os.path.join(root, filename))
     return matches
 
+def basic_has_selector(raw_args):
+    """Returns True if --basic was provided with an explicit value."""
+    for i, arg in enumerate(raw_args):
+        if arg == "--basic":
+            return i + 1 < len(raw_args) and not raw_args[i + 1].startswith("-")
+        if arg.startswith("--basic="):
+            return True
+    return False
+
+def matches_test_id(test_path, test_id, h_functional_dir):
+    """Matches test IDs using the same conventions as --test/--basic selectors."""
+    basename = os.path.basename(test_path)
+    abs_test_path = os.path.abspath(test_path)
+    abs_hidden_dir = os.path.abspath(h_functional_dir)
+    is_hidden_test = os.path.commonpath([abs_test_path, abs_hidden_dir]) == abs_hidden_dir
+
+    if test_id.startswith("h"):
+        search_prefix = test_id[1:]
+        if not search_prefix or not is_hidden_test:
+            return False
+    else:
+        search_prefix = test_id
+        if not search_prefix:
+            return False
+
+    target_name = search_prefix + ".sy"
+    return basename == target_name or basename.startswith(search_prefix + "_")
+
 def clean_directory(directory):
     """Removes all files in a directory."""
     if os.path.exists(directory):
@@ -93,6 +121,9 @@ def generate_cfg_graphs(ll_path: str, graph_dir: str, test_name: str):
     return 0, graphviz_stdout, graphviz_stderr
 
 def main():
+    raw_args = sys.argv[1:]
+    basic_with_selector = basic_has_selector(raw_args)
+
     parser = argparse.ArgumentParser(description='Compiler Test Runner')
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--test', type=str, help='Test file name (excluding .sy suffix) or test number')
@@ -102,6 +133,12 @@ def main():
         const='all',
         default=None,
         help='Test basic suites: no value means all; "00" means functional prefix; "h00" means hidden functional prefix',
+    )
+    parser.add_argument(
+        '--exclude',
+        nargs='+',
+        metavar='TEST_ID',
+        help='Exclude test IDs when running --basic with no selector, e.g. --basic --exclude 00 h00 82_long_func',
     )
     parser.add_argument('--clean', action='store_true', help='Clean test directories before running')
     parser.add_argument('--graph', action='store_true', help='Generate CFG graphs (.dot/.svg) from linked LLVM IR using opt + graphviz')
@@ -114,6 +151,13 @@ def main():
     backend_group.add_argument('--lli', action='store_true', help='Use lli to interpret linked .ll')
     backend_group.add_argument('--llc', action='store_true', help='Use llc to compile linked .ll into executable and run it')
     args = parser.parse_args()
+
+    if args.exclude:
+        if args.basic is None or basic_with_selector:
+            parser.error("--exclude is only allowed with --basic and no selector, e.g. --basic --exclude 00 h00")
+        invalid_ids = [test_id for test_id in args.exclude if test_id == 'h']
+        if invalid_ids:
+            parser.error("Invalid --exclude test id: h")
 
     if args.lli:
         exec_mode = 'lli'
@@ -205,6 +249,20 @@ def main():
 
         # Sort for consistent order
         test_files.sort()
+
+        if args.exclude:
+            selected_before = test_files
+            test_files = [
+                test_file for test_file in selected_before
+                if not any(matches_test_id(test_file, test_id, h_functional_dir) for test_id in args.exclude)
+            ]
+
+            if len(test_files) == len(selected_before):
+                print(f"[WARN] --exclude matched no tests: {' '.join(args.exclude)}")
+
+            if not test_files:
+                print("No test files remain after applying --exclude.")
+                sys.exit(1)
     else:
         parser.print_help()
         sys.exit(1)
