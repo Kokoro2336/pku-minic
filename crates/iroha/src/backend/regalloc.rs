@@ -31,7 +31,6 @@ enum AllocatorType {
 struct Allocator<'a> {
     ir: Option<&'a mut BackIR>,
     builder: BBuilder,
-    current_function: Option<BOperand>,
 
     // Allocator Type
     typ: AllocatorType,
@@ -91,7 +90,6 @@ impl Allocator<'_> {
         Self {
             ir: None,
             builder: BBuilder::default(),
-            current_function: None,
             typ,
             simplify_worklist: Worklist::new(),
             freeze_worklist: Worklist::new(),
@@ -115,10 +113,12 @@ impl Allocator<'_> {
 
     #[inline(always)]
     fn init(&mut self, func_id: BOperand) {
-        self.current_function = Some(func_id);
+        self.builder.set_current_func(func_id);
     }
 
     fn reset(&mut self) {
+        let func_id = self.builder.current_function.unwrap();
+
         // Clear the nodes worklist.
         self.simplify_worklist.clear();
         self.freeze_worklist.clear();
@@ -144,19 +144,16 @@ impl Allocator<'_> {
         self.adj_list.clear();
         self.degree.clear();
         //Resize
-        self.adj_list.resize(
-            self.get_func(self.current_function.unwrap()).vregs.len(),
-            ArraySet::new(),
-        );
-        self.degree
-            .resize(self.get_func(self.current_function.unwrap()).vregs.len(), 0);
+        self.adj_list
+            .resize(self.get_func(func_id).vregs.len(), ArraySet::new());
+        self.degree.resize(self.get_func(func_id).vregs.len(), 0);
 
         // Clear the move list.
         self.move_list.clear();
         self.alias.clear();
         self.color.clear();
         // Resize
-        let vregs_len = self.get_func(self.current_function.unwrap()).vregs.len();
+        let vregs_len = self.get_func(func_id).vregs.len();
         self.move_list.resize(vregs_len, ArraySet::new());
         self.alias.resize(vregs_len, BOperand::Undef);
         self.color.resize(vregs_len, None);
@@ -166,13 +163,14 @@ impl Allocator<'_> {
 
     #[inline(always)]
     fn is_target(&self, vreg_id: BOperand) -> bool {
-        let func_id = self.current_function.unwrap();
+        let func_id = self.builder.current_function.unwrap();
         match_some! {
             target: vreg_id,
             enu: BOperand,
             minor_arms: {
                 BOperand::Reg(Reg::Virt(_)) => {
                     let vreg = &self.get_func(func_id).vregs[vreg_id];
+                    // TODO: Store type in vreg.
                     let first_def = vreg.defs[0];
                     let op = &self.get_func(func_id).dfg[first_def];
                     match &op.typ {
@@ -193,13 +191,13 @@ impl Allocator<'_> {
 
     #[inline(always)]
     fn get_src(&self, op_id: BOperand) -> Vec<BOperand> {
-        let func_id = self.current_function;
+        let func_id = self.builder.current_function;
         self.ir.as_ref().unwrap().get_src(func_id, op_id)
     }
 
     #[inline(always)]
     fn get_rd(&self, op_id: BOperand) -> Option<BOperand> {
-        let func_id = self.current_function;
+        let func_id = self.builder.current_function;
         self.ir.as_ref().unwrap().get_rd(func_id, op_id)
     }
 
@@ -215,7 +213,8 @@ impl Allocator<'_> {
 
     #[inline(always)]
     fn get_op_type(&self, op_id: BOperand) -> BType {
-        let op = &self.get_func(self.current_function.unwrap()).dfg[op_id];
+        let func_id = self.builder.current_function.unwrap();
+        let op = &self.get_func(func_id).dfg[op_id];
         op.typ.clone()
     }
 
@@ -231,15 +230,17 @@ impl Allocator<'_> {
 
     #[inline(always)]
     fn alloc_slot(&mut self, slot: Slot) -> BOperand {
-        let func = self.get_func_mut(self.current_function.unwrap());
+        let func_id = self.builder.current_function.unwrap();
+        let func = self.get_func_mut(func_id);
         let slot_id = func.frame_info.alloc(slot);
         BOperand::Slot(slot_id)
     }
 
     #[inline(always)]
     fn create(&mut self, op: BOp) -> BOperand {
+        let func_id = self.builder.current_function;
         let ir = self.ir.as_mut().unwrap();
-        ir.create(&self.builder, self.current_function, op)
+        ir.create(&self.builder, func_id, op)
     }
 
     #[inline(always)]
@@ -297,7 +298,7 @@ impl Allocator<'_> {
     }
 
     fn build(&mut self, live_outs: &LiveOuts) {
-        let func_id = self.current_function.unwrap();
+        let func_id = self.builder.current_function.unwrap();
         let cfg_ids = self.get_func(func_id).cfg.ids();
 
         for bb_id in cfg_ids {
@@ -396,7 +397,8 @@ impl Allocator<'_> {
     }
 
     fn make_worklist(&mut self) {
-        let vregs_ids = self.get_func(self.current_function.unwrap()).vregs.ids();
+        let func_id = self.builder.current_function.unwrap();
+        let vregs_ids = self.get_func(func_id).vregs.ids();
 
         for vreg_id in vregs_ids {
             let vreg_id = BOperand::Reg(Reg::Virt(vreg_id));
@@ -405,7 +407,7 @@ impl Allocator<'_> {
                 continue;
             }
 
-            if self.degree[vreg_id.get_virt_id()] >= self.get_colors_num() {
+            if self.get_degree(vreg_id) >= self.get_colors_num() {
                 self.spill_worklist.push_back(vreg_id);
             } else if self.move_related(vreg_id) {
                 self.freeze_worklist.push_back(vreg_id);
@@ -416,7 +418,7 @@ impl Allocator<'_> {
     }
 
     fn simplify(&mut self) {
-        let n = self.simplify_worklist.pop_back().unwrap();
+        let n = self.simplify_worklist.pop_front().unwrap();
         if !self.is_target(n) {
             return;
         }
@@ -461,7 +463,7 @@ impl Allocator<'_> {
     }
 
     fn coalesce(&mut self) {
-        let m = self.worklist_moves.pop_back().unwrap();
+        let m = self.worklist_moves.pop_front().unwrap();
         let (x, y) = {
             let rd = self.get_rd(m).unwrap();
             let src = self.get_src(m);
@@ -498,6 +500,7 @@ impl Allocator<'_> {
         }
     }
 
+    /// v combined into u
     fn combine(&mut self, u: BOperand, v: BOperand) {
         if let BOperand::Reg(Reg::Virt(v_id)) = v {
             if self.freeze_worklist.contains(&v) {
@@ -547,7 +550,7 @@ impl Allocator<'_> {
     /// Add n to simplify_worklist.
     fn add_worklist(&mut self, n: BOperand) {
         if let BOperand::Reg(Reg::Virt(id)) = n {
-            if self.degree[id] >= self.get_colors_num() || self.colored_nodes.contains(id) {
+            if self.get_degree(n) >= self.get_colors_num() || self.colored_nodes.contains(id) {
                 return;
             }
         }
@@ -577,7 +580,7 @@ impl Allocator<'_> {
     /// Free the node from freeze_worklist and freeze all of its moves.
     /// It means that all of its related move is given up to coalesce.
     fn freeze(&mut self) {
-        let u = self.freeze_worklist.pop_back().unwrap();
+        let u = self.freeze_worklist.pop_front().unwrap();
         self.simplify_worklist.push_back(u);
         self.freeze_moves(u);
     }
@@ -612,7 +615,7 @@ impl Allocator<'_> {
 
     /// Select a node for spilling and add it to simplify_worklist.
     fn select_spill(&mut self) {
-        let n = self.spill_worklist.pop_back().unwrap();
+        let n = self.spill_worklist.pop_front().unwrap();
         self.simplify_worklist.push_back(n);
         self.freeze_moves(n);
     }
@@ -670,7 +673,7 @@ impl Allocator<'_> {
     fn insert_spills(&mut self) -> ArraySet<BOperand> {
         // Build a map op -> bb
         let op_to_bb = {
-            let func_id = self.current_function.unwrap();
+            let func_id = self.builder.current_function.unwrap();
             let mut map = vec![BOperand::Undef; self.get_func(func_id).dfg.len()];
 
             for bb_id in self.get_func(func_id).cfg.ids() {
@@ -688,7 +691,8 @@ impl Allocator<'_> {
         for spilled in std::mem::take(&mut self.spilled_nodes).iter() {
             let vreg_id = BOperand::Reg(Reg::Virt(spilled));
             let (defs, uses) = {
-                let vreg = &self.get_func(self.current_function.unwrap()).vregs[vreg_id];
+                let func_id = self.builder.current_function.unwrap();
+                let vreg = &self.get_func(func_id).vregs[vreg_id];
                 (vreg.defs.clone(), vreg.uses.clone())
             };
 
@@ -754,8 +758,8 @@ impl Allocator<'_> {
                         *operand = load_vreg_id;
                     }
                 };
-                let op_data =
-                    &mut self.get_func_mut(self.current_function.unwrap()).dfg[r#use].data;
+                let func_id = self.builder.current_function.unwrap();
+                let op_data = &mut self.get_func_mut(func_id).dfg[r#use].data;
                 match op_data {
                     BOpData::L(lop_data) => match_src! {
                         target: lop_data,
@@ -859,139 +863,151 @@ impl Allocator<'_> {
     }
 
     fn rewrite(&mut self) {
-        let func_id = self.current_function.unwrap();
-        for inst_id in self.get_func(func_id).dfg.ids() {
-            let inst_id = BOperand::Inst(inst_id);
+        let func_id = self.builder.current_function.unwrap();
 
-            let remap_operand = |operand: &mut BOperand| {
-                if let BOperand::Reg(Reg::Virt(id)) = *operand {
-                    if !self.colored_nodes.contains(id) {
-                        panic!("rewrite: virtual register v{} is not in colored_nodes", id);
-                    }
-                    let color = self.color[id].unwrap_or_else(|| {
-                        panic!("rewrite: virtual register v{} has no assigned color", id)
-                    });
-                    *operand = BOperand::Reg(color);
-                }
-            };
-
-            let op_data = &mut self.ir.as_mut().unwrap().funcs[func_id].dfg[inst_id].data;
-            match op_data {
-                BOpData::L(lop_data) => {
-                    match_full_ops! {
-                        target: lop_data,
-                        bin_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, Xor, SNe, SEq, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Shl, Shr, Sar],
-                        bin_arm: LOpData { rd, lhs, rhs } => {
-                            remap_operand(rd);
-                            remap_operand(lhs);
-                            remap_operand(rhs);
-                        },
-                        un_ops: [Sitofp, Fptosi],
-                        un_arm: LOpData { rd, value } => {
-                            remap_operand(rd);
-                            remap_operand(value);
-                        },
-                        fallback: {
-                            LOpData::Store { addr, value } => {
-                                remap_operand(addr);
-                                remap_operand(value);
+        for bb_id in self.get_func(func_id).cfg.collect() {
+            let bb_id = BOperand::BB(bb_id);
+            for inst_id in self.get_func(func_id).cfg[bb_id].cur.clone() {
+                let mut op_data = self.get_func(func_id).dfg[inst_id].data.clone();
+                let remap_operand = |operand: &mut BOperand| {
+                    if operand.is_virt() {
+                        let alias = self.get_alias(*operand);
+                        if let BOperand::Reg(Reg::Virt(id)) = alias {
+                            if !self.colored_nodes.contains(id) {
+                                panic!("rewrite: virtual register v{} is not in colored_nodes", id);
                             }
-                            LOpData::Load { rd, addr } => {
-                                remap_operand(rd);
-                                remap_operand(addr);
-                            }
-                            LOpData::Br { cond, .. } => {
-                                remap_operand(cond);
-                            }
-                            LOpData::Move { rd, src } => {
-                                remap_operand(rd);
-                                remap_operand(src);
-                            }
-                            LOpData::Call { func } => {
-                                remap_operand(func);
-                            }
-                            LOpData::Jump { .. }
-                            | LOpData::Ret
-                            | LOpData::LoadIntImm { .. }
-                            | LOpData::LoadFloatImm { .. } => {}
+                            let color = self.color[id].unwrap_or_else(|| {
+                                panic!("rewrite: virtual register v{} has no assigned color", id)
+                            });
+                            *operand = BOperand::Reg(color);
+                        } else if alias.is_phys() {
+                            *operand = alias;
+                        } else {
+                            unreachable!("Alias can't be non-reg");
                         }
                     }
-                }
-                BOpData::M(mop_data) => {
-                    match_full_ops! {
-                        target: mop_data,
-                        bin_ops: [Addw, Subw, Mulw, Divw, Remw, Sllw, Srlw, Sraw, Slt, Sltu, Xor, FaddS, FsubS, FmulS, FdivS, FeqS, FneS, FltS, FgeS, FleS, FgtS],
-                        bin_arm: MOpData { rd, rs1, rs2 } => {
-                            remap_operand(rd);
-                            remap_operand(rs1);
-                            remap_operand(rs2);
-                        },
-                        un_ops: [FcvtWS, FcvtSW, FmvWX, FmvXW, Mv, FmvS],
-                        un_arm: MOpData { rd, rs } => {
-                            remap_operand(rd);
-                            remap_operand(rs);
-                        },
-                        fallback: {
-                            MOpData::Li { rd, .. } => {
+                };
+
+                match &mut op_data {
+                    BOpData::L(lop_data) => {
+                        match_full_ops! {
+                            target: lop_data,
+                            bin_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, Xor, SNe, SEq, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Shl, Shr, Sar],
+                            bin_arm: LOpData { rd, lhs, rhs } => {
                                 remap_operand(rd);
-                            }
-                            MOpData::La { rd, target } => {
+                                remap_operand(lhs);
+                                remap_operand(rhs);
+                            },
+                            un_ops: [Sitofp, Fptosi],
+                            un_arm: LOpData { rd, value } => {
                                 remap_operand(rd);
-                                remap_operand(target);
+                                remap_operand(value);
+                            },
+                            fallback: {
+                                LOpData::Store { addr, value } => {
+                                    remap_operand(addr);
+                                    remap_operand(value);
+                                }
+                                LOpData::Load { rd, addr } => {
+                                    remap_operand(rd);
+                                    remap_operand(addr);
+                                }
+                                LOpData::Br { cond, .. } => {
+                                    remap_operand(cond);
+                                }
+                                LOpData::Move { rd, src } => {
+                                    remap_operand(rd);
+                                    remap_operand(src);
+                                }
+                                LOpData::Call { func } => {
+                                    remap_operand(func);
+                                }
+                                LOpData::Jump { .. }
+                                | LOpData::Ret
+                                | LOpData::LoadIntImm { .. }
+                                | LOpData::LoadFloatImm { .. } => {}
                             }
-                            MOpData::Addiw { rd, rs1, imm }
-                            | MOpData::Subiw { rd, rs1, imm }
-                            | MOpData::Muliw { rd, rs1, imm }
-                            | MOpData::Diviw { rd, rs1, imm }
-                            | MOpData::Remiw { rd, rs1, imm }
-                            | MOpData::Slliw { rd, rs1, imm }
-                            | MOpData::Srliw { rd, rs1, imm }
-                            | MOpData::Sraiw { rd, rs1, imm }
-                            | MOpData::Slti { rd, rs1, imm }
-                            | MOpData::Sltiu { rd, rs1, imm }
-                            | MOpData::Xori { rd, rs1, imm } => {
+                        }
+                    }
+                    BOpData::M(mop_data) => {
+                        match_full_ops! {
+                            target: mop_data,
+                            bin_ops: [Addw, Subw, Mulw, Divw, Remw, Sllw, Srlw, Sraw, Slt, Sltu, Xor, FaddS, FsubS, FmulS, FdivS, FeqS, FneS, FltS, FgeS, FleS, FgtS],
+                            bin_arm: MOpData { rd, rs1, rs2 } => {
                                 remap_operand(rd);
-                                remap_operand(rs1);
-                                remap_operand(imm);
-                            }
-                            MOpData::Lw { rd, base, offset }
-                            | MOpData::Ld { rd, base, offset }
-                            | MOpData::Flw { rd, base, offset } => {
-                                remap_operand(rd);
-                                remap_operand(base);
-                                remap_operand(offset);
-                            }
-                            MOpData::Sw { rs, base, offset }
-                            | MOpData::Sd { rs, base, offset }
-                            | MOpData::Fsw { rs, base, offset } => {
-                                remap_operand(rs);
-                                remap_operand(base);
-                                remap_operand(offset);
-                            }
-                            MOpData::J { target } => {
-                                remap_operand(target);
-                            }
-                            MOpData::Call { target } => {
-                                remap_operand(target);
-                            }
-                            MOpData::Bnez { rs, target } => {
-                                remap_operand(rs);
-                                remap_operand(target);
-                            }
-                            MOpData::Beq { rs1, rs2, offset }
-                            | MOpData::Bne { rs1, rs2, offset }
-                            | MOpData::Bge { rs1, rs2, offset }
-                            | MOpData::Blt { rs1, rs2, offset }
-                            | MOpData::Bgeu { rs1, rs2, offset }
-                            | MOpData::Bltu { rs1, rs2, offset } => {
                                 remap_operand(rs1);
                                 remap_operand(rs2);
-                                remap_operand(offset);
+                            },
+                            un_ops: [FcvtWS, FcvtSW, FmvWX, FmvXW, Mv, FmvS],
+                            un_arm: MOpData { rd, rs } => {
+                                remap_operand(rd);
+                                remap_operand(rs);
+                            },
+                            fallback: {
+                                MOpData::Li { rd, .. } => {
+                                    remap_operand(rd);
+                                }
+                                MOpData::La { rd, target } => {
+                                    remap_operand(rd);
+                                    remap_operand(target);
+                                }
+                                MOpData::Addiw { rd, rs1, imm }
+                                | MOpData::Subiw { rd, rs1, imm }
+                                | MOpData::Muliw { rd, rs1, imm }
+                                | MOpData::Diviw { rd, rs1, imm }
+                                | MOpData::Remiw { rd, rs1, imm }
+                                | MOpData::Slliw { rd, rs1, imm }
+                                | MOpData::Srliw { rd, rs1, imm }
+                                | MOpData::Sraiw { rd, rs1, imm }
+                                | MOpData::Slti { rd, rs1, imm }
+                                | MOpData::Sltiu { rd, rs1, imm }
+                                | MOpData::Xori { rd, rs1, imm } => {
+                                    remap_operand(rd);
+                                    remap_operand(rs1);
+                                    remap_operand(imm);
+                                }
+                                MOpData::Lw { rd, base, offset }
+                                | MOpData::Ld { rd, base, offset }
+                                | MOpData::Flw { rd, base, offset } => {
+                                    remap_operand(rd);
+                                    remap_operand(base);
+                                    remap_operand(offset);
+                                }
+                                MOpData::Sw { rs, base, offset }
+                                | MOpData::Sd { rs, base, offset }
+                                | MOpData::Fsw { rs, base, offset } => {
+                                    remap_operand(rs);
+                                    remap_operand(base);
+                                    remap_operand(offset);
+                                }
+                                MOpData::J { target } => {
+                                    remap_operand(target);
+                                }
+                                MOpData::Call { target } => {
+                                    remap_operand(target);
+                                }
+                                MOpData::Bnez { rs, target } => {
+                                    remap_operand(rs);
+                                    remap_operand(target);
+                                }
+                                MOpData::Beq { rs1, rs2, offset }
+                                | MOpData::Bne { rs1, rs2, offset }
+                                | MOpData::Bge { rs1, rs2, offset }
+                                | MOpData::Blt { rs1, rs2, offset }
+                                | MOpData::Bgeu { rs1, rs2, offset }
+                                | MOpData::Bltu { rs1, rs2, offset } => {
+                                    remap_operand(rs1);
+                                    remap_operand(rs2);
+                                    remap_operand(offset);
+                                }
+                                MOpData::Ret => {}
                             }
-                            MOpData::Ret => {}
                         }
                     }
                 }
+
+                
+                self.get_func_mut(func_id).dfg[inst_id].data = op_data;
             }
         }
     }
@@ -999,20 +1015,33 @@ impl Allocator<'_> {
     /// Main function of register allocation.
     /// LiveOuts is the result of current function's liveness analysis, which is used for building the interference graph.
     fn run(&mut self) {
+        let func_id = self.builder.current_function.unwrap();
+
         loop {
             // Reset the worklist.
             self.reset();
             // Run live analysis.
-            let (_, live_outs) =
-                analyze::<LiveAnalysis>(self.get_func(self.current_function.unwrap()));
+            let (_, live_outs) = analyze::<LiveAnalysis>(self.get_func(func_id));
             yachiyo::debug::info!(
                 "Finished liveness analysis for register allocation. funcs_live_outs: {:?}",
                 live_outs
             );
             // Build the interference graph.
             self.build(&live_outs);
+            yachiyo::debug::info!(
+                "Finished building interference graph for register allocation. adj_set: {:?}, degree: {:?}",
+                self.adj_set,
+                self.degree
+            );
             // Make the initial worklist.
             self.make_worklist();
+            yachiyo::debug::info!(
+                "Finished making initial worklist for register allocation. simplify_worklist: {:?}, worklist_moves: {:?}, freeze_worklist: {:?}, spill_worklist: {:?}",
+                self.simplify_worklist,
+                self.worklist_moves,
+                self.freeze_worklist,
+                self.spill_worklist,
+            );
 
             // Main loop(The state machine).
             loop {
@@ -1028,15 +1057,34 @@ impl Allocator<'_> {
                     break;
                 }
             }
+            yachiyo::debug::info!(
+                "Finished main loop of register allocation. simplify_worklist: {:?}, worklist_moves: {:?}, freeze_worklist: {:?}, spill_worklist: {:?}, \nselect_stack: {:?}",
+                self.simplify_worklist,
+                self.worklist_moves,
+                self.freeze_worklist,
+                self.spill_worklist,
+                self.select_stack,
+            );
             // Assign colors to the nodes.
             self.assign_colors();
+            yachiyo::debug::info!(
+                "Finished assigning colors for register allocation. colored_nodes: {:?}, \nspilled_nodes: {:?}",
+                self.colored_nodes,
+                self.spilled_nodes
+            );
             // If there is no spill, we are done.
             if self.spilled_nodes.is_empty() {
                 break;
             }
             self.insert_spills();
         }
-        // Rewrite the program to insert spill code, and then rerun the whole process until there is no spill.
+        yachiyo::debug::info!(
+            "Finished register allocation for function v{}. \ncolored_nodes: {:?}, \nspilled_nodes: {:?}",
+            func_id,
+            self.colored_nodes,
+            self.spilled_nodes
+        );
+        // Rewrite the program to replace the virtual registers.
         self.rewrite();
         // TODO: Translate high-level Load/Store.
     }
@@ -1053,7 +1101,7 @@ impl Default for RegAlloc<'_> {
             ir: None,
             allocators: vec![
                 // Run float first.
-                Allocator::new(AllocatorType::Float),
+                // Allocator::new(AllocatorType::Float),
                 Allocator::new(AllocatorType::Int),
             ],
         }

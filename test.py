@@ -106,6 +106,7 @@ def main():
     parser.add_argument('--clean', action='store_true', help='Clean test directories before running')
     parser.add_argument('--graph', action='store_true', help='Generate CFG graphs (.dot/.svg) from linked LLVM IR using opt + graphviz')
     parser.add_argument('--trace', action='store_true', help='Enable trace logging')
+    parser.add_argument('--debug', action='store_true', help='Run compiler under rust-gdb for interactive debugging (single test only)')
     parser.add_argument('--dump-llvm-after', type=str, default='', help='Dump LLVM IR after a specific pass (pass name)')
     parser.add_argument('--dump-asm-after', type=str, default='', help='Dump assembly after a specific backend pass (pass name)')
     parser.add_argument('--emit-llvm', action='store_true', help='Enable compiler --emit-llvm explicitly for dumping LLVM IR')
@@ -208,6 +209,14 @@ def main():
         parser.print_help()
         sys.exit(1)
 
+    if args.debug:
+        if shutil.which("rust-gdb") is None:
+            print("--debug requested but rust-gdb was not found in PATH.")
+            sys.exit(1)
+        if len(test_files) != 1:
+            print("--debug supports exactly one test. Please use --test <name>.")
+            sys.exit(1)
+
     # Directories to manage
     logs_dir = "./logs"
     graphs_dir = "./graphs"
@@ -264,14 +273,21 @@ def main():
                 cmd.append("--graph")
             
             try:
-                if args.trace:
-                    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={**os.environ, "RUST_BACKTRACE": "1"})
-                else:
-                    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                run_env = {**os.environ, "RUST_BACKTRACE": "1"} if args.trace else None
 
-                final_returncode = result.returncode
-                final_stdout = result.stdout
-                final_stderr = result.stderr
+                if args.debug:
+                    debug_cmd = ["rust-gdb", "-tui", "--args", *cmd]
+                    print(f"  [DEBUG] Launching: {' '.join(debug_cmd)}")
+                    result = subprocess.run(debug_cmd, env=run_env)
+                    final_returncode = result.returncode
+                    # gdb runs interactively; output is shown directly in terminal.
+                    final_stdout = b""
+                    final_stderr = b""
+                else:
+                    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=run_env)
+                    final_returncode = result.returncode
+                    final_stdout = result.stdout
+                    final_stderr = result.stderr
                 runtime_with_ret = None
                 runtime_raw = None
 

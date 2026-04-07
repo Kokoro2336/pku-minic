@@ -6,6 +6,7 @@ use rustc_hash::FxHashSet;
 use std::collections::VecDeque;
 use std::hash::Hash;
 
+#[derive(Debug)]
 pub struct Worklist<T, S> {
     list: VecDeque<T>,
     in_list: S,
