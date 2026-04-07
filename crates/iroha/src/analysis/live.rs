@@ -2,9 +2,9 @@
 //! Reference: https://github.com/bytecodealliance/wasmtime/blob/main/cranelift/frontend/src/frontend/safepoints.rs
 
 use yachiyo::analysis::Analysis;
-use yachiyo::ir::back::{BOperand, BackIR};
-use yachiyo::utils::set::BitSet;
+use yachiyo::ir::back::{BFunction, BOperand};
 use yachiyo::utils::set::ArraySet;
+use yachiyo::utils::set::BitSet;
 use yachiyo::utils::worklist::{Worklist, WorklistTrait};
 
 pub type LiveSet = ArraySet<BOperand>;
@@ -13,15 +13,14 @@ pub type LiveOuts = Vec<LiveSet>;
 
 #[derive(Default)]
 pub struct LiveAnalysis<'a> {
-    ir: Option<&'a BackIR>,
-
-    current_function: Option<BOperand>,
+    func: Option<&'a BFunction>,
 
     /// The live set for the current block being processed.
     current_live: LiveSet,
 
     // Ancillary structures
     dfs_post_order: Worklist<BOperand, BitSet>,
+    visited: BitSet,
 
     /// LiveIn result
     live_ins: LiveIns,
@@ -35,24 +34,23 @@ impl LiveAnalysis<'_> {
     }
 
     fn dfs(&mut self, bb_id: BOperand) {
-        if !self.dfs_post_order.contains(&bb_id) {
+        if self.visited.contains(bb_id.get_bb_id()) {
             return;
         }
 
-        let func_id = self.current_function.unwrap();
-        let ir = self.ir.unwrap();
-        let bb = &ir.funcs[func_id].cfg[bb_id];
-        for succ in &bb.succs {
-            self.dfs(succ.to_owned());
+        self.visited.insert(bb_id.get_bb_id());
+
+        let bb = &self.func.expect("No current func").cfg[bb_id];
+        for (succ, _) in &bb.succs {
+            self.dfs(*succ);
         }
 
         // Post-order traversal.
         self.dfs_post_order.push_back(bb_id);
     }
 
-    fn init(&mut self, func_id: BOperand) {
-        self.current_function = Some(func_id);
-        let cfg_len = self.ir.unwrap().funcs[func_id].cfg.len();
+    fn init(&mut self) {
+        let cfg_len = self.func.expect("No current func").cfg.len();
 
         // Clear and resize live_ins and live_outs.
         self.live_ins.clear();
@@ -61,20 +59,19 @@ impl LiveAnalysis<'_> {
         self.live_outs.resize(cfg_len, LiveSet::new());
 
         self.dfs_post_order.clear();
+        self.visited.clear();
 
         self.current_live.clear();
     }
 
     #[inline(always)]
     fn get_rd(&self, op_id: BOperand) -> Option<BOperand> {
-        let func_id = self.current_function;
-        self.ir.unwrap().get_rd(func_id, op_id)
+        self.func.unwrap().get_rd(op_id)
     }
 
     #[inline(always)]
     fn get_src(&self, op_id: BOperand) -> Vec<BOperand> {
-        let func_id = self.current_function;
-        self.ir.unwrap().get_src(func_id, op_id)
+        self.func.unwrap().get_src(op_id)
     }
 
     #[inline(always)]
@@ -104,41 +101,61 @@ impl LiveAnalysis<'_> {
             .extend(self.live_outs[bb_id.get_bb_id()].iter().cloned());
 
         // Process instructions in reverse order.
-        let func_id = self.current_function.unwrap();
-        let ir = self.ir.unwrap();
-        let bb = &ir.funcs[func_id].cfg[bb_id];
+        let bb = &self.func.expect("No current function").cfg[bb_id];
         for op_id in bb.cur.iter().rev() {
             // Process defs first, then uses.
             self.process_def(*op_id);
             self.process_use(*op_id);
         }
     }
+}
 
-    fn analyze(&mut self) -> (LiveIns, LiveOuts) {
-        let func_id = self
-            .current_function
-            .expect("LiveAnalysis analyze: no current function");
-        while let Some(bb_id) = self.dfs_post_order.pop_back() {
+impl<'a> Analysis<'a> for LiveAnalysis<'a> {
+    type Input = BFunction;
+    type Output = (LiveIns, LiveOuts);
+
+    fn name(&self) -> &'static str {
+        "Live Analysis"
+    }
+
+    fn mount(&mut self, func: &'a Self::Input) {
+        self.func = Some(func);
+    }
+
+    fn run(&mut self) -> Self::Output {
+        self.init();
+        let entry = self
+            .func
+            .unwrap()
+            .cfg
+            .entry
+            .expect("No entry for current function.");
+        self.dfs(BOperand::BB(entry)); 
+
+        // Run main loop
+        while let Some(bb_id) = self.dfs_post_order.pop_front() {
             let old_live_in_len = self.live_ins[bb_id.get_bb_id()].len();
 
             // Update live_outs of the block based on live_ins of its successors.
-            let ir = self.ir.unwrap();
-            let bb = &ir.funcs[func_id].cfg[bb_id];
-            for succ in &bb.succs {
+            let bb = &self.func.expect("No current function").cfg[bb_id];
+            for (succ, _) in &bb.succs {
                 let succ_live_in = &self.live_ins[succ.get_bb_id()];
                 // Get the union of live_outs of the block and live_ins of its successor.
-                self.live_outs[bb_id.get_bb_id()].union(succ_live_in);
+                self.live_outs[bb_id.get_bb_id()] =
+                    self.live_outs[bb_id.get_bb_id()].union(succ_live_in);
             }
 
             // Process the block to update live_ins.
             self.process_block(bb_id);
 
+            // Update live_ins of the block with current_live.
+            self.live_ins[bb_id.get_bb_id()] = std::mem::take(&mut self.current_live);
+
             // If the live-in set changes, we need to reprocess the predecessors.
             if old_live_in_len != self.live_ins[bb_id.get_bb_id()].len() {
-                let ir = self.ir.unwrap();
-                let bb = &ir.funcs[func_id].cfg[bb_id];
-                for pred in &bb.preds {
-                    self.dfs_post_order.push_back(pred.to_owned());
+                let bb = &self.func.expect("No current function").cfg[bb_id];
+                for (pred, _) in &bb.preds {
+                    self.dfs_post_order.push_back(*pred);
                 }
             }
         }
@@ -146,41 +163,5 @@ impl LiveAnalysis<'_> {
             std::mem::take(&mut self.live_ins),
             std::mem::take(&mut self.live_outs),
         )
-    }
-}
-
-impl<'a> Analysis<'a> for LiveAnalysis<'a> {
-    type Input = BackIR;
-    type Output = (Vec<LiveIns>, Vec<LiveOuts>);
-
-    fn name(&self) -> &'static str {
-        "Live Analysis"
-    }
-
-    fn mount(&mut self, ir: &'a Self::Input) {
-        self.ir = Some(ir);
-    }
-
-    fn run(&mut self) -> Self::Output {
-        // resize live_ins and live_outs
-        let mut live_ins = Vec::new();
-        let mut live_outs = Vec::new();
-
-        for func_id in self.ir.unwrap().funcs.ids() {
-            self.init(BOperand::Func(func_id));
-            let entry = self.ir.unwrap().funcs[func_id]
-                .cfg
-                .entry
-                .expect("No entry for current function.");
-            self.dfs(BOperand::BB(entry)); // Assuming entry block is always BB(0)
-
-            // Run live analysis
-            let (func_live_ins, func_live_outs) = self.analyze();
-
-            live_ins.push(func_live_ins);
-            live_outs.push(func_live_outs);
-        }
-
-        (live_ins, live_outs)
     }
 }

@@ -24,6 +24,34 @@ def find_files(directory, extension):
                 matches.append(os.path.join(root, filename))
     return matches
 
+def basic_has_selector(raw_args):
+    """Returns True if --basic was provided with an explicit value."""
+    for i, arg in enumerate(raw_args):
+        if arg == "--basic":
+            return i + 1 < len(raw_args) and not raw_args[i + 1].startswith("-")
+        if arg.startswith("--basic="):
+            return True
+    return False
+
+def matches_test_id(test_path, test_id, h_functional_dir):
+    """Matches test IDs using the same conventions as --test/--basic selectors."""
+    basename = os.path.basename(test_path)
+    abs_test_path = os.path.abspath(test_path)
+    abs_hidden_dir = os.path.abspath(h_functional_dir)
+    is_hidden_test = os.path.commonpath([abs_test_path, abs_hidden_dir]) == abs_hidden_dir
+
+    if test_id.startswith("h"):
+        search_prefix = test_id[1:]
+        if not search_prefix or not is_hidden_test:
+            return False
+    else:
+        search_prefix = test_id
+        if not search_prefix:
+            return False
+
+    target_name = search_prefix + ".sy"
+    return basename == target_name or basename.startswith(search_prefix + "_")
+
 def clean_directory(directory):
     """Removes all files in a directory."""
     if os.path.exists(directory):
@@ -93,6 +121,9 @@ def generate_cfg_graphs(ll_path: str, graph_dir: str, test_name: str):
     return 0, graphviz_stdout, graphviz_stderr
 
 def main():
+    raw_args = sys.argv[1:]
+    basic_with_selector = basic_has_selector(raw_args)
+
     parser = argparse.ArgumentParser(description='Compiler Test Runner')
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--test', type=str, help='Test file name (excluding .sy suffix) or test number')
@@ -103,15 +134,30 @@ def main():
         default=None,
         help='Test basic suites: no value means all; "00" means functional prefix; "h00" means hidden functional prefix',
     )
+    parser.add_argument(
+        '--exclude',
+        nargs='+',
+        metavar='TEST_ID',
+        help='Exclude test IDs when running --basic with no selector, e.g. --basic --exclude 00 h00 82_long_func',
+    )
     parser.add_argument('--clean', action='store_true', help='Clean test directories before running')
     parser.add_argument('--graph', action='store_true', help='Generate CFG graphs (.dot/.svg) from linked LLVM IR using opt + graphviz')
     parser.add_argument('--trace', action='store_true', help='Enable trace logging')
-    parser.add_argument('--dump-after', type=str, default='', help='Dump LLVM IR after a specific pass (pass name)')
+    parser.add_argument('--debug', action='store_true', help='Run compiler under rust-gdb for interactive debugging (single test only)')
+    parser.add_argument('--dump-llvm-after', type=str, default='', help='Dump LLVM IR after a specific pass (pass name)')
+    parser.add_argument('--dump-asm-after', type=str, default='', help='Dump assembly after a specific backend pass (pass name)')
     parser.add_argument('--emit-llvm', action='store_true', help='Enable compiler --emit-llvm explicitly for dumping LLVM IR')
     backend_group = parser.add_mutually_exclusive_group()
     backend_group.add_argument('--lli', action='store_true', help='Use lli to interpret linked .ll')
     backend_group.add_argument('--llc', action='store_true', help='Use llc to compile linked .ll into executable and run it')
     args = parser.parse_args()
+
+    if args.exclude:
+        if args.basic is None or basic_with_selector:
+            parser.error("--exclude is only allowed with --basic and no selector, e.g. --basic --exclude 00 h00")
+        invalid_ids = [test_id for test_id in args.exclude if test_id == 'h']
+        if invalid_ids:
+            parser.error("Invalid --exclude test id: h")
 
     if args.lli:
         exec_mode = 'lli'
@@ -121,7 +167,7 @@ def main():
         exec_mode = 'compiler'
 
     # LLVM dump is required for IR-level workflows and is auto-enabled for --lli.
-    need_emit_llvm = args.emit_llvm or args.lli or args.llc or args.graph or bool(args.dump_after)
+    need_emit_llvm = args.emit_llvm or args.lli or args.llc or args.graph or bool(args.dump_llvm_after)
     need_runtime_exec = args.lli or args.llc
 
     if args.clean and not (args.test or args.basic):
@@ -203,14 +249,37 @@ def main():
 
         # Sort for consistent order
         test_files.sort()
+
+        if args.exclude:
+            selected_before = test_files
+            test_files = [
+                test_file for test_file in selected_before
+                if not any(matches_test_id(test_file, test_id, h_functional_dir) for test_id in args.exclude)
+            ]
+
+            if len(test_files) == len(selected_before):
+                print(f"[WARN] --exclude matched no tests: {' '.join(args.exclude)}")
+
+            if not test_files:
+                print("No test files remain after applying --exclude.")
+                sys.exit(1)
     else:
         parser.print_help()
         sys.exit(1)
+
+    if args.debug:
+        if shutil.which("rust-gdb") is None:
+            print("--debug requested but rust-gdb was not found in PATH.")
+            sys.exit(1)
+        if len(test_files) != 1:
+            print("--debug supports exactly one test. Please use --test <name>.")
+            sys.exit(1)
 
     # Directories to manage
     logs_dir = "./logs"
     graphs_dir = "./graphs"
     dump_llvm_dir = "./dump_llvm"
+    dump_asm_dir = "./dump_asm"
     test_output_base = "./test"
     sylib_ll = "./sylib/sylib.ll"
 
@@ -235,6 +304,7 @@ def main():
             clean_directory(logs_dir)
             clean_directory(graphs_dir)
             clean_directory(dump_llvm_dir)
+            clean_directory(dump_asm_dir)
             
             # Expected output file (if any)
             # We specify an output file in CWD, then move it.
@@ -253,20 +323,29 @@ def main():
             cmd = [compiler_binary, test_file, "-o", output_file_name]
             if need_emit_llvm:
                 cmd.append("--emit-llvm")
-            if args.dump_after:
-                cmd.append(f"--dump-after={args.dump_after}")
+            if args.dump_llvm_after:
+                cmd.append(f"--dump-llvm-after={args.dump_llvm_after}")
+            if args.dump_asm_after:
+                cmd.append(f"--dump-asm-after={args.dump_asm_after}")
             if args.graph:
                 cmd.append("--graph")
             
             try:
-                if args.trace:
-                    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={**os.environ, "RUST_BACKTRACE": "1"})
-                else:
-                    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                run_env = {**os.environ, "RUST_BACKTRACE": "1"} if args.trace else None
 
-                final_returncode = result.returncode
-                final_stdout = result.stdout
-                final_stderr = result.stderr
+                if args.debug:
+                    debug_cmd = ["rust-gdb", "-tui", "--args", *cmd]
+                    print(f"  [DEBUG] Launching: {' '.join(debug_cmd)}")
+                    result = subprocess.run(debug_cmd, env=run_env)
+                    final_returncode = result.returncode
+                    # gdb runs interactively; output is shown directly in terminal.
+                    final_stdout = b""
+                    final_stderr = b""
+                else:
+                    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=run_env)
+                    final_returncode = result.returncode
+                    final_stdout = result.stdout
+                    final_stderr = result.stderr
                 runtime_with_ret = None
                 runtime_raw = None
 
@@ -462,6 +541,16 @@ def main():
                     for f in os.listdir(dump_llvm_dir):
                         src = os.path.join(dump_llvm_dir, f)
                         if f.endswith('.ll'):
+                            dst = os.path.join(target_dir, f)
+                        else:
+                            dst = os.path.join(work_test_output_dir, f)
+                        shutil.move(src, dst)
+
+                # Move dumped assembly
+                if os.path.exists(dump_asm_dir):
+                    for f in os.listdir(dump_asm_dir):
+                        src = os.path.join(dump_asm_dir, f)
+                        if f.endswith('.asm'):
                             dst = os.path.join(target_dir, f)
                         else:
                             dst = os.path.join(work_test_output_dir, f)

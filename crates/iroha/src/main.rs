@@ -6,10 +6,11 @@ use iroha::backend::*;
 use iroha::frontend::*;
 use iroha::opt::*;
 
-use yachiyo::pass::*;
 use yachiyo::cli::Cli;
 use yachiyo::debug::info;
 use yachiyo::debug::log::setup;
+use yachiyo::debug::DumpASM;
+use yachiyo::pass::*;
 use yachiyo::utils::arena::Arena;
 
 lalrpop_mod!(sysy);
@@ -27,8 +28,6 @@ fn main() -> Result<()> {
     };
 
     let input_path = cli.input.clone();
-    let _ = cli.output.clone();
-
     // Get input str.
     let input_str = read_to_string(&input_path)?;
 
@@ -90,12 +89,26 @@ fn main() -> Result<()> {
     let mut back_ir = Lowering::new(ir).run();
     info!("Finish Lowering.");
 
-    // Run Backend Passes.
-    BPassManager::default()
-        .register(Box::new(ISel::default()))
-        .run(&mut back_ir);
+    if cli.dump_asm_after == "Lowering" {
+        info!("Start Dumping Assembly.");
+        let asm_filename = cli
+            .output
+            .file_stem()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        DumpASM::new(&back_ir, asm_filename).run();
+        info!("Finish Dumping Assembly.");
+        std::process::exit(0);
+    }
 
-    // Dump the asm.
+    // Run Backend Passes.
+    BPassManager::new(&cli)
+        .register(Box::new(ISel::default()))
+        .register(Box::new(BDCE::default()))
+        .register(Box::new(BCompaction::default()))
+        .register(Box::new(RegAlloc::default()))
+        .run(&mut back_ir);
 
     Ok(())
 }

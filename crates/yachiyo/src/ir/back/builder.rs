@@ -72,6 +72,7 @@ impl BBuilder {
         self.current_inst = None;
     }
 
+    /// Set the insertion point before the given instruction.
     #[inline(always)]
     pub fn set_current_inst(&mut self, inst_id: BOperand) {
         self.current_inst = Some(inst_id);

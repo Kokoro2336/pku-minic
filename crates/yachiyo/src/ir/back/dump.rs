@@ -1,6 +1,6 @@
 //! Dump Machine IR to RISC-V Assembly.
 
-use crate::ir::back::{BOp, BOpData, BOperand, BackIR};
+use crate::ir::back::{BOp, BOpData, BOperand, BackIR, MOpData};
 
 use std::collections::HashMap;
 
@@ -14,11 +14,16 @@ impl BackIR {
 
         let data_name_map = reverse_name_map(&self.data_info.map);
         let rodata_name_map = reverse_name_map(&self.rodata_info.map);
-        let func_name_map = reverse_name_map(&self.funcs.map);
+        let func_name_map = self
+            .funcs
+            .collect()
+            .into_iter()
+            .map(|id| (id, self.funcs[id].name.clone()))
+            .collect();
 
         self.dump_data_section(&mut out, &data_name_map, &rodata_name_map, &func_name_map);
         self.dump_rodata_section(&mut out, &data_name_map, &rodata_name_map, &func_name_map);
-        self.dump_text_section(&mut out);
+        self.dump_text_section(&mut out, &data_name_map, &rodata_name_map, &func_name_map);
 
         out
     }
@@ -96,7 +101,13 @@ impl BackIR {
         out.push('\n');
     }
 
-    fn dump_text_section(&self, out: &mut String) {
+    fn dump_text_section(
+        &self,
+        out: &mut String,
+        data_name_map: &HashMap<usize, String>,
+        rodata_name_map: &HashMap<usize, String>,
+        func_name_map: &HashMap<usize, String>,
+    ) {
         if self.funcs.is_empty() {
             return;
         }
@@ -108,6 +119,12 @@ impl BackIR {
 
         for func_id in func_ids {
             let func = &self.funcs[func_id];
+            let format_ctx = AsmFormatCtx {
+                data_name_map,
+                rodata_name_map,
+                func_name_map,
+                current_func_name: Some(&func.name),
+            };
             out.push_str(&format!(".globl {}\n", func.name));
             out.push_str(&format!("{}:\n", func.name));
 
@@ -119,7 +136,7 @@ impl BackIR {
                     let inst_id = inst.get_inst_id();
                     let op = &func.dfg[inst_id];
                     out.push_str("  ");
-                    out.push_str(&format_mop(op));
+                    out.push_str(&format_ctx.format_mop(op));
                     out.push('\n');
                 }
             }
@@ -142,6 +159,356 @@ fn symbol_name(name_map: &HashMap<usize, String>, id: usize, fallback_prefix: &s
         .get(&id)
         .cloned()
         .unwrap_or_else(|| format!("{fallback_prefix}{id}"))
+}
+
+struct AsmFormatCtx<'a> {
+    data_name_map: &'a HashMap<usize, String>,
+    rodata_name_map: &'a HashMap<usize, String>,
+    func_name_map: &'a HashMap<usize, String>,
+    current_func_name: Option<&'a str>,
+}
+
+impl AsmFormatCtx<'_> {
+    fn format_operand(&self, operand: &BOperand) -> String {
+        match operand {
+            BOperand::Func(id) => symbol_name(self.func_name_map, *id, ".Lfunc"),
+            BOperand::BB(id) => match self.current_func_name {
+                Some(func_name) => format!(".L{func_name}_bb{id}"),
+                None => format!(".Lbb{id}"),
+            },
+            BOperand::Inst(id) => format!("inst.{id}"),
+            BOperand::Reg(reg) => reg.to_string(),
+            BOperand::IntImm(imm) => imm.to_string(),
+            BOperand::FloatImm(imm) => format!("0x{imm:08x}"),
+            BOperand::Slot(id) => format!("slot.{id}"),
+            BOperand::Data(id) => symbol_name(self.data_name_map, *id, ".Ldata"),
+            BOperand::RoData(id) => symbol_name(self.rodata_name_map, *id, ".Lrodata"),
+            BOperand::Extern(name) => (*name).to_string(),
+            BOperand::Undef => "undef".to_string(),
+        }
+    }
+
+    fn format_mop(&self, op: &BOp) -> String {
+        match &op.data {
+            BOpData::M(mop) => match mop {
+                MOpData::Li { rd, imm } => format!("li {}, {}", self.format_operand(rd), imm),
+                MOpData::La { rd, target } => {
+                    format!(
+                        "la {}, {}",
+                        self.format_operand(rd),
+                        self.format_operand(target)
+                    )
+                }
+                MOpData::Mv { rd, rs } => {
+                    format!(
+                        "mv {}, {}",
+                        self.format_operand(rd),
+                        self.format_operand(rs)
+                    )
+                }
+                MOpData::FmvS { rd, rs } => {
+                    format!(
+                        "fmv.s {}, {}",
+                        self.format_operand(rd),
+                        self.format_operand(rs)
+                    )
+                }
+                MOpData::Addw { rd, rs1, rs2 } => format!(
+                    "addw {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::Subw { rd, rs1, rs2 } => format!(
+                    "subw {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::Mulw { rd, rs1, rs2 } => format!(
+                    "mulw {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::Divw { rd, rs1, rs2 } => format!(
+                    "divw {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::Remw { rd, rs1, rs2 } => format!(
+                    "remw {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::Sllw { rd, rs1, rs2 } => format!(
+                    "sllw {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::Srlw { rd, rs1, rs2 } => format!(
+                    "srlw {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::Sraw { rd, rs1, rs2 } => format!(
+                    "sraw {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::Slt { rd, rs1, rs2 } => format!(
+                    "slt {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::Slti { rd, rs1, imm } => format!(
+                    "slti {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(imm)
+                ),
+                MOpData::Sltu { rd, rs1, rs2 } => format!(
+                    "sltu {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::Sltiu { rd, rs1, imm } => format!(
+                    "sltiu {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(imm)
+                ),
+                MOpData::Addiw { rd, rs1, imm } => format!(
+                    "addiw {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(imm)
+                ),
+                MOpData::Subiw { rd, rs1, imm } => format!(
+                    "subiw {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(imm)
+                ),
+                MOpData::Muliw { rd, rs1, imm } => format!(
+                    "muliw {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(imm)
+                ),
+                MOpData::Diviw { rd, rs1, imm } => format!(
+                    "diviw {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(imm)
+                ),
+                MOpData::Remiw { rd, rs1, imm } => format!(
+                    "remiw {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(imm)
+                ),
+                MOpData::Slliw { rd, rs1, imm } => format!(
+                    "slliw {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(imm)
+                ),
+                MOpData::Srliw { rd, rs1, imm } => format!(
+                    "srliw {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(imm)
+                ),
+                MOpData::Sraiw { rd, rs1, imm } => format!(
+                    "sraiw {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(imm)
+                ),
+                MOpData::Xor { rd, rs1, rs2 } => format!(
+                    "xor {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::Xori { rd, rs1, imm } => format!(
+                    "xori {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(imm)
+                ),
+                MOpData::FaddS { rd, rs1, rs2 } => format!(
+                    "fadd.s {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::FsubS { rd, rs1, rs2 } => format!(
+                    "fsub.s {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::FmulS { rd, rs1, rs2 } => format!(
+                    "fmul.s {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::FdivS { rd, rs1, rs2 } => format!(
+                    "fdiv.s {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::FeqS { rd, rs1, rs2 } => format!(
+                    "feq.s {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::FltS { rd, rs1, rs2 } => format!(
+                    "flt.s {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::FleS { rd, rs1, rs2 } => format!(
+                    "fle.s {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::FneS { rd, rs1, rs2 } => format!(
+                    "fne.s {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::FgtS { rd, rs1, rs2 } => format!(
+                    "fgt.s {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::FgeS { rd, rs1, rs2 } => format!(
+                    "fge.s {}, {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs1),
+                    self.format_operand(rs2)
+                ),
+                MOpData::FcvtWS { rd, rs } => format!(
+                    "fcvt.w.s {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs)
+                ),
+                MOpData::FcvtSW { rd, rs } => format!(
+                    "fcvt.s.w {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs)
+                ),
+                MOpData::FmvWX { rd, rs } => format!(
+                    "fmv.w.x {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs)
+                ),
+                MOpData::FmvXW { rd, rs } => format!(
+                    "fmv.x.w {}, {}",
+                    self.format_operand(rd),
+                    self.format_operand(rs)
+                ),
+                MOpData::Lw { rd, base, offset } => format!(
+                    "lw {}, {}({})",
+                    self.format_operand(rd),
+                    self.format_operand(offset),
+                    self.format_operand(base)
+                ),
+                MOpData::Sw { rs, base, offset } => format!(
+                    "sw {}, {}({})",
+                    self.format_operand(rs),
+                    self.format_operand(offset),
+                    self.format_operand(base)
+                ),
+                MOpData::Flw { rd, base, offset } => format!(
+                    "flw {}, {}({})",
+                    self.format_operand(rd),
+                    self.format_operand(offset),
+                    self.format_operand(base)
+                ),
+                MOpData::Fsw { rs, base, offset } => format!(
+                    "fsw {}, {}({})",
+                    self.format_operand(rs),
+                    self.format_operand(offset),
+                    self.format_operand(base)
+                ),
+                MOpData::Ld { rd, base, offset } => format!(
+                    "ld {}, {}({})",
+                    self.format_operand(rd),
+                    self.format_operand(offset),
+                    self.format_operand(base)
+                ),
+                MOpData::Sd { rs, base, offset } => format!(
+                    "sd {}, {}({})",
+                    self.format_operand(rs),
+                    self.format_operand(offset),
+                    self.format_operand(base)
+                ),
+                MOpData::J { target } => format!("j {}", self.format_operand(target)),
+                MOpData::Call { target } => format!("call {}", self.format_operand(target)),
+                MOpData::Ret => "ret".to_string(),
+                MOpData::Bnez { rs, target } => format!(
+                    "bnez {}, {}",
+                    self.format_operand(rs),
+                    self.format_operand(target)
+                ),
+                MOpData::Beq { rs1, rs2, offset } => format!(
+                    "beq {}, {}, {}",
+                    self.format_operand(rs1),
+                    self.format_operand(rs2),
+                    self.format_operand(offset)
+                ),
+                MOpData::Bne { rs1, rs2, offset } => format!(
+                    "bne {}, {}, {}",
+                    self.format_operand(rs1),
+                    self.format_operand(rs2),
+                    self.format_operand(offset)
+                ),
+                MOpData::Blt { rs1, rs2, offset } => format!(
+                    "blt {}, {}, {}",
+                    self.format_operand(rs1),
+                    self.format_operand(rs2),
+                    self.format_operand(offset)
+                ),
+                MOpData::Bge { rs1, rs2, offset } => format!(
+                    "bge {}, {}, {}",
+                    self.format_operand(rs1),
+                    self.format_operand(rs2),
+                    self.format_operand(offset)
+                ),
+                MOpData::Bltu { rs1, rs2, offset } => format!(
+                    "bltu {}, {}, {}",
+                    self.format_operand(rs1),
+                    self.format_operand(rs2),
+                    self.format_operand(offset)
+                ),
+                MOpData::Bgeu { rs1, rs2, offset } => format!(
+                    "bgeu {}, {}, {}",
+                    self.format_operand(rs1),
+                    self.format_operand(rs2),
+                    self.format_operand(offset)
+                ),
+            },
+            BOpData::L(lop) => format!("L.{lop}"),
+        }
+    }
 }
 
 fn dump_initializer(
@@ -183,6 +550,10 @@ fn dump_initializer(
                 out.push_str(&format!("  .dword {}\n", label));
                 written += 8;
             }
+            BOperand::Extern(name) => {
+                out.push_str(&format!("  .dword {}\n", name));
+                written += 8;
+            }
             BOperand::Reg(_) | BOperand::BB(_) | BOperand::Inst(_) | BOperand::Slot(_) => {
                 panic!(
                     "dump_initializer: unsupported operand in global initializer: {:?}",
@@ -194,15 +565,5 @@ fn dump_initializer(
 
     if total_size > written {
         out.push_str(&format!("  .zero {}\n", total_size - written));
-    }
-}
-
-fn format_mop(op: &BOp) -> String {
-    match &op.data {
-        BOpData::M(mop) => mop.to_string(),
-        other => panic!(
-            "dump_riscv_asm: expected BOpData::M for machine dump, got {:?}",
-            other
-        ),
     }
 }

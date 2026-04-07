@@ -1,10 +1,10 @@
 //! Building dominator tree based on Lengauer-Tarjan algorithm.
 //! Reference: https://dl.acm.org/doi/10.1145/357062.357071
 
+use yachiyo::analysis::Analysis;
 use yachiyo::debug::info;
 use yachiyo::ir::mid::{Operand, IR};
 use yachiyo::utils::set::BitSet;
-use yachiyo::analysis::Analysis;
 
 pub type DomTree = Vec<Vec<usize>>;
 struct BuildDomTree<'a> {
@@ -32,7 +32,7 @@ struct BuildDomTree<'a> {
     visited: BitSet,
 
     // state structure
-    current_function: Option<usize>,
+    current_function: Option<Operand>,
 
     // result
     dom_trees: Vec<DomTree>,
@@ -40,7 +40,7 @@ struct BuildDomTree<'a> {
 
 impl<'a> BuildDomTree<'a> {
     pub fn new(program: &'a IR) -> Self {
-        let current_function = program.funcs.entry;
+        let current_function = program.funcs.entry.map(Operand::Func);
         Self {
             program,
             dfn: vec![],
@@ -58,9 +58,9 @@ impl<'a> BuildDomTree<'a> {
         }
     }
 
-    fn init(&mut self, func: usize) {
-        self.current_function = Some(func);
-        let func = &self.program.funcs[func];
+    fn init(&mut self, func_id: Operand) {
+        self.current_function = Some(func_id.clone());
+        let func = &self.program.funcs[func_id];
 
         let n = func.cfg.storage.len();
         self.dfn = vec![0; n];
@@ -86,20 +86,20 @@ impl<'a> BuildDomTree<'a> {
         self.rev[dfs_num] = src;
         self.dfn_cnt += 1;
 
-        let func_idx = self.current_function.unwrap();
+        let func_id = self.current_function.clone().unwrap();
 
         let succs_len = {
-            let func = &self.program.funcs[func_idx];
+            let func = &self.program.funcs[func_id.clone()];
             let block = &func.cfg[src];
             block.succs.len()
         };
 
         (0..succs_len).for_each(|i| {
             let succ = {
-                let func = &self.program.funcs[func_idx];
+                let func = &self.program.funcs[func_id.clone()];
                 let block = &func.cfg[src];
                 match &block.succs[i] {
-                    Operand::BB(id) => *id,
+                    (Operand::BB(id), _) => *id,
                     _ => panic!("BuildDomTree: successor is not a basic block"),
                 }
             };
@@ -146,7 +146,7 @@ impl<'a> BuildDomTree<'a> {
                 None => continue,
             };
 
-            self.init(idx);
+            self.init(Operand::Func(idx));
             info!("Start DFS traversal.");
             self.dfs(head);
 
@@ -156,7 +156,7 @@ impl<'a> BuildDomTree<'a> {
                 let u = self.rev[i];
 
                 let preds_num = {
-                    let func = &self.program.funcs[self.current_function.unwrap()];
+                    let func = &self.program.funcs[self.current_function.clone().unwrap()];
                     let block = &func.cfg[u];
                     block.preds.len()
                 };
@@ -164,10 +164,10 @@ impl<'a> BuildDomTree<'a> {
                 // find sdom[u]
                 for idx in 0..preds_num {
                     let pred = {
-                        let func = &self.program.funcs[self.current_function.unwrap()];
+                        let func = &self.program.funcs[self.current_function.clone().unwrap()];
                         let block = &func.cfg[u];
                         match &block.preds[idx] {
-                            Operand::BB(id) => *id,
+                            (Operand::BB(id), _) => *id,
                             _ => continue,
                         }
                     };
@@ -243,7 +243,7 @@ struct BuildDomFrontier<'a> {
     // FuncId -> BlockId -> Frontier
     frontiers: Vec<DomFrontier>,
     // State field
-    current_function: Option<usize>,
+    current_function: Option<Operand>,
 }
 
 impl<'a> BuildDomFrontier<'a> {
@@ -256,14 +256,15 @@ impl<'a> BuildDomFrontier<'a> {
         }
     }
 
-    pub fn init(&mut self, func_id: usize) {
-        let func = &self.program.funcs[func_id];
+    pub fn init(&mut self, func_id: Operand) {
+        let func_idx = func_id.get_func_id();
+        let func = &self.program.funcs[func_id.clone()];
         self.current_function = Some(func_id);
-        self.frontiers[func_id] = vec![vec![]; func.cfg.storage.len()];
+        self.frontiers[func_idx] = vec![vec![]; func.cfg.storage.len()];
     }
 
     pub fn is_dom(&self, dominator: usize, dominatee: usize) -> bool {
-        let func_id = self.current_function.unwrap();
+        let func_id = self.current_function.clone().unwrap().get_func_id();
 
         let dom_num = {
             let dom_tree = &self.dom_trees[func_id];
@@ -284,7 +285,7 @@ impl<'a> BuildDomFrontier<'a> {
     }
 
     pub fn compute(&mut self, bb_id: usize) {
-        let func_id = self.current_function.unwrap();
+        let func_id = self.current_function.clone().unwrap().get_func_id();
 
         let succs = {
             let func = &self.program.funcs[func_id];
@@ -292,7 +293,7 @@ impl<'a> BuildDomFrontier<'a> {
             let mut succs = Vec::new();
             for op in &block.succs {
                 match op {
-                    Operand::BB(id) => succs.push(*id),
+                    (Operand::BB(id), _) => succs.push(*id),
                     _ => panic!("DomFrontier: successor is not a basic block"),
                 }
             }
@@ -330,7 +331,7 @@ impl<'a> BuildDomFrontier<'a> {
                 Some(id) => id,
                 None => continue,
             };
-            self.init(idx);
+            self.init(Operand::Func(idx));
             self.compute(head);
         }
         std::mem::take(&mut self.frontiers)

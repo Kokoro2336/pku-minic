@@ -9,8 +9,11 @@ pub struct Cli {
     #[arg(long = "emit-llvm", default_value_t = false)]
     pub emit_llvm: bool,
 
-    #[arg(long = "dump-after", default_value_t = String::new())]
-    pub dump_after: String,
+    #[arg(long = "dump-llvm-after", default_value_t = String::new())]
+    pub dump_llvm_after: String,
+
+    #[arg(long = "dump-asm-after", default_value_t = String::new())]
+    pub dump_asm_after: String,
 
     /// positional argument for input file.
     #[arg(value_name = "INPUT")]

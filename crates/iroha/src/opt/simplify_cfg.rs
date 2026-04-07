@@ -9,7 +9,7 @@ pub struct SimplifyCFG<'a> {
     pub program: Option<&'a mut IR>,
     builder: Builder,
     visited: BitSet,
-    current_function: Option<usize>,
+    current_function: Option<Operand>,
 }
 
 impl<'a> SimplifyCFG<'a> {
@@ -22,14 +22,14 @@ impl<'a> SimplifyCFG<'a> {
         }
     }
 
-    pub fn init(&mut self, idx: usize) {
-        self.current_function = Some(idx);
+    pub fn init(&mut self, func_id: Operand) {
+        self.current_function = Some(func_id);
         self.visited.clear();
     }
 
     // This function is invoked only if the current block has merely one instruction(The terminator).
     fn elim(&mut self, bb_id: Operand) {
-        let cfg = &self.program.as_ref().unwrap().funcs[self.current_function.unwrap()].cfg;
+        let cfg = &self.program.as_ref().unwrap().funcs[self.current_function.clone().unwrap()].cfg;
         let bb = &cfg[bb_id.clone()];
         if !bb.cur.len() == 1 {
             panic!("SimplifyCFG: The current block should have only one instruction");
@@ -47,7 +47,7 @@ impl<'a> SimplifyCFG<'a> {
             };
 
             let updated_pred_last_op = {
-                let dfg = &self.program.as_ref().unwrap().funcs[self.current_function.unwrap()].dfg;
+                let dfg = &self.program.as_ref().unwrap().funcs[self.current_function.clone().unwrap()].dfg;
                 let mut pred_last_op = dfg[pred_last_id.clone()].clone();
                 // Replace the target block of the predecessor's terminator with the successor block.
                 match &mut pred_last_op.data {
@@ -122,7 +122,7 @@ impl<'a> SimplifyCFG<'a> {
             // Replace the old terminator with the new one.
             self.program.as_deref_mut().unwrap().replace_op(
                 &mut self.builder,
-                self.current_function,
+                self.current_function.clone(),
                 pred_last_id.clone(),
                 pred_id.clone(),
                 updated_pred_last_op,
@@ -138,15 +138,15 @@ impl<'a> SimplifyCFG<'a> {
 
         if {
             let bb =
-                &self.program.as_ref().unwrap().funcs[self.current_function.unwrap()].cfg[bb_id];
+                &self.program.as_ref().unwrap().funcs[self.current_function.clone().unwrap()].cfg[bb_id];
             // We now ignore those
             bb.preds.len() == 1 && bb.succs.len() == 1
         } {
             let bb =
-                &self.program.as_ref().unwrap().funcs[self.current_function.unwrap()].cfg[bb_id];
+                &self.program.as_ref().unwrap().funcs[self.current_function.clone().unwrap()].cfg[bb_id];
             // Move the instructions in bb to its successor.
             let pred_id = bb.preds[0].clone();
-            let pred = &self.program.as_ref().unwrap().funcs[self.current_function.unwrap()].cfg
+            let pred = &self.program.as_ref().unwrap().funcs[self.current_function.clone().unwrap()].cfg
                 [pred_id.clone()];
             if pred.succs.len() == 1 && pred.succs[0] == Operand::BB(bb_id) {
                 // Then merge current block into its predecessor.
@@ -158,7 +158,7 @@ impl<'a> SimplifyCFG<'a> {
                 // It's impossible that the current block has any phi instruction.
                 for inst_id in bb.cur.iter().skip(bb.cur.len() - 1) {
                     self.program.as_deref_mut().unwrap().move_op_to_bb_at(
-                        self.current_function,
+                        self.current_function.clone(),
                         inst_id.clone(),
                         Operand::BB(bb_id),
                         pred_id.clone(),
@@ -172,14 +172,14 @@ impl<'a> SimplifyCFG<'a> {
                     .iter()
                     .position(|inst_id| {
                         let dfg = &self.program.as_ref().unwrap().funcs
-                            [self.current_function.unwrap()]
+                            [self.current_function.clone().unwrap()]
                         .dfg;
                         !dfg[inst_id.clone()].is(OpType::Phi)
                     })
                     .unwrap_or(0);
                 for inst_id in bb.cur.iter().rev().skip(1) {
                     self.program.as_deref_mut().unwrap().move_op_to_bb_at(
-                        self.current_function,
+                        self.current_function.clone(),
                         inst_id.clone(),
                         Operand::BB(bb_id),
                         bb.succs[0].clone(),
@@ -190,21 +190,21 @@ impl<'a> SimplifyCFG<'a> {
             self.elim(Operand::BB(bb_id));
         } else if {
             let bb =
-                &self.program.as_ref().unwrap().funcs[self.current_function.unwrap()].cfg[bb_id];
-            let dfg = &self.program.as_ref().unwrap().funcs[self.current_function.unwrap()].dfg;
+                &self.program.as_ref().unwrap().funcs[self.current_function.clone().unwrap()].cfg[bb_id];
+            let dfg = &self.program.as_ref().unwrap().funcs[self.current_function.clone().unwrap()].dfg;
             bb.cur.len() == 1 && dfg[bb.cur[0].clone()].is(OpType::Jump)
         } {
             self.elim(Operand::BB(bb_id));
         }
 
-        let bb = &self.program.as_ref().unwrap().funcs[self.current_function.unwrap()].cfg[bb_id];
+        let bb = &self.program.as_ref().unwrap().funcs[self.current_function.clone().unwrap()].cfg[bb_id];
         if !bb.succs.is_empty() {
             for succ_id in bb.succs.clone() {
                 self.simplify(succ_id.get_bb_id());
             }
         } else {
             // Check return statement.
-            let dfg = &self.program.as_ref().unwrap().funcs[self.current_function.unwrap()].dfg;
+            let dfg = &self.program.as_ref().unwrap().funcs[self.current_function.clone().unwrap()].dfg;
             if bb.cur.is_empty() {
                 panic!("SimplifyCFG: The block should not be empty");
             }
@@ -216,7 +216,7 @@ impl<'a> SimplifyCFG<'a> {
             }
 
             let func_ret_typ =
-                match &self.program.as_ref().unwrap().funcs[self.current_function.unwrap()].typ {
+                match &self.program.as_ref().unwrap().funcs[self.current_function.clone().unwrap()].typ {
                     Type::Function { return_type, .. } => (**return_type).clone(),
                     _ => panic!("SimplifyCFG: The current function should have a function type"),
                 };
@@ -240,7 +240,7 @@ impl Pass<()> for SimplifyCFG<'_> {
         // We can only simplify CFG at the end of all other optimizations, since it may change the structure of CFG and thus invalidate the assumptions of other optimizations.
         let func_ids = self.program.as_ref().unwrap().funcs.collect_internal();
         for func_id in func_ids {
-            self.init(func_id);
+            self.init(Operand::Func(func_id));
             let entry = match self.program.as_ref().unwrap().funcs[func_id].cfg.entry {
                 Some(entry) => entry,
                 None => continue,

@@ -371,7 +371,7 @@ impl Op {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Operand {
     // Ids
     Value(usize),
@@ -381,7 +381,7 @@ pub enum Operand {
 
     // Literals
     Int(i32),
-    Float(f32),
+    Float(u32),
     Bool(bool),
 
     // Param
@@ -430,7 +430,7 @@ impl Operand {
     }
     pub fn get_float(&self) -> f32 {
         match self {
-            Operand::Float(value) => *value,
+            Operand::Float(value) => f32::from_bits(*value),
             _ => panic!("Operand is not a Float: {:?}", self),
         }
     }

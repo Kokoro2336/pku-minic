@@ -7,6 +7,7 @@ use super::{
 use crate::utils::arena::ArenaItem;
 use crate::utils::r#match::{match_rd, match_some, match_src};
 
+#[derive(Debug, Clone)]
 pub struct BackIR {
     pub data_info: DataInfo,
     pub rodata_info: RoDataInfo,
@@ -342,6 +343,7 @@ impl BackIR {
                     | BOperand::FloatImm(_)
                     | BOperand::Slot(_)
                     | BOperand::Undef
+                    | BOperand::Extern(_)
                     | BOperand::RoData(_)
                     | BOperand::BB(_)
                     | BOperand::Inst(_)
@@ -356,6 +358,7 @@ impl BackIR {
             | BOperand::IntImm(_)
             | BOperand::FloatImm(_)
             | BOperand::Slot(_)
+            | BOperand::Extern(_)
             | BOperand::Undef
             | BOperand::RoData(_)
             | BOperand::BB(_)
@@ -377,6 +380,7 @@ impl BackIR {
             | BOperand::FloatImm(_)
             | BOperand::Slot(_)
             | BOperand::Undef
+            | BOperand::Extern(_)
             | BOperand::RoData(_) => new,
 
             BOperand::BB(_) | BOperand::Func(_) => {
@@ -392,7 +396,7 @@ impl BackIR {
                 minor_arms: {
                     BOperand::Inst(op_id) => op_id,
                 },
-                uni_ops: [Reg, IntImm, FloatImm, Func, Slot, Data, RoData, BB, Undef],
+                uni_ops: [Reg, IntImm, FloatImm, Func, Slot, Data, RoData, BB, Undef, Extern],
                 uni_arm: return
             };
 
@@ -412,40 +416,40 @@ impl BackIR {
                         ONe, OEq, OGt, OLt, OGe, OLe
                     ],
                     bin_arm: LOpData { lhs, rhs } => {
-                        if *lhs == old {
+                        if *lhs == old_vreg_id {
                             *lhs = new_vreg_id;
                         }
-                        if *rhs == old {
+                        if *rhs == old_vreg_id {
                             *rhs = new_vreg_id;
                         }
                     },
                     un_ops: [Sitofp, Fptosi],
                     un_arm: LOpData { value } => {
-                        if *value == old {
+                        if *value == old_vreg_id {
                             *value = new_vreg_id;
                         }
                     },
                     fallback: {
                         LOpData::Store { addr, value } => {
-                            if *addr == old {
+                            if *addr == old_vreg_id {
                                 *addr = new_vreg_id;
                             }
-                            if *value == old {
+                            if *value == old_vreg_id {
                                 *value = new_vreg_id;
                             }
                         }
                         LOpData::Load { addr, .. } => {
-                            if *addr == old {
+                            if *addr == old_vreg_id {
                                 *addr = new_vreg_id;
                             }
                         }
                         LOpData::Move { src, .. } => {
-                            if *src == old {
+                            if *src == old_vreg_id {
                                 *src = new_vreg_id;
                             }
                         }
                         LOpData::Br { cond, .. } => {
-                            if *cond == old {
+                            if *cond == old_vreg_id {
                                 *cond = new_vreg_id;
                             }
                         }
@@ -467,16 +471,16 @@ impl BackIR {
                         Beq, Bne, Blt, Bge, Bltu, Bgeu
                     ],
                     bin_arm: MOpData { rs1, rs2 } => {
-                        if *rs1 == old {
+                        if *rs1 == old_vreg_id {
                             *rs1 = new_vreg_id;
                         }
-                        if *rs2 == old {
+                        if *rs2 == old_vreg_id {
                             *rs2 = new_vreg_id;
                         }
                     },
                     un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
                     un_arm: MOpData { rs } => {
-                        if *rs == old {
+                        if *rs == old_vreg_id {
                             *rs = new_vreg_id;
                         }
                     },
@@ -492,33 +496,33 @@ impl BackIR {
                         | MOpData::Srliw { rs1, imm, .. }
                         | MOpData::Sraiw { rs1, imm, .. }
                         | MOpData::Xori { rs1, imm, .. } => {
-                            if *rs1 == old {
+                            if *rs1 == old_vreg_id {
                                 *rs1 = new_vreg_id;
                             }
-                            if *imm == old {
+                            if *imm == old_vreg_id {
                                 *imm = new_vreg_id;
                             }
                         }
                         MOpData::Lw { base, offset, .. }
                         | MOpData::Flw { base, offset, .. }
                         | MOpData::Ld { base, offset, .. } => {
-                            if *base == old {
+                            if *base == old_vreg_id {
                                 *base = new_vreg_id;
                             }
-                            if *offset == old {
+                            if *offset == old_vreg_id {
                                 *offset = new_vreg_id;
                             }
                         }
                         MOpData::Sw { rs, base, offset }
                         | MOpData::Fsw { rs, base, offset }
                         | MOpData::Sd { rs, base, offset } => {
-                            if *rs == old {
+                            if *rs == old_vreg_id {
                                 *rs = new_vreg_id;
                             }
-                            if *base == old {
+                            if *base == old_vreg_id {
                                 *base = new_vreg_id;
                             }
-                            if *offset == old {
+                            if *offset == old_vreg_id {
                                 *offset = new_vreg_id;
                             }
                         }
@@ -526,7 +530,7 @@ impl BackIR {
                         MOpData::La { .. } => {}
                         MOpData::J { .. } => {}
                         MOpData::Bnez { rs, .. } => {
-                            if *rs == old {
+                            if *rs == old_vreg_id {
                                 *rs = new_vreg_id;
                             }
                         }
@@ -537,8 +541,8 @@ impl BackIR {
             }
 
             let vregs = &mut self.funcs[current_function.unwrap()].vregs;
-            vregs.remove_use(old, use_tuple);
-            vregs.add_use(new, use_tuple);
+            vregs.remove_use(old_vreg_id, use_tuple);
+            vregs.add_use(new_vreg_id, use_tuple);
         }
     }
 
@@ -563,14 +567,14 @@ impl BackIR {
                         LOpData::Br {
                             then_bb, else_bb, ..
                         } => {
-                            cfg.add_pred(then_bb.clone(), bb.clone());
-                            cfg.add_succ(bb.clone(), then_bb);
-                            cfg.add_pred(else_bb.clone(), bb.clone());
-                            cfg.add_succ(bb, else_bb);
+                            cfg.add_pred(then_bb, (bb, op));
+                            cfg.add_succ(bb, (then_bb, op));
+                            cfg.add_pred(else_bb, (bb, op));
+                            cfg.add_succ(bb, (else_bb, op));
                         }
                         LOpData::Jump { target_bb } => {
-                            cfg.add_pred(target_bb.clone(), bb.clone());
-                            cfg.add_succ(bb, target_bb);
+                            cfg.add_pred(target_bb, (bb, op));
+                            cfg.add_succ(bb, (target_bb, op));
                         }
                     },
                     uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, Call, LoadIntImm, LoadFloatImm, Ret],
@@ -583,12 +587,12 @@ impl BackIR {
                     enu: MOpData,
                     minor_arms: {
                         MOpData::J { target } => {
-                            cfg.add_pred(target.clone(), bb.clone());
-                            cfg.add_succ(bb, target);
+                            cfg.add_pred(target, (bb, op));
+                            cfg.add_succ(bb, (target, op));
                         }
                         MOpData::Bnez { target, .. } => {
-                            cfg.add_pred(target.clone(), bb.clone());
-                            cfg.add_succ(bb, target);
+                            cfg.add_pred(target, (bb, op));
+                            cfg.add_succ(bb, (target, op));
                         }
                         MOpData::Beq { offset, .. }
                         | MOpData::Bne { offset, .. }
@@ -596,8 +600,8 @@ impl BackIR {
                         | MOpData::Bge { offset, .. }
                         | MOpData::Bltu { offset, .. }
                         | MOpData::Bgeu { offset, .. } => {
-                            cfg.add_pred(offset.clone(), bb.clone());
-                            cfg.add_succ(bb, offset);
+                            cfg.add_pred(offset, (bb, op));
+                            cfg.add_succ(bb, (offset, op));
                         }
                     },
                     uni_ops: [Li, La, Mv, FmvS, Addw, Subw, Mulw, Divw, Remw, Addiw, Subiw, Muliw, Diviw, Remiw, Slliw, Srliw, Sraiw, Sllw, Srlw, Sraw, Slt, Slti, Sltu, Sltiu, Xor, Xori, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FneS, FgtS, FgeS, FcvtWS, FcvtSW, FmvWX, FmvXW, Lw, Sw, Flw, Fsw, Ld, Sd, Call, Ret],
@@ -628,14 +632,14 @@ impl BackIR {
                         LOpData::Br {
                             then_bb, else_bb, ..
                         } => {
-                            cfg.remove_pred(then_bb.clone(), bb.clone());
-                            cfg.remove_succ(bb.clone(), then_bb);
-                            cfg.remove_pred(else_bb.clone(), bb.clone());
-                            cfg.remove_succ(bb, else_bb);
+                            cfg.remove_pred(then_bb, (bb, op));
+                            cfg.remove_succ(bb, (then_bb, op));
+                            cfg.remove_pred(else_bb, (bb, op));
+                            cfg.remove_succ(bb, (else_bb, op));
                         }
                         LOpData::Jump { target_bb } => {
-                            cfg.remove_pred(target_bb.clone(), bb.clone());
-                            cfg.remove_succ(bb, target_bb);
+                            cfg.remove_pred(target_bb, (bb, op));
+                            cfg.remove_succ(bb, (target_bb, op));
                         }
                     },
                     uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, Call, LoadIntImm, LoadFloatImm, Ret],
@@ -648,12 +652,12 @@ impl BackIR {
                     enu: MOpData,
                     minor_arms: {
                         MOpData::J { target } => {
-                            cfg.remove_pred(target.clone(), bb.clone());
-                            cfg.remove_succ(bb, target);
+                            cfg.remove_pred(target, (bb, op));
+                            cfg.remove_succ(bb, (target, op));
                         }
                         MOpData::Bnez { target, .. } => {
-                            cfg.remove_pred(target.clone(), bb.clone());
-                            cfg.remove_succ(bb, target);
+                            cfg.remove_pred(target, (bb, op));
+                            cfg.remove_succ(bb, (target, op));
                         }
                         MOpData::Beq { offset, .. }
                         | MOpData::Bne { offset, .. }
@@ -661,8 +665,8 @@ impl BackIR {
                         | MOpData::Bge { offset, .. }
                         | MOpData::Bltu { offset, .. }
                         | MOpData::Bgeu { offset, .. } => {
-                            cfg.remove_pred(offset.clone(), bb.clone());
-                            cfg.remove_succ(bb, offset);
+                            cfg.remove_pred(offset, (bb, op));
+                            cfg.remove_succ(bb, (offset, op));
                         }
                     },
                     uni_ops: [Li, La, Mv, FmvS, Addw, Subw, Mulw, Divw, Remw, Addiw, Subiw, Muliw, Diviw, Remiw, Slliw, Srliw, Sraiw, Sllw, Srlw, Sraw, Slt, Slti, Sltu, Sltiu, Xor, Xori, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FneS, FgtS, FgeS, FcvtWS, FcvtSW, FmvWX, FmvXW, Lw, Sw, Flw, Fsw, Ld, Sd, Call, Ret],
@@ -717,7 +721,6 @@ impl BackIR {
         self.add_uses(current_function, op_id);
         let current_block = builder
             .current_block
-            .clone()
             .unwrap_or_else(|| panic!("BackIR create: current_block is None"));
         self.add_control_flow(current_function, op_id, current_block);
         op_id
@@ -741,7 +744,7 @@ impl BackIR {
                         BOperand::Reg(_) => {
                             crate::debug::info!("Bind existing vreg {:?} with op {:?} in function {:?}", rd, op, current_function);
                             // Bind the operation with the existing virt reg.
-                            vregs.add_def(rd.clone(), op);
+                            vregs.add_def(*rd, op);
                         }
                         BOperand::Undef => {
                             // Allocate a new virt reg for the operation.
@@ -757,6 +760,7 @@ impl BackIR {
                         | BOperand::BB(_)
                         | BOperand::Slot(_)
                         | BOperand::IntImm(_)
+                        | BOperand::Extern(_)
                         | BOperand::FloatImm(_)
                         | BOperand::Func(_)
                         | BOperand::Inst(_) => unreachable!("Invalid rd operand {:?} in LOpData", rd),
@@ -791,7 +795,7 @@ impl BackIR {
                     match rd {
                         BOperand::Reg(_) => {
                             // Bind the operation with the existing virt reg.
-                            vregs.add_def(rd.clone(), op);
+                            vregs.add_def(*rd, op);
                         }
                         BOperand::Undef => {
                             let new_vreg = vregs.alloc(VirtReg::default());
@@ -806,6 +810,7 @@ impl BackIR {
                         | BOperand::Slot(_)
                         | BOperand::IntImm(_)
                         | BOperand::FloatImm(_)
+                        | BOperand::Extern(_)
                         | BOperand::Func(_)
                         | BOperand::Inst(_) => unreachable!("Invalid rd operand {:?} in MOpData", rd),
                     }
@@ -850,7 +855,7 @@ impl BackIR {
             if bb.cur.is_empty() {
                 None
             } else {
-                Some(bb.cur[0].clone())
+                Some(bb.cur[0])
             }
         };
 
@@ -882,7 +887,7 @@ impl BackIR {
 
         self.remove_def(current_function, op);
         self.remove_uses(current_function, op);
-        if let Some(bb_id) = bb.clone() {
+        if let Some(bb_id) = bb {
             self.remove_control_flow(current_function, op, bb_id);
         }
 
@@ -937,6 +942,13 @@ impl BackIR {
         bb_id: BOperand,
         new_op: BOp,
     ) -> BOperand {
+        crate::debug::info!(
+            "Replacing op {:?} with {:?} in function {:?}",
+            op_id,
+            new_op,
+            current_function
+        );
+
         let pos = {
             let cfg = self.cfg_mut_or_panic(
                 current_function,
@@ -983,6 +995,13 @@ impl BackIR {
         bb_id: BOperand,
         new_op: BOp,
     ) -> BOperand {
+        crate::debug::info!(
+            "Replacing op {:?} with {:?} in function {:?}",
+            op_id,
+            new_op,
+            current_function
+        );
+
         let pos = {
             let cfg = self.cfg_mut_or_panic(
                 current_function,
@@ -1077,144 +1096,11 @@ impl BackIR {
     /// lop_id: InstId
     pub fn get_rd(&self, current_function: Option<BOperand>, lop_id: BOperand) -> Option<BOperand> {
         let current_function = current_function.expect("No current function");
-        let bop = &self.funcs[current_function].dfg[lop_id];
-
-        match &bop.data {
-            BOpData::L(lop_data) => match_rd! {
-                target: lop_data,
-                op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, Move],
-                rd_arm: LOpData(rd) => {
-                    Some(rd.clone())
-                },
-                fallback: {
-                    // For other LOpData which doesn't have rd field (e.g. Call and Store), we return Undef.
-                    LOpData::Store {..}
-                    | LOpData::Call {..}
-                    | LOpData::Br {..}
-                    | LOpData::Jump {..}
-                    | LOpData::Ret => None,
-                }
-            },
-            BOpData::M(mop_data) => match_rd! {
-                target: mop_data,
-                op_with_rds: [
-                    Li, La, Mv, FmvS,
-                    Addw, Subw, Mulw, Divw, Remw,
-                    Slliw, Srliw, Sraiw,
-                    Sllw, Srlw, Sraw,
-                    Slt, Slti, Sltu, Sltiu,
-                    Addiw, Subiw, Muliw, Diviw, Remiw,
-                    Xor, Xori,
-                    FaddS, FsubS, FmulS, FdivS,
-                    FeqS, FltS, FleS, FneS, FgtS, FgeS,
-                    FcvtWS, FcvtSW, FmvWX, FmvXW,
-                    Lw, Flw, Ld
-                ],
-                rd_arm: MOpData(rd) => {
-                    Some(rd.clone())
-                },
-                fallback: {
-                    // For other MOpData which doesn't have rd field (e.g. J and Call), we return Undef.
-                    MOpData::Sw {..}
-                    | MOpData::Fsw {..}
-                    | MOpData::Sd {..}
-                    | MOpData::J {..}
-                    | MOpData::Bnez {..}
-                    | MOpData::Call {..}
-                    | MOpData::Ret
-                    | MOpData::Beq {..}
-                    | MOpData::Bne {..}
-                    | MOpData::Blt {..}
-                    | MOpData::Bge {..}
-                    | MOpData::Bltu {..}
-                    | MOpData::Bgeu {..} => None,
-                }
-            },
-        }
+        self.funcs[current_function].get_rd(lop_id)
     }
 
     pub fn get_src(&self, current_function: Option<BOperand>, src_id: BOperand) -> Vec<BOperand> {
         let current_function = current_function.expect("No current function");
-        let bop = &self.funcs[current_function].dfg[src_id];
-
-        match &bop.data {
-            BOpData::L(lop_data) => match_src! {
-                target: lop_data,
-                bin_ops: [
-                    AddI, SubI, MulI, DivI, ModI,
-                    SNe, SEq, SGt, SLt, SGe, SLe,
-                    Xor, Shl, Shr, Sar,
-                    AddF, SubF, MulF, DivF,
-                    ONe, OEq, OGt, OLt, OGe, OLe
-                ],
-                bin_arm: LOpData { lhs, rhs } => {
-                    vec![*lhs, *rhs]
-                },
-                un_ops: [Sitofp, Fptosi],
-                un_arm: LOpData { value } => {
-                    vec![*value]
-                },
-                fallback: {
-                    LOpData::Store { addr, value } => vec![*addr, *value],
-                    LOpData::Load { addr, .. } => vec![*addr],
-                    LOpData::Move { src, .. } => vec![*src],
-                    LOpData::Br { cond, .. } => vec![*cond],
-                    LOpData::Call { func } => vec![*func],
-                    LOpData::Jump { .. }
-                    | LOpData::Ret
-                    | LOpData::LoadIntImm { .. }
-                    | LOpData::LoadFloatImm { .. } => vec![],
-                }
-            },
-            BOpData::M(mop_data) => match_src! {
-                target: mop_data,
-                bin_ops: [
-                    Addw, Subw, Mulw, Divw, Remw,
-                    Sllw, Srlw, Sraw,
-                    Slt, Sltu, Xor,
-                    FaddS, FsubS, FmulS, FdivS,
-                    FeqS, FltS, FleS, FneS, FgtS, FgeS
-                ],
-                bin_arm: MOpData { rs1, rs2 } => {
-                    vec![*rs1, *rs2]
-                },
-                un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
-                un_arm: MOpData { rs } => {
-                    vec![*rs]
-                },
-                fallback: {
-                    MOpData::Slti { rs1, imm, .. }
-                    | MOpData::Sltiu { rs1, imm, .. }
-                    | MOpData::Addiw { rs1, imm, .. }
-                    | MOpData::Subiw { rs1, imm, .. }
-                    | MOpData::Muliw { rs1, imm, .. }
-                    | MOpData::Diviw { rs1, imm, .. }
-                    | MOpData::Remiw { rs1, imm, .. }
-                    | MOpData::Slliw { rs1, imm, .. }
-                    | MOpData::Srliw { rs1, imm, .. }
-                    | MOpData::Sraiw { rs1, imm, .. }
-                    | MOpData::Xori { rs1, imm, .. } => vec![*rs1, *imm],
-                    MOpData::Lw { base, offset, .. }
-                    | MOpData::Flw { base, offset, .. }
-                    | MOpData::Ld { base, offset, .. } => vec![*base, *offset],
-                    MOpData::Sw { rs, base, offset }
-                    | MOpData::Fsw { rs, base, offset }
-                    | MOpData::Sd { rs, base, offset } => vec![*rs, *base, *offset],
-
-                    MOpData::Li { .. } | MOpData::La { .. } => vec![],
-
-                    MOpData::Beq { rs1, rs2, offset }
-                    | MOpData::Bne { rs1, rs2, offset }
-                    | MOpData::Blt { rs1, rs2, offset }
-                    | MOpData::Bge { rs1, rs2, offset }
-                    | MOpData::Bltu { rs1, rs2, offset }
-                    | MOpData::Bgeu { rs1, rs2, offset } => vec![*rs1, *rs2, *offset],
-                    MOpData::Call { .. } => vec![],
-                    MOpData::Ret => vec![],
-                    MOpData::J { target } => vec![*target],
-                    MOpData::Bnez { rs, .. } => vec![*rs],
-                }
-            },
-        }
+        self.funcs[current_function].get_src(src_id)
     }
 }

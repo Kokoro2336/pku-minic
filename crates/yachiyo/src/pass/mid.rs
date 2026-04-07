@@ -1,9 +1,9 @@
 //! Pass management for IR optimization and transformation.
 
+use crate::cli::Cli;
 use crate::debug::info;
 use crate::debug::DumpLLVM;
 use crate::ir::mid::IR;
-use crate::cli::Cli;
 
 use std::collections::VecDeque;
 
@@ -46,11 +46,11 @@ impl<'a> PassManager<'a> {
             pass.run();
             info!("Finished pass: {}", pass.name());
 
-            if self.cli.emit_llvm && self.cli.dump_after == pass.name() {
+            if self.cli.emit_llvm && self.cli.dump_llvm_after == pass.name() {
                 info!("Dumping IR after pass: {}", pass.name());
                 let filename = self
                     .cli
-                    .input
+                    .output
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("output")
@@ -65,11 +65,11 @@ impl<'a> PassManager<'a> {
         }
 
         // If no pass specified, dump the LLVM IR after all optimizations.
-        if self.cli.emit_llvm && self.cli.dump_after.is_empty() {
+        if self.cli.emit_llvm && self.cli.dump_llvm_after.is_empty() {
             info!("Start Dumping LLVM IR.");
             let filename = self
                 .cli
-                .input
+                .output
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("output")

@@ -1,7 +1,7 @@
 //! Garbage collection and reference rewriting support for Arena.
 
-use yachiyo::pass::Pass;
 use yachiyo::ir::mid::IR;
+use yachiyo::pass::Pass;
 use yachiyo::utils::arena::Arena;
 
 #[derive(Default)]

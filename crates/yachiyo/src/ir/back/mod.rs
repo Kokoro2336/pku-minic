@@ -3,18 +3,17 @@
 mod bb;
 mod builder;
 mod dump;
+mod func;
 mod mem;
 mod module;
 mod op;
 mod op_data;
-mod r#type;
 mod reg;
-mod func;
+mod r#type;
 
 pub use bb::*;
-pub use dump::*;
-pub use func::*;
 pub use builder::*;
+pub use func::*;
 pub use mem::*;
 pub use module::*;
 pub use op::*;

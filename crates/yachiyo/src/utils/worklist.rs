@@ -6,6 +6,7 @@ use rustc_hash::FxHashSet;
 use std::collections::VecDeque;
 use std::hash::Hash;
 
+#[derive(Debug)]
 pub struct Worklist<T, S> {
     list: VecDeque<T>,
     in_list: S,
@@ -24,6 +25,9 @@ impl<T, S: Default> Worklist<T, S> {
     pub fn new() -> Self {
         Self::default()
     }
+    pub fn get_in_list(&self) -> &S {
+        &self.in_list
+    }
 }
 
 #[allow(unused)]
@@ -36,6 +40,7 @@ pub trait WorklistTrait<T> {
     fn len(&self) -> usize;
     fn clear(&mut self);
     fn contains(&self, item: &T) -> bool;
+    fn remove(&mut self, item: &T) -> bool;
 }
 
 /// If the items can not be easily converted to usize and hashable, we use a hash set to track membership.
@@ -86,10 +91,20 @@ impl<T: Eq + Hash + Clone> WorklistTrait<T> for Worklist<T, FxHashSet<T>> {
     fn contains(&self, item: &T) -> bool {
         self.in_list.contains(item)
     }
+
+    fn remove(&mut self, item: &T) -> bool {
+        if self.in_list.remove(item) {
+            self.list
+                .remove(self.list.iter().position(|x| x == item).unwrap());
+            true
+        } else {
+            false
+        }
+    }
 }
 
 /// If the items can be easily converted to usize, we can use a bitset to track membership for better performance.
-impl<T: Into<usize> + Copy> WorklistTrait<T> for Worklist<T, BitSet> {
+impl<T: Into<usize> + Copy + PartialEq> WorklistTrait<T> for Worklist<T, BitSet> {
     fn push_back(&mut self, item: T) {
         let index = item.into();
         if !self.in_list.contains(index) {
@@ -142,5 +157,15 @@ impl<T: Into<usize> + Copy> WorklistTrait<T> for Worklist<T, BitSet> {
     fn contains(&self, item: &T) -> bool {
         let index = (*item).into();
         self.in_list.contains(index)
+    }
+
+    fn remove(&mut self, item: &T) -> bool {
+        if self.in_list.remove((*item).into()) {
+            self.list
+                .remove(self.list.iter().position(|x| x == item).unwrap());
+            true
+        } else {
+            false
+        }
     }
 }

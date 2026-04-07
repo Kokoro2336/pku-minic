@@ -1,7 +1,7 @@
 const RISCV_BITS: u32 = 64;
 
 /// type of value
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Int,
     Void,
