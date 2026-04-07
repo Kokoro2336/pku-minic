@@ -872,21 +872,22 @@ impl Allocator<'_> {
             for inst_id in self.get_func(func_id).cfg[bb_id].cur.clone() {
                 let mut op_data = self.get_func(func_id).dfg[inst_id].data.clone();
                 let remap_operand = |operand: &mut BOperand| {
-                    if operand.is_virt() {
-                        let alias = self.get_alias(*operand);
-                        if let BOperand::Reg(Reg::Virt(id)) = alias {
-                            if !self.colored_nodes.contains(id) {
-                                panic!("rewrite: virtual register v{} is not in colored_nodes", id);
-                            }
-                            let color = self.color[id].unwrap_or_else(|| {
-                                panic!("rewrite: virtual register v{} has no assigned color", id)
-                            });
-                            *operand = BOperand::Reg(color);
-                        } else if alias.is_phys() {
-                            *operand = alias;
-                        } else {
-                            unreachable!("Alias can't be non-reg");
+                    if !operand.is_virt() || !self.is_target(*operand) {
+                        return;
+                    }
+                    let alias = self.get_alias(*operand);
+                    if let BOperand::Reg(Reg::Virt(id)) = alias {
+                        if !self.colored_nodes.contains(id) {
+                            panic!("rewrite: virtual register v{} is not in colored_nodes", id);
                         }
+                        let color = self.color[id].unwrap_or_else(|| {
+                            panic!("rewrite: virtual register v{} has no assigned color", id)
+                        });
+                        *operand = BOperand::Reg(color);
+                    } else if alias.is_phys() {
+                        *operand = alias;
+                    } else {
+                        unreachable!("Alias can't be non-reg");
                     }
                 };
 
@@ -1008,7 +1009,6 @@ impl Allocator<'_> {
                     }
                 }
 
-                
                 self.get_func_mut(func_id).dfg[inst_id].data = op_data;
             }
         }
