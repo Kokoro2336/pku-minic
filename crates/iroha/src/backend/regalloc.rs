@@ -302,7 +302,7 @@ impl Allocator<'_> {
         let cfg_ids = self.get_func(func_id).cfg.ids();
 
         for bb_id in cfg_ids {
-            let cur = &self.get_func(func_id).cfg[bb_id].cur.clone();
+            let cur = self.get_func(func_id).cfg[bb_id].cur.clone();
             let mut live = live_outs[bb_id].clone();
 
             for inst_id in cur.iter().rev() {
@@ -343,6 +343,8 @@ impl Allocator<'_> {
                     for live_var in live.iter() {
                         self.add_edge(rd, *live_var);
                     }
+                    // Remove def from live set
+                    live = live.difference(&array_set![rd]);
                 }
 
                 // Retrieve src

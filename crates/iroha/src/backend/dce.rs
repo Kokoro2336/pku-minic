@@ -54,14 +54,16 @@ impl<'a> BDCE<'a> {
                         enu: BOperand,
                         minor_arms: {
                             BOperand::Reg(Reg::Virt(_)) => vregs[rd].uses.is_empty(),
+                            BOperand::Reg(Reg::X(_) | Reg::F(_)) => false,
                         },
-                        uni_ops: [Reg, Undef, BB, IntImm, FloatImm, Inst, Func, Data, RoData, Extern, Slot],
+                        uni_ops: [Undef, BB, IntImm, FloatImm, Inst, Func, Data, RoData, Extern, Slot],
                         uni_arm: false
                     }
                 }
                 BOperand::Reg(Reg::Virt(_)) => vregs[operand].uses.is_empty(),
+                BOperand::Reg(Reg::X(_) | Reg::F(_)) => false,
             },
-            uni_ops: [Reg, Undef, BB, IntImm, FloatImm, Func, Data, RoData, Extern, Slot],
+            uni_ops: [Undef, BB, IntImm, FloatImm, Inst, Func, Data, RoData, Extern, Slot],
             uni_arm: false
         }
     }
