@@ -50,7 +50,7 @@ impl<'a> PassManager<'a> {
                 info!("Dumping IR after pass: {}", pass.name());
                 let filename = self
                     .cli
-                    .input
+                    .output
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("output")
@@ -69,7 +69,7 @@ impl<'a> PassManager<'a> {
             info!("Start Dumping LLVM IR.");
             let filename = self
                 .cli
-                .input
+                .output
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("output")

@@ -7,8 +7,9 @@ use iroha::frontend::*;
 use iroha::opt::*;
 
 use yachiyo::cli::Cli;
-use yachiyo::debug::log::setup;
 use yachiyo::debug::info;
+use yachiyo::debug::log::setup;
+use yachiyo::debug::DumpASM;
 use yachiyo::pass::*;
 use yachiyo::utils::arena::Arena;
 
@@ -87,6 +88,19 @@ fn main() -> Result<()> {
     info!("Start Lowering.");
     let mut back_ir = Lowering::new(ir).run();
     info!("Finish Lowering.");
+
+    if cli.dump_asm_after == "Lowering" {
+        info!("Start Dumping Assembly.");
+        let asm_filename = cli
+            .output
+            .file_stem()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        DumpASM::new(&back_ir, asm_filename).run();
+        info!("Finish Dumping Assembly.");
+        std::process::exit(0);
+    }
 
     // Run Backend Passes.
     BPassManager::new(&cli)

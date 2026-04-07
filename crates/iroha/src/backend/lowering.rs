@@ -459,13 +459,11 @@ impl Lowering {
                 },
                 // For bool -> int, we don't genrate any instruction, just map the value.
                 OpData::Zext { value } => {
-                    let lfunc_id = self.get(func_id.clone(), None);
                     let vreg_id = self.get(
                         value.clone(),
                         Some(LOpType::Move),
                     );
-                    let value = self.lower_ir.funcs[lfunc_id].vregs[vreg_id].defs[0];
-                    self.set(op_id.clone(), value);
+                    self.set(op_id.clone(), vreg_id);
                 },
                 OpData::Br {
                     cond,

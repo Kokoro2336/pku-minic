@@ -1008,7 +1008,7 @@ impl Allocator<'_> {
                         }
                     }
                 }
-
+                // Write back to the slot after rewriting, avoiding borrow checker error.
                 self.get_func_mut(func_id).dfg[inst_id].data = op_data;
             }
         }
@@ -1018,7 +1018,6 @@ impl Allocator<'_> {
     /// LiveOuts is the result of current function's liveness analysis, which is used for building the interference graph.
     fn run(&mut self) {
         let func_id = self.builder.current_function.unwrap();
-
         loop {
             // Reset the worklist.
             self.reset();
