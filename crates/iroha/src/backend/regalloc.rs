@@ -175,7 +175,7 @@ impl Allocator<'_> {
             minor_arms: {
                 BOperand::Reg(Reg::Virt(_)) => {
                     let vreg = &self.get_func(func_id).vregs[vreg_id];
-                    // TODO: Store type in vreg.
+                    assert!(!vreg.defs.is_empty());
                     let first_def = vreg.defs[0];
                     let op = &self.get_func(func_id).dfg[first_def];
                     match &op.typ {
@@ -909,12 +909,13 @@ impl Allocator<'_> {
                 }
             }
             yachiyo::debug::info!(
-                "Finished main loop of register allocation. simplify_worklist: {:?}, worklist_moves: {:?}, freeze_worklist: {:?}, spill_worklist: {:?}, \nselect_stack: {:?}",
+                "Finished main loop of register allocation. simplify_worklist: {:?}, worklist_moves: {:?}, freeze_worklist: {:?}, spill_worklist: {:?}, \nselect_stack: {:?}, \ncoalesced_nodes: {:?}",
                 self.simplify_worklist,
                 self.worklist_moves,
                 self.freeze_worklist,
                 self.spill_worklist,
                 self.select_stack,
+                self.coalesced_nodes
             );
             // Assign colors to the nodes.
             self.assign_colors();

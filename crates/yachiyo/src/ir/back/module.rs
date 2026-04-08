@@ -139,7 +139,7 @@ impl BackIR {
 
         // Replace the old_vreg_id with new_operand in all uses.
         for use_tuple in uses {
-            let src = self.get_src_mut(current_function, inst_id);
+            let src = self.get_src_mut(current_function, use_tuple.0);
             for operand in src {
                 if *operand == old_vreg_id {
                     *operand = new_operand;

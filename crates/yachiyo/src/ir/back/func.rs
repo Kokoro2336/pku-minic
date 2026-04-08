@@ -183,8 +183,8 @@ impl BFunction {
                     LOpData::Load { addr, .. } => vec![(addr, 1)],
                     LOpData::Move { src, .. } => vec![(src, 1)],
                     LOpData::Br { cond, .. } => vec![(cond, 0)],
-                    LOpData::Call { .. } => vec![],
-                    LOpData::Jump { .. }
+                    LOpData::Call { .. }
+                    | LOpData::Jump { .. }
                     | LOpData::Ret
                     | LOpData::LoadIntImm { .. }
                     | LOpData::LoadFloatImm { .. } => vec![],
@@ -218,14 +218,14 @@ impl BFunction {
                     | MOpData::Srliw { rs1, imm, .. }
                     | MOpData::Sraiw { rs1, imm, .. }
                     | MOpData::Xori { rs1, imm, .. } => vec![(rs1, 1), (imm, 2)],
+
                     MOpData::Lw { base, offset, .. }
                     | MOpData::Flw { base, offset, .. }
                     | MOpData::Ld { base, offset, .. } => vec![(base, 1), (offset, 2)],
+
                     MOpData::Sw { rs, base, offset }
                     | MOpData::Fsw { rs, base, offset }
                     | MOpData::Sd { rs, base, offset } => vec![(rs, 0), (base, 1), (offset, 2)],
-
-                    MOpData::Li { .. } | MOpData::La { .. } => vec![],
 
                     MOpData::Beq { rs1, rs2, offset }
                     | MOpData::Bne { rs1, rs2, offset }
@@ -233,10 +233,14 @@ impl BFunction {
                     | MOpData::Bge { rs1, rs2, offset }
                     | MOpData::Bltu { rs1, rs2, offset }
                     | MOpData::Bgeu { rs1, rs2, offset } => vec![(rs1, 0), (rs2, 1), (offset, 2)],
-                    MOpData::Call { .. } => vec![],
-                    MOpData::Ret => vec![],
-                    MOpData::J { .. } => vec![],
+
                     MOpData::Bnez { rs, .. } => vec![(rs, 0)],
+
+                    MOpData::Li { .. } 
+                    | MOpData::La { .. } 
+                    | MOpData::Call { .. }
+                    | MOpData::Ret
+                    | MOpData::J { .. } => vec![],
                 }
             },
         }
@@ -274,8 +278,9 @@ impl BFunction {
                     LOpData::Load { addr, .. } => vec![(addr, 1)],
                     LOpData::Move { src, .. } => vec![(src, 1)],
                     LOpData::Br { cond, .. } => vec![(cond, 0)],
-                    LOpData::Call { .. } => vec![],
-                    LOpData::Jump { .. }
+
+                    LOpData::Call { .. }
+                    | LOpData::Jump { .. }
                     | LOpData::Ret
                     | LOpData::LoadIntImm { .. }
                     | LOpData::LoadFloatImm { .. } => vec![],
@@ -309,9 +314,11 @@ impl BFunction {
                     | MOpData::Srliw { rs1, imm, .. }
                     | MOpData::Sraiw { rs1, imm, .. }
                     | MOpData::Xori { rs1, imm, .. } => vec![(rs1, 1), (imm, 2)],
+
                     MOpData::Lw { base, offset, .. }
                     | MOpData::Flw { base, offset, .. }
                     | MOpData::Ld { base, offset, .. } => vec![(base, 1), (offset, 2)],
+
                     MOpData::Sw { rs, base, offset }
                     | MOpData::Fsw { rs, base, offset }
                     | MOpData::Sd { rs, base, offset } => vec![(rs, 0), (base, 1), (offset, 2)],
@@ -324,10 +331,12 @@ impl BFunction {
                     | MOpData::Bge { rs1, rs2, offset }
                     | MOpData::Bltu { rs1, rs2, offset }
                     | MOpData::Bgeu { rs1, rs2, offset } => vec![(rs1, 0), (rs2, 1), (offset, 2)],
-                    MOpData::Call { .. } => vec![],
-                    MOpData::Ret => vec![],
-                    MOpData::J { .. } => vec![],
+
                     MOpData::Bnez { rs, .. } => vec![(rs, 0)],
+
+                    MOpData::Call { .. }
+                    | MOpData::Ret
+                    | MOpData::J { .. } => vec![],
                 }
             },
         }
