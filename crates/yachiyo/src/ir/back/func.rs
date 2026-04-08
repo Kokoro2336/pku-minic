@@ -97,7 +97,7 @@ impl BFunction {
         self.get_rd_tuple(lop_id).map(|(rd, _)| rd)
     }
 
-    pub fn get_rd_mut_tuple(&mut self, lop_id: BOperand) -> Option<(&mut BOperand, usize)> {
+    pub fn get_rd_tuple_mut(&mut self, lop_id: BOperand) -> Option<(&mut BOperand, usize)> {
         let bop = &mut self.dfg[lop_id];
 
         match &mut bop.data {
@@ -155,7 +155,7 @@ impl BFunction {
     }
 
     pub fn get_rd_mut(&mut self, lop_id: BOperand) -> Option<&mut BOperand> {
-        self.get_rd_mut_tuple(lop_id).map(|(rd, _)| rd)
+        self.get_rd_tuple_mut(lop_id).map(|(rd, _)| rd)
     }
 
     pub fn get_src_tuple(&self, lop_id: BOperand) -> Vec<(&BOperand, usize)> {
@@ -249,7 +249,7 @@ impl BFunction {
             .collect()
     }
 
-    pub fn get_src_mut_tuple(&mut self, lop_id: BOperand) -> Vec<(&mut BOperand, usize)> {
+    pub fn get_src_tuple_mut(&mut self, lop_id: BOperand) -> Vec<(&mut BOperand, usize)> {
         let bop = &mut self.dfg[lop_id];
 
         match &mut bop.data {
@@ -334,7 +334,7 @@ impl BFunction {
     }
 
     pub fn get_src_mut(&mut self, lop_id: BOperand) -> Vec<&mut BOperand> {
-        self.get_src_mut_tuple(lop_id)
+        self.get_src_tuple_mut(lop_id)
             .into_iter()
             .map(|(src, _)| src)
             .collect()

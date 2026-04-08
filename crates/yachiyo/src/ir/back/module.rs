@@ -5,7 +5,7 @@ use super::{
     VirtReg, BCFG, BCG, BDFG,
 };
 use crate::utils::arena::ArenaItem;
-use crate::utils::r#match::{match_rd, match_some, match_src};
+use crate::utils::r#match::{match_rd, match_some};
 
 #[derive(Debug, Clone)]
 pub struct BackIR {
@@ -38,11 +38,6 @@ impl BackIR {
         &mut self.funcs[idx].cfg
     }
 
-    fn dfg_mut_or_panic(&mut self, current_function: Option<BOperand>, msg: &str) -> &mut BDFG {
-        let idx = current_function.unwrap_or_else(|| panic!("{}", msg));
-        &mut self.funcs[idx].dfg
-    }
-
     fn cfg_dfg_mut_or_panic(
         &mut self,
         current_function: Option<BOperand>,
@@ -54,282 +49,38 @@ impl BackIR {
     }
 
     pub fn add_uses(&mut self, current_function: Option<BOperand>, op: BOperand) {
-        let dfg = self.dfg_mut_or_panic(current_function, "BackIR add_uses: no current function");
-        let data = dfg[op.get_inst_id()].data.clone();
+        let src_tuples = self
+            .get_src_tuple(current_function, op)
+            .into_iter()
+            .map(|(src, idx)| (*src, idx))
+            .collect::<Vec<_>>();
 
         let vregs = &mut self.funcs[current_function.unwrap()].vregs;
-        match data {
-            BOpData::L(data) => match_src! {
-                target: data,
-                bin_ops: [
-                    AddI, SubI, MulI, DivI, ModI,
-                    SNe, SEq, SGt, SLt, SGe, SLe,
-                    Xor, Shl, Shr, Sar,
-                    AddF, SubF, MulF, DivF,
-                    ONe, OEq, OGt, OLt, OGe, OLe
-                ],
-                bin_arm: LOpData { lhs, rhs } => {
-                    // rd is considered as the first operand.
-                    vregs.add_use(lhs, (op, 1));
-                    vregs.add_use(rhs, (op, 2));
-                },
-                un_ops: [Sitofp, Fptosi],
-                un_arm: LOpData { value } => {
-                    vregs.add_use(value, (op, 1));
-                },
-                fallback: {
-                    LOpData::Load { addr, .. } => {
-                        vregs.add_use(addr, (op, 1));
-                    }
-                    LOpData::Store { addr, value } => {
-                        vregs.add_use(addr, (op, 0));
-                        vregs.add_use(value, (op, 1));
-                    }
-                    LOpData::Br { cond, .. } => {
-                        vregs.add_use(cond, (op, 0));
-                    }
-                    LOpData::Move { src, .. } => {
-                        vregs.add_use(src, (op, 1));
-                    }
-                    LOpData::Call { .. }
-                    | LOpData::Jump { .. }
-                    | LOpData::Ret
-                    | LOpData::LoadIntImm { .. }
-                    | LOpData::LoadFloatImm { .. } => {}
-                }
-            },
-            BOpData::M(data) => match_src! {
-                target: data,
-                bin_ops: [
-                    Addw, Subw, Mulw, Divw, Remw,
-                    Sllw, Srlw, Sraw,
-                    Slt, Sltu, Xor,
-                    FaddS, FsubS, FmulS, FdivS,
-                    FeqS, FltS, FleS, FneS, FgtS, FgeS,
-                ],
-                bin_arm: MOpData { rs1, rs2 } => {
-                    vregs.add_use(rs1, (op, 1));
-                    vregs.add_use(rs2, (op, 2));
-                },
-                un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
-                un_arm: MOpData { rs } => {
-                    vregs.add_use(rs, (op, 1));
-                },
-                fallback: {
-                    MOpData::Beq { rs1, rs2, offset }
-                    | MOpData::Bne { rs1, rs2, offset }
-                    | MOpData::Blt { rs1, rs2, offset }
-                    | MOpData::Bge { rs1, rs2, offset }
-                    | MOpData::Bltu { rs1, rs2, offset }
-                    | MOpData::Bgeu { rs1, rs2, offset } => {
-                        vregs.add_use(rs1, (op, 0));
-                        vregs.add_use(rs2, (op, 1));
-                        vregs.add_use(offset, (op, 2));
-                    }
-
-                    MOpData::Slti { rs1, imm, .. }
-                    | MOpData::Sltiu { rs1, imm, .. }
-                    | MOpData::Addiw { rs1, imm, .. }
-                    | MOpData::Subiw { rs1, imm, .. }
-                    | MOpData::Muliw { rs1, imm, .. }
-                    | MOpData::Diviw { rs1, imm, .. }
-                    | MOpData::Remiw { rs1, imm, .. }
-                    | MOpData::Slliw { rs1, imm, .. }
-                    | MOpData::Srliw { rs1, imm, .. }
-                    | MOpData::Sraiw { rs1, imm, .. }
-                    | MOpData::Xori { rs1, imm, .. } => {
-                        vregs.add_use(rs1, (op, 1));
-                        vregs.add_use(imm, (op, 2));
-                    }
-                    MOpData::Lw { base, offset, .. }
-                    | MOpData::Flw { base, offset, .. }
-                    | MOpData::Ld { base, offset, .. } => {
-                        vregs.add_use(base, (op, 1));
-                        vregs.add_use(offset, (op, 2));
-                    }
-                    MOpData::Sw { rs, base, offset }
-                    | MOpData::Fsw { rs, base, offset }
-                    | MOpData::Sd { rs, base, offset } => {
-                        vregs.add_use(rs, (op, 0));
-                        vregs.add_use(base, (op, 1));
-                        vregs.add_use(offset, (op, 2));
-                    }
-                    MOpData::Bnez { rs, .. } => {
-                        vregs.add_use(rs, (op, 0));
-                    }
-                    MOpData::Li { .. }
-                    | MOpData::La { .. }
-                    | MOpData::J { .. }
-                    | MOpData::Call { .. }
-                    | MOpData::Ret => {}
-                }
-            },
+        for (src, src_idx) in src_tuples {
+            vregs.add_use(src, (op, src_idx));
         }
     }
 
     /// Remove the uses of the operation.
     pub fn remove_uses(&mut self, current_function: Option<BOperand>, op: BOperand) {
-        let dfg =
-            self.dfg_mut_or_panic(current_function, "BackIR remove_uses: no current function");
-        let data = dfg[op.get_inst_id()].data.clone();
-
+        let src_tuples = self
+            .get_src_tuple(current_function, op)
+            .into_iter()
+            .map(|(src, idx)| (*src, idx))
+            .collect::<Vec<_>>();
         let vregs = &mut self.funcs[current_function.unwrap()].vregs;
-
-        match data {
-            BOpData::L(data) => match_src! {
-                target: data,
-                bin_ops: [
-                    AddI, SubI, MulI, DivI, ModI,
-                    SNe, SEq, SGt, SLt, SGe, SLe,
-                    Xor, Shl, Shr, Sar,
-                    AddF, SubF, MulF, DivF,
-                    ONe, OEq, OGt, OLt, OGe, OLe
-                ],
-                bin_arm: LOpData { lhs, rhs } => {
-                    vregs.remove_use(lhs, (op, 1));
-                    vregs.remove_use(rhs, (op, 2));
-                },
-                un_ops: [Sitofp, Fptosi],
-                un_arm: LOpData { value } => {
-                    vregs.remove_use(value, (op, 1));
-                },
-                fallback: {
-                    LOpData::Load { addr, .. } => {
-                        vregs.remove_use(addr, (op, 1));
-                    }
-                    LOpData::Store { addr, value } => {
-                        vregs.remove_use(addr, (op, 0));
-                        vregs.remove_use(value, (op, 1));
-                    }
-                    LOpData::Br { cond, .. } => {
-                        vregs.remove_use(cond, (op, 0));
-                    }
-                    LOpData::Move { src, .. } => {
-                        vregs.remove_use(src, (op, 1));
-                    }
-                    LOpData::Call { .. }
-                    | LOpData::Jump { .. }
-                    | LOpData::Ret
-                    | LOpData::LoadIntImm { .. }
-                    | LOpData::LoadFloatImm { .. } => {}
-                }
-            },
-            BOpData::M(data) => match_src! {
-                target: data,
-                bin_ops: [
-                    Addw, Subw, Mulw, Divw, Remw,
-                    Sllw, Srlw, Sraw,
-                    Slt, Sltu, Xor,
-                    FaddS, FsubS, FmulS, FdivS,
-                    FeqS, FltS, FleS, FneS, FgtS, FgeS,
-                    Beq, Bne, Blt, Bge, Bltu, Bgeu
-                ],
-                bin_arm: MOpData { rs1, rs2 } => {
-                    vregs.remove_use(rs1, (op, 1));
-                    vregs.remove_use(rs2, (op, 2));
-                },
-                un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
-                un_arm: MOpData { rs } => {
-                    vregs.remove_use(rs, (op, 1));
-                },
-                fallback: {
-                    MOpData::Slti { rs1, imm, .. }
-                    | MOpData::Sltiu { rs1, imm, .. }
-                    | MOpData::Addiw { rs1, imm, .. }
-                    | MOpData::Subiw { rs1, imm, .. }
-                    | MOpData::Muliw { rs1, imm, .. }
-                    | MOpData::Diviw { rs1, imm, .. }
-                    | MOpData::Remiw { rs1, imm, .. }
-                    | MOpData::Slliw { rs1, imm, .. }
-                    | MOpData::Srliw { rs1, imm, .. }
-                    | MOpData::Sraiw { rs1, imm, .. }
-                    | MOpData::Xori { rs1, imm, .. } => {
-                        vregs.remove_use(rs1, (op, 1));
-                        vregs.remove_use(imm, (op, 2));
-                    }
-                    MOpData::Lw { base, offset, .. }
-                    | MOpData::Flw { base, offset, .. }
-                    | MOpData::Ld { base, offset, .. } => {
-                        vregs.remove_use(base, (op, 1));
-                        vregs.remove_use(offset, (op, 2));
-                    }
-                    MOpData::Sw { rs, base, offset }
-                    | MOpData::Fsw { rs, base, offset }
-                    | MOpData::Sd { rs, base, offset } => {
-                        vregs.remove_use(rs, (op, 0));
-                        vregs.remove_use(base, (op, 1));
-                        vregs.remove_use(offset, (op, 2));
-                    }
-                    MOpData::Bnez { rs, .. } => {
-                        vregs.remove_use(rs, (op, 0));
-                    }
-                    MOpData::Li { .. }
-                    | MOpData::La { .. }
-                    | MOpData::J { .. }
-                    | MOpData::Call { .. }
-                    | MOpData::Ret => {}
-                }
-            },
+        for (src, src_idx) in src_tuples {
+            vregs.remove_use(src, (op, src_idx));
         }
     }
 
     pub fn remove_def(&mut self, current_function: Option<BOperand>, op: BOperand) {
-        let dfg = self.dfg_mut_or_panic(current_function, "BackIR remove_def: no current function");
-        let data = dfg[op.get_inst_id()].data.clone();
-
+        let rd = match self.get_rd(current_function, op) {
+            Some(rd) => *rd,
+            None => return,
+        };
         let vregs = &mut self.funcs[current_function.unwrap()].vregs;
-        match data {
-            BOpData::L(lop_data) => match_rd! {
-                target: lop_data,
-                op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, Move],
-                rd_arm: LOpData(rd) => {
-                    vregs.remove_def(rd, op);
-                },
-                fallback: {
-                    // For other LOpData which doesn't have rd field (e.g. Call and Store), we return Undef.
-                    LOpData::Store {..}
-                    | LOpData::Call {..}
-                    | LOpData::Br {..}
-                    | LOpData::Jump {..}
-                    | LOpData::Ret => {},
-                }
-            },
-            BOpData::M(mop_data) => match_rd! {
-                target: mop_data,
-                op_with_rds: [
-                    Li, La, Mv, FmvS,
-                    Addw, Subw, Mulw, Divw, Remw,
-                    Slliw, Srliw, Sraiw,
-                    Sllw, Srlw, Sraw,
-                    Slt, Slti, Sltu, Sltiu,
-                    Addiw, Subiw, Muliw, Diviw, Remiw,
-                    Xor, Xori,
-                    FaddS, FsubS, FmulS, FdivS,
-                    FeqS, FltS, FleS, FneS, FgtS, FgeS,
-                    FcvtWS, FcvtSW, FmvWX, FmvXW,
-                    Lw, Flw, Ld
-                ],
-                rd_arm: MOpData(rd) => {
-                    vregs.remove_def(rd, op);
-                },
-                fallback: {
-                    // For other MOpData which doesn't have rd field (e.g. J and Call), we return Undef.
-                    | MOpData::Sw {..}
-                    | MOpData::Fsw {..}
-                    | MOpData::Sd {..}
-                    | MOpData::J {..}
-                    | MOpData::Bnez {..}
-                    | MOpData::Call {..}
-                    | MOpData::Ret
-                    | MOpData::Beq {..}
-                    | MOpData::Bne {..}
-                    | MOpData::Blt {..}
-                    | MOpData::Bge {..}
-                    | MOpData::Bltu {..}
-                    | MOpData::Bgeu {..} => {},
-                }
-            },
-        }
+        vregs.remove_def(rd, op);
     }
 
     /// # Arguments
@@ -379,7 +130,12 @@ impl BackIR {
         let vregs = &mut self.funcs[current_function.unwrap()].vregs;
         let uses = vregs[old_vreg_id].uses.clone();
 
-        // TODO: Replace the definition of old_vreg_id with new_operand.
+        // Replace the definition of old_vreg_id with new_operand.
+        let rd = self.get_rd_mut(current_function, inst_id).unwrap();
+        *rd = new_operand;
+        let vregs = &mut self.funcs[current_function.unwrap()].vregs;
+        vregs.remove_def(old_vreg_id, inst_id);
+        vregs.add_def(new_operand, inst_id);
 
         // Replace the old_vreg_id with new_operand in all uses.
         for use_tuple in uses {
@@ -407,10 +163,7 @@ impl BackIR {
         old_operand: BOperand,
         new_operand: BOperand,
     ) {
-        let dfg =
-            self.dfg_mut_or_panic(current_function, "BackIR replace_src: no current function");
         let (inst_id, idx) = use_tuple;
-        let op = &mut dfg[inst_id.get_inst_id()];
         let mut changed = false;
         let mut remap_operand = |operand: &mut BOperand| {
             if *operand == old_operand {
@@ -419,154 +172,11 @@ impl BackIR {
             }
         };
 
-        match &mut op.data {
-            BOpData::L(data) => match_src! {
-                target: data,
-                bin_ops: [
-                    AddI, SubI, MulI, DivI, ModI,
-                    SNe, SEq, SGt, SLt, SGe, SLe,
-                    Xor, Shl, Shr, Sar,
-                    AddF, SubF, MulF, DivF,
-                    ONe, OEq, OGt, OLt, OGe, OLe
-                ],
-                bin_arm: LOpData { lhs, rhs } => {
-                    if idx == 1 {
-                        remap_operand(lhs);
-                    }
-                    if idx == 2 {
-                        remap_operand(rhs);
-                    }
-                },
-                un_ops: [Sitofp, Fptosi],
-                un_arm: LOpData { value } => {
-                    if idx == 1 {
-                        remap_operand(value);
-                    }
-                },
-                fallback: {
-                    LOpData::Store { addr, value } => {
-                        if idx == 0 {
-                            remap_operand(addr);
-                        }
-                        if idx == 1 {
-                            remap_operand(value);
-                        }
-                    }
-                    LOpData::Load { addr, .. } => {
-                        if idx == 1 {
-                            remap_operand(addr);
-                        }
-                    }
-                    LOpData::Move { src, .. } => {
-                        if idx == 1 {
-                            remap_operand(src);
-                        }
-                    }
-                    LOpData::Br { cond, .. } => {
-                        if idx == 0 {
-                            remap_operand(cond);
-                        }
-                    }
-                    LOpData::Call { .. }
-                    | LOpData::Jump { .. }
-                    | LOpData::Ret
-                    | LOpData::LoadIntImm { .. }
-                    | LOpData::LoadFloatImm { .. } => {}
-                }
-            },
-            BOpData::M(data) => match_src! {
-                target: data,
-                bin_ops: [
-                    Addw, Subw, Mulw, Divw, Remw,
-                    Sllw, Srlw, Sraw,
-                    Slt, Sltu, Xor,
-                    FaddS, FsubS, FmulS, FdivS,
-                    FeqS, FltS, FleS, FneS, FgtS, FgeS,
-                ],
-                bin_arm: MOpData { rs1, rs2 } => {
-                    if idx == 1 {
-                        remap_operand(rs1);
-                    }
-                    if idx == 2 {
-                        remap_operand(rs2);
-                    }
-                },
-                un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
-                un_arm: MOpData { rs } => {
-                    if idx == 1 {
-                        remap_operand(rs);
-                    }
-                },
-                fallback: {
-                    MOpData::Beq { rs1, rs2, offset }
-                    | MOpData::Bne { rs1, rs2, offset }
-                    | MOpData::Blt { rs1, rs2, offset }
-                    | MOpData::Bge { rs1, rs2, offset }
-                    | MOpData::Bltu { rs1, rs2, offset }
-                    | MOpData::Bgeu { rs1, rs2, offset } => {
-                        if idx == 0 {
-                            remap_operand(rs1);
-                        }
-                        if idx == 1 {
-                            remap_operand(rs2);
-                        }
-                        if idx == 2 {
-                            remap_operand(offset);
-                        }
-                    }
-                    MOpData::Slti { rs1, imm, .. }
-                    | MOpData::Sltiu { rs1, imm, .. }
-                    | MOpData::Addiw { rs1, imm, .. }
-                    | MOpData::Subiw { rs1, imm, .. }
-                    | MOpData::Muliw { rs1, imm, .. }
-                    | MOpData::Diviw { rs1, imm, .. }
-                    | MOpData::Remiw { rs1, imm, .. }
-                    | MOpData::Slliw { rs1, imm, .. }
-                    | MOpData::Srliw { rs1, imm, .. }
-                    | MOpData::Sraiw { rs1, imm, .. }
-                    | MOpData::Xori { rs1, imm, .. } => {
-                        if idx == 1 {
-                            remap_operand(rs1);
-                        }
-                        if idx == 2 {
-                            remap_operand(imm);
-                        }
-                    }
-                    MOpData::Lw { base, offset, .. }
-                    | MOpData::Flw { base, offset, .. }
-                    | MOpData::Ld { base, offset, .. } => {
-                        if idx == 1 {
-                            remap_operand(base);
-                        }
-                        if idx == 2 {
-                            remap_operand(offset);
-                        }
-                    }
-                    MOpData::Sw { rs, base, offset }
-                    | MOpData::Fsw { rs, base, offset }
-                    | MOpData::Sd { rs, base, offset } => {
-                        if idx == 0 {
-                            remap_operand(rs);
-                        }
-                        if idx == 1 {
-                            remap_operand(base);
-                        }
-                        if idx == 2 {
-                            remap_operand(offset);
-                        }
-                    }
-                    MOpData::Bnez { rs, .. } => {
-                        if idx == 0 {
-                            remap_operand(rs);
-                        }
-                    }
-                    MOpData::Li { .. }
-                    | MOpData::La { .. }
-                    | MOpData::J { .. }
-                    | MOpData::Call { .. }
-                    | MOpData::Ret => {}
-                }
-            },
+        let src_tuples = self.get_src_tuple_mut(current_function, inst_id);
+        for (src, src_idx) in src_tuples {
+            if src_idx == idx {
+                remap_operand(src);
+            }
         }
         if changed {
             let vregs = &mut self.funcs[current_function.unwrap()].vregs;
@@ -1201,7 +811,6 @@ impl BackIR {
         }
     }
 
-    /// lop_id: InstId
     pub fn get_rd_tuple(
         &self,
         current_function: Option<BOperand>,
@@ -1220,22 +829,22 @@ impl BackIR {
         self.funcs[current_function].get_src_tuple(inst_id)
     }
 
-    pub fn get_rd_mut_tuple(
+    pub fn get_rd_tuple_mut(
         &mut self,
         current_function: Option<BOperand>,
         inst_id: BOperand,
     ) -> Option<(&mut BOperand, usize)> {
         let current_function = current_function.expect("No current function");
-        self.funcs[current_function].get_rd_mut_tuple(inst_id)
+        self.funcs[current_function].get_rd_tuple_mut(inst_id)
     }
 
-    pub fn get_src_mut_tuple(
+    pub fn get_src_tuple_mut(
         &mut self,
         current_function: Option<BOperand>,
         inst_id: BOperand,
     ) -> Vec<(&mut BOperand, usize)> {
         let current_function = current_function.expect("No current function");
-        self.funcs[current_function].get_src_mut_tuple(inst_id)
+        self.funcs[current_function].get_src_tuple_mut(inst_id)
     }
 
     pub fn get_rd(
@@ -1259,7 +868,7 @@ impl BackIR {
         current_function: Option<BOperand>,
         inst_id: BOperand,
     ) -> Option<&mut BOperand> {
-        self.get_rd_mut_tuple(current_function, inst_id)
+        self.get_rd_tuple_mut(current_function, inst_id)
             .map(|(rd, _)| rd)
     }
 
@@ -1268,7 +877,7 @@ impl BackIR {
         current_function: Option<BOperand>,
         inst_id: BOperand,
     ) -> Vec<&mut BOperand> {
-        self.get_src_mut_tuple(current_function, inst_id)
+        self.get_src_tuple_mut(current_function, inst_id)
             .into_iter()
             .map(|(src, _)| src)
             .collect()
