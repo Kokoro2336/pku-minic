@@ -693,8 +693,6 @@ impl Allocator<'_> {
             }
             map
         };
-        // Initialize a map original VirtId -> (SlotId, Type).
-        let mut virt_to_slot: FxHashMap<BOperand, (BOperand, BType)> = FxHashMap::default();
         let mut new_temps = array_set![];
 
         for spilled in std::mem::take(&mut self.spilled_nodes).iter() {
@@ -704,6 +702,15 @@ impl Allocator<'_> {
                 let vreg = &self.get_func(func_id).vregs[vreg_id];
                 (vreg.defs.clone(), vreg.uses.clone())
             };
+            // Allocate new slot
+            assert!(!defs.is_empty());
+            let first_def = defs[0];
+            let typ = self.get_op_type(first_def);
+            let slot_id = self.alloc_slot(Slot::Local {
+                size: typ.size(),
+                align: typ.align(),
+                offset: 0,
+            });
 
             // Insert store after each definition of the spilled node.
             for def in defs {
@@ -715,17 +722,8 @@ impl Allocator<'_> {
                     Some(def),
                 );
 
-                // Allocate new slot
-                let typ = self.get_op_type(def);
-                let slot_id = self.alloc_slot(Slot::Local {
-                    size: typ.size(),
-                    align: typ.align(),
-                    offset: 0,
-                });
-                virt_to_slot.insert(vreg_id, (slot_id, typ.clone()));
-
                 let store_op = BOp::new(
-                    typ,
+                    typ.clone(),
                     vec![],
                     LOpData::Store {
                         addr: slot_id,
@@ -746,9 +744,8 @@ impl Allocator<'_> {
                     Some(r#use),
                 );
 
-                let (slot_id, typ) = virt_to_slot[&vreg_id].clone();
                 let load_op = BOp::new(
-                    typ,
+                    typ.clone(),
                     vec![],
                     LOpData::Load {
                         rd: BOperand::Undef,
@@ -1137,7 +1134,7 @@ impl Default for RegAlloc<'_> {
             ir: None,
             allocators: vec![
                 // Run float first.
-                // Allocator::new(AllocatorType::Float),
+                Allocator::new(AllocatorType::Float),
                 Allocator::new(AllocatorType::Int),
             ],
         }
