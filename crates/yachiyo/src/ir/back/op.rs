@@ -5,6 +5,7 @@ use crate::debug::info;
 use crate::ir::back::LOpData;
 use crate::ir::back::MOpData;
 use crate::utils::arena::*;
+use crate::utils::r#match::{match_rd, match_src};
 
 use std::ops::{Index, IndexMut};
 
@@ -180,6 +181,321 @@ impl IndexMut<BOperand> for BDFG {
             BOperand::Inst(id) => &mut self[id],
             _ => panic!("Invalid operand index: {:?}", index),
         }
+    }
+}
+
+impl BDFG {
+    pub fn get_rd_tuple(&self, lop_id: BOperand) -> Option<(&BOperand, usize)> {
+        let bop = &self[lop_id];
+
+        match &bop.data {
+            BOpData::L(lop_data) => match_rd! {
+                target: lop_data,
+                op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, Move],
+                rd_arm: LOpData(rd) => {
+                    Some((rd, 0))
+                },
+                fallback: {
+                    // For other LOpData which doesn't have rd field (e.g. Call and Store), we return Undef.
+                    LOpData::Store {..}
+                    | LOpData::Call {..}
+                    | LOpData::Br {..}
+                    | LOpData::Jump {..}
+                    | LOpData::Ret => None,
+                }
+            },
+            BOpData::M(mop_data) => match_rd! {
+                target: mop_data,
+                op_with_rds: [
+                    Li, La, Mv, FmvS,
+                    Addw, Subw, Mulw, Divw, Remw,
+                    Slliw, Srliw, Sraiw,
+                    Sllw, Srlw, Sraw,
+                    Slt, Slti, Sltu, Sltiu,
+                    Addiw, Subiw, Muliw, Diviw, Remiw,
+                    Xor, Xori,
+                    FaddS, FsubS, FmulS, FdivS,
+                    FeqS, FltS, FleS, FneS, FgtS, FgeS,
+                    FcvtWS, FcvtSW, FmvWX, FmvXW,
+                    Lw, Flw, Ld
+                ],
+                rd_arm: MOpData(rd) => {
+                    Some((rd, 0))
+                },
+                fallback: {
+                    // For other MOpData which doesn't have rd field (e.g. J and Call), we return Undef.
+                    MOpData::Sw {..}
+                    | MOpData::Fsw {..}
+                    | MOpData::Sd {..}
+                    | MOpData::J {..}
+                    | MOpData::Bnez {..}
+                    | MOpData::Call {..}
+                    | MOpData::Ret
+                    | MOpData::Beq {..}
+                    | MOpData::Bne {..}
+                    | MOpData::Blt {..}
+                    | MOpData::Bge {..}
+                    | MOpData::Bltu {..}
+                    | MOpData::Bgeu {..} => None,
+                }
+            },
+        }
+    }
+
+    pub fn get_rd(&self, lop_id: BOperand) -> Option<&BOperand> {
+        self.get_rd_tuple(lop_id).map(|(rd, _)| rd)
+    }
+
+    pub fn get_rd_tuple_mut(&mut self, lop_id: BOperand) -> Option<(&mut BOperand, usize)> {
+        let bop = &mut self[lop_id];
+
+        match &mut bop.data {
+            BOpData::L(lop_data) => match_rd! {
+                target: lop_data,
+                op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, Move],
+                rd_arm: LOpData(rd) => {
+                    Some((rd, 0))
+                },
+                fallback: {
+                    // For other LOpData which doesn't have rd field (e.g. Call and Store), we return Undef.
+                    LOpData::Store {..}
+                    | LOpData::Call {..}
+                    | LOpData::Br {..}
+                    | LOpData::Jump {..}
+                    | LOpData::Ret => None,
+                }
+            },
+            BOpData::M(mop_data) => match_rd! {
+                target: mop_data,
+                op_with_rds: [
+                    Li, La, Mv, FmvS,
+                    Addw, Subw, Mulw, Divw, Remw,
+                    Slliw, Srliw, Sraiw,
+                    Sllw, Srlw, Sraw,
+                    Slt, Slti, Sltu, Sltiu,
+                    Addiw, Subiw, Muliw, Diviw, Remiw,
+                    Xor, Xori,
+                    FaddS, FsubS, FmulS, FdivS,
+                    FeqS, FltS, FleS, FneS, FgtS, FgeS,
+                    FcvtWS, FcvtSW, FmvWX, FmvXW,
+                    Lw, Flw, Ld
+                ],
+                rd_arm: MOpData(rd) => {
+                    Some((rd, 0))
+                },
+                fallback: {
+                    // For other MOpData which doesn't have rd field (e.g. J and Call), we return Undef.
+                    MOpData::Sw {..}
+                    | MOpData::Fsw {..}
+                    | MOpData::Sd {..}
+                    | MOpData::J {..}
+                    | MOpData::Bnez {..}
+                    | MOpData::Call {..}
+                    | MOpData::Ret
+                    | MOpData::Beq {..}
+                    | MOpData::Bne {..}
+                    | MOpData::Blt {..}
+                    | MOpData::Bge {..}
+                    | MOpData::Bltu {..}
+                    | MOpData::Bgeu {..} => None,
+                }
+            },
+        }
+    }
+
+    pub fn get_rd_mut(&mut self, lop_id: BOperand) -> Option<&mut BOperand> {
+        self.get_rd_tuple_mut(lop_id).map(|(rd, _)| rd)
+    }
+
+    pub fn get_src_tuple(&self, lop_id: BOperand) -> Vec<(&BOperand, usize)> {
+        let bop = &self[lop_id];
+
+        match &bop.data {
+            BOpData::L(lop_data) => match_src! {
+                target: lop_data,
+                bin_ops: [
+                    AddI, SubI, MulI, DivI, ModI,
+                    SNe, SEq, SGt, SLt, SGe, SLe,
+                    Xor, Shl, Shr, Sar,
+                    AddF, SubF, MulF, DivF,
+                    ONe, OEq, OGt, OLt, OGe, OLe
+                ],
+                bin_arm: LOpData { lhs, rhs } => {
+                    vec![(lhs, 1), (rhs, 2)]
+                },
+                un_ops: [Sitofp, Fptosi],
+                un_arm: LOpData { value } => {
+                    vec![(value, 1)]
+                },
+                fallback: {
+                    LOpData::Store { addr, value } => vec![(addr, 0), (value, 1)],
+                    LOpData::Load { addr, .. } => vec![(addr, 1)],
+                    LOpData::Move { src, .. } => vec![(src, 1)],
+                    LOpData::Br { cond, .. } => vec![(cond, 0)],
+                    LOpData::Call { .. }
+                    | LOpData::Jump { .. }
+                    | LOpData::Ret
+                    | LOpData::LoadIntImm { .. }
+                    | LOpData::LoadFloatImm { .. } => vec![],
+                }
+            },
+            BOpData::M(mop_data) => match_src! {
+                target: mop_data,
+                bin_ops: [
+                    Addw, Subw, Mulw, Divw, Remw,
+                    Sllw, Srlw, Sraw,
+                    Slt, Sltu, Xor,
+                    FaddS, FsubS, FmulS, FdivS,
+                    FeqS, FltS, FleS, FneS, FgtS, FgeS
+                ],
+                bin_arm: MOpData { rs1, rs2 } => {
+                    vec![(rs1, 1), (rs2, 2)]
+                },
+                un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
+                un_arm: MOpData { rs } => {
+                    vec![(rs, 1)]
+                },
+                fallback: {
+                    MOpData::Slti { rs1, imm, .. }
+                    | MOpData::Sltiu { rs1, imm, .. }
+                    | MOpData::Addiw { rs1, imm, .. }
+                    | MOpData::Subiw { rs1, imm, .. }
+                    | MOpData::Muliw { rs1, imm, .. }
+                    | MOpData::Diviw { rs1, imm, .. }
+                    | MOpData::Remiw { rs1, imm, .. }
+                    | MOpData::Slliw { rs1, imm, .. }
+                    | MOpData::Srliw { rs1, imm, .. }
+                    | MOpData::Sraiw { rs1, imm, .. }
+                    | MOpData::Xori { rs1, imm, .. } => vec![(rs1, 1), (imm, 2)],
+
+                    MOpData::Lw { base, offset, .. }
+                    | MOpData::Flw { base, offset, .. }
+                    | MOpData::Ld { base, offset, .. } => vec![(base, 1), (offset, 2)],
+
+                    MOpData::Sw { rs, base, offset }
+                    | MOpData::Fsw { rs, base, offset }
+                    | MOpData::Sd { rs, base, offset } => vec![(rs, 0), (base, 1), (offset, 2)],
+
+                    MOpData::Beq { rs1, rs2, offset }
+                    | MOpData::Bne { rs1, rs2, offset }
+                    | MOpData::Blt { rs1, rs2, offset }
+                    | MOpData::Bge { rs1, rs2, offset }
+                    | MOpData::Bltu { rs1, rs2, offset }
+                    | MOpData::Bgeu { rs1, rs2, offset } => vec![(rs1, 0), (rs2, 1), (offset, 2)],
+
+                    MOpData::Bnez { rs, .. } => vec![(rs, 0)],
+
+                    MOpData::Li { .. }
+                    | MOpData::La { .. }
+                    | MOpData::Call { .. }
+                    | MOpData::Ret
+                    | MOpData::J { .. } => vec![],
+                }
+            },
+        }
+    }
+
+    pub fn get_src(&self, lop_id: BOperand) -> Vec<&BOperand> {
+        self.get_src_tuple(lop_id)
+            .into_iter()
+            .map(|(src, _)| src)
+            .collect()
+    }
+
+    pub fn get_src_tuple_mut(&mut self, lop_id: BOperand) -> Vec<(&mut BOperand, usize)> {
+        let bop = &mut self[lop_id];
+
+        match &mut bop.data {
+            BOpData::L(lop_data) => match_src! {
+                target: lop_data,
+                bin_ops: [
+                    AddI, SubI, MulI, DivI, ModI,
+                    SNe, SEq, SGt, SLt, SGe, SLe,
+                    Xor, Shl, Shr, Sar,
+                    AddF, SubF, MulF, DivF,
+                    ONe, OEq, OGt, OLt, OGe, OLe
+                ],
+                bin_arm: LOpData { lhs, rhs } => {
+                    vec![(lhs, 1), (rhs, 2)]
+                },
+                un_ops: [Sitofp, Fptosi],
+                un_arm: LOpData { value } => {
+                    vec![(value, 1)]
+                },
+                fallback: {
+                    LOpData::Store { addr, value } => vec![(addr, 0), (value, 1)],
+                    LOpData::Load { addr, .. } => vec![(addr, 1)],
+                    LOpData::Move { src, .. } => vec![(src, 1)],
+                    LOpData::Br { cond, .. } => vec![(cond, 0)],
+
+                    LOpData::Call { .. }
+                    | LOpData::Jump { .. }
+                    | LOpData::Ret
+                    | LOpData::LoadIntImm { .. }
+                    | LOpData::LoadFloatImm { .. } => vec![],
+                }
+            },
+            BOpData::M(mop_data) => match_src! {
+                target: mop_data,
+                bin_ops: [
+                    Addw, Subw, Mulw, Divw, Remw,
+                    Sllw, Srlw, Sraw,
+                    Slt, Sltu, Xor,
+                    FaddS, FsubS, FmulS, FdivS,
+                    FeqS, FltS, FleS, FneS, FgtS, FgeS
+                ],
+                bin_arm: MOpData { rs1, rs2 } => {
+                    vec![(rs1, 1), (rs2, 2)]
+                },
+                un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
+                un_arm: MOpData { rs } => {
+                    vec![(rs, 1)]
+                },
+                fallback: {
+                    MOpData::Slti { rs1, imm, .. }
+                    | MOpData::Sltiu { rs1, imm, .. }
+                    | MOpData::Addiw { rs1, imm, .. }
+                    | MOpData::Subiw { rs1, imm, .. }
+                    | MOpData::Muliw { rs1, imm, .. }
+                    | MOpData::Diviw { rs1, imm, .. }
+                    | MOpData::Remiw { rs1, imm, .. }
+                    | MOpData::Slliw { rs1, imm, .. }
+                    | MOpData::Srliw { rs1, imm, .. }
+                    | MOpData::Sraiw { rs1, imm, .. }
+                    | MOpData::Xori { rs1, imm, .. } => vec![(rs1, 1), (imm, 2)],
+
+                    MOpData::Lw { base, offset, .. }
+                    | MOpData::Flw { base, offset, .. }
+                    | MOpData::Ld { base, offset, .. } => vec![(base, 1), (offset, 2)],
+
+                    MOpData::Sw { rs, base, offset }
+                    | MOpData::Fsw { rs, base, offset }
+                    | MOpData::Sd { rs, base, offset } => vec![(rs, 0), (base, 1), (offset, 2)],
+
+                    MOpData::Li { .. } | MOpData::La { .. } => vec![],
+
+                    MOpData::Beq { rs1, rs2, offset }
+                    | MOpData::Bne { rs1, rs2, offset }
+                    | MOpData::Blt { rs1, rs2, offset }
+                    | MOpData::Bge { rs1, rs2, offset }
+                    | MOpData::Bltu { rs1, rs2, offset }
+                    | MOpData::Bgeu { rs1, rs2, offset } => vec![(rs1, 0), (rs2, 1), (offset, 2)],
+
+                    MOpData::Bnez { rs, .. } => vec![(rs, 0)],
+
+                    MOpData::Call { .. }
+                    | MOpData::Ret
+                    | MOpData::J { .. } => vec![],
+                }
+            },
+        }
+    }
+
+    pub fn get_src_mut(&mut self, lop_id: BOperand) -> Vec<&mut BOperand> {
+        self.get_src_tuple_mut(lop_id)
+            .into_iter()
+            .map(|(src, _)| src)
+            .collect()
     }
 }
 
