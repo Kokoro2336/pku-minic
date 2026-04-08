@@ -576,7 +576,7 @@ def main():
         print(f"Test interrupted by user. Passed: {passed}, Failed: {failed}")
         sys.exit(1)
 
-    print(f"Testing complete. Passed: {passed}, Failed: {failed}, Skipped: {args.exclude if args.exclude else 0}")
+    print(f"Testing complete. Passed: {passed}, Failed: {failed}, Skipped: {len(args.exclude) if args.exclude else 0}")
 
 
 if __name__ == "__main__":

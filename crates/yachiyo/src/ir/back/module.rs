@@ -623,7 +623,6 @@ impl BackIR {
                     Slt, Sltu, Xor,
                     FaddS, FsubS, FmulS, FdivS,
                     FeqS, FltS, FleS, FneS, FgtS, FgeS,
-                    Beq, Bne, Blt, Bge, Bltu, Bgeu
                 ],
                 bin_arm: MOpData { rs1, rs2 } => {
                     if idx == 1 {
@@ -640,6 +639,22 @@ impl BackIR {
                     }
                 },
                 fallback: {
+                    MOpData::Beq { rs1, rs2, offset }
+                    | MOpData::Bne { rs1, rs2, offset }
+                    | MOpData::Blt { rs1, rs2, offset }
+                    | MOpData::Bge { rs1, rs2, offset }
+                    | MOpData::Bltu { rs1, rs2, offset }
+                    | MOpData::Bgeu { rs1, rs2, offset } => {
+                        if idx == 0 {
+                            remap_operand(rs1);
+                        }
+                        if idx == 1 {
+                            remap_operand(rs2);
+                        }
+                        if idx == 2 {
+                            remap_operand(offset);
+                        }
+                    }
                     MOpData::Slti { rs1, imm, .. }
                     | MOpData::Sltiu { rs1, imm, .. }
                     | MOpData::Addiw { rs1, imm, .. }
