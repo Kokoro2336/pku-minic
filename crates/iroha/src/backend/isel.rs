@@ -105,8 +105,8 @@ impl ISel<'_> {
             .as_ref()
             .unwrap()
             .get_rd(Some(func_id), op_id)
+            .cloned()
             .unwrap()
-            .clone()
     }
 
     #[inline(always)]

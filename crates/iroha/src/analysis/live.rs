@@ -66,12 +66,17 @@ impl LiveAnalysis<'_> {
 
     #[inline(always)]
     fn get_rd(&self, op_id: BOperand) -> Option<BOperand> {
-        self.func.unwrap().get_rd(op_id)
+        self.func.unwrap().get_rd(op_id).cloned()
     }
 
     #[inline(always)]
     fn get_src(&self, op_id: BOperand) -> Vec<BOperand> {
-        self.func.unwrap().get_src(op_id)
+        self.func
+            .unwrap()
+            .get_src(op_id)
+            .into_iter()
+            .cloned()
+            .collect()
     }
 
     #[inline(always)]
@@ -130,7 +135,7 @@ impl<'a> Analysis<'a> for LiveAnalysis<'a> {
             .cfg
             .entry
             .expect("No entry for current function.");
-        self.dfs(BOperand::BB(entry)); 
+        self.dfs(BOperand::BB(entry));
 
         // Run main loop
         while let Some(bb_id) = self.dfs_post_order.pop_front() {
