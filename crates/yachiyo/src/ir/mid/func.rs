@@ -26,6 +26,28 @@ impl Function {
             dfg: DFG::default(),
         }
     }
+
+    pub fn get_src_tuple(&self, op_id: Operand) -> Vec<(&Operand, usize)> {
+        self.dfg.get_src_tuple(op_id)
+    }
+
+    pub fn get_src(&self, op_id: Operand) -> Vec<&Operand> {
+        self.get_src_tuple(op_id)
+            .into_iter()
+            .map(|(src, _)| src)
+            .collect()
+    }
+
+    pub fn get_src_tuple_mut(&mut self, op_id: Operand) -> Vec<(&mut Operand, usize)> {
+        self.dfg.get_src_tuple_mut(op_id)
+    }
+
+    pub fn get_src_mut(&mut self, op_id: Operand) -> Vec<&mut Operand> {
+        self.get_src_tuple_mut(op_id)
+            .into_iter()
+            .map(|(src, _)| src)
+            .collect()
+    }
 }
 
 impl Arena<Function> for IndexedArena<Function> {

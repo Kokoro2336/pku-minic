@@ -718,7 +718,7 @@ impl<'a> SCCP<'a> {
                             for (i, phi_incoming) in incomings.iter().enumerate() {
                                 if let PhiIncoming::Data { value, .. } = phi_incoming {
                                     if is_live_value(value) {
-                                        dfg.remove_use(value.clone(), (op.clone(), i + 1));
+                                        dfg.remove_use(value.clone(), (op.clone(), i));
                                     }
                                 }
                             }

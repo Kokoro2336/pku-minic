@@ -4,7 +4,7 @@ use crate::ir::mid::{
     BasicBlock, Builder, BuilderGuard, Op, OpData, OpType, Operand, PhiIncoming, CFG, CG, DFG,
 };
 use crate::utils::arena::{Arena, ArenaItem};
-use crate::utils::r#match::{match_some, match_src};
+use crate::utils::r#match::match_some;
 
 #[derive(Debug, Clone)]
 pub struct IR {
@@ -49,164 +49,26 @@ impl IR {
     }
 
     pub fn add_uses(&mut self, current_function: Option<Operand>, op: Operand) {
+        let src_tuples = self
+            .get_src_tuple(current_function.clone(), op.clone())
+            .into_iter()
+            .map(|(src, idx)| (src.clone(), idx))
+            .collect::<Vec<(Operand, usize)>>();
         let dfg = self.dfg_mut_or_panic(current_function, "IR add_uses: no current function");
-        let data = dfg[op.get_op_id()].data.clone();
-
-        match_src! {
-            target: data,
-            bin_ops: [
-                AddI, SubI, MulI, DivI, ModI,
-                SNe, SEq, SGt, SLt, SGe, SLe,
-                Xor, Shl, Shr, Sar,
-                AddF, SubF, MulF, DivF,
-                ONe, OEq, OGt, OLt, OGe, OLe
-            ],
-            bin_arm: OpData { lhs, rhs } => {
-                dfg.add_use(lhs, (op.clone(), 0));
-                dfg.add_use(rhs, (op, 1));
-            },
-            un_ops: [Sitofp, Fptosi, Uitofp, Zext],
-            un_arm: OpData { value } => {
-                dfg.add_use(value, (op, 0));
-            },
-            fallback: {
-                OpData::Load { addr } => {
-                    if matches!(addr, Operand::Global(_)) {
-                    } else if matches!(addr, Operand::Value(_)) {
-                        dfg.add_use(addr, (op, 0));
-                    } else {
-                        panic!("IR add_uses: Load address operand is not Value or Global");
-                    }
-                }
-                OpData::Store { addr, value } => {
-                    if matches!(addr, Operand::Global(_)) {
-                    } else if matches!(addr, Operand::Value(_)) {
-                        dfg.add_use(addr, (op.clone(), 0));
-                    } else {
-                        panic!("IR add_uses: Store address operand is not Value or Global");
-                    }
-                    dfg.add_use(value, (op, 1));
-                }
-                OpData::Br { cond, .. } => {
-                    dfg.add_use(cond, (op, 0));
-                }
-                OpData::Call { args, .. } => {
-                    for (i, arg) in args.iter().enumerate() {
-                        // Func is considered operand index 0.
-                        dfg.add_use(arg.clone(), (op.clone(), i + 1));
-                    }
-                }
-                OpData::Ret { value } => {
-                    if let Some(val) = value {
-                        dfg.add_use(val, (op, 0));
-                    }
-                }
-                OpData::Phi { incomings } => {
-                    for (i, phi_incoming) in incomings.iter().enumerate() {
-                        if let PhiIncoming::Data { value, .. } = phi_incoming {
-                            dfg.add_use(value.clone(), (op.clone(), i));
-                        }
-                    }
-                }
-                OpData::GEP { base, indices } => {
-                    if matches!(base, Operand::Global(_)) {
-                        // TODO
-                    } else if matches!(base, Operand::Value(_)) {
-                        dfg.add_use(base, (op.clone(), 0));
-                    } else {
-                        panic!("IR add_uses: GEP base operand is not Value or Global");
-                    }
-                    for (i, index) in indices.iter().enumerate() {
-                        // We start from 1 because the base operand is considered index 0.
-                        dfg.add_use(index.clone(), (op.clone(), i + 1));
-                    }
-                }
-                OpData::GlobalAlloca(_)
-                | OpData::Alloca(_)
-                | OpData::Jump { .. }
-                | OpData::Declare { .. } => {}
-            }
+        for (src, idx) in src_tuples {
+            dfg.add_use(src.clone(), (op.clone(), idx));
         }
     }
 
     pub fn remove_uses(&mut self, current_function: Option<Operand>, op: Operand) {
+        let src_tuples = self
+            .get_src_tuple(current_function.clone(), op.clone())
+            .into_iter()
+            .map(|(src, idx)| (src.clone(), idx))
+            .collect::<Vec<(Operand, usize)>>();
         let dfg = self.dfg_mut_or_panic(current_function, "IR remove_uses: no current function");
-        let data = dfg[op.get_op_id()].data.clone();
-
-        match_src! {
-            target: data,
-            bin_ops: [
-                AddI, SubI, MulI, DivI, ModI,
-                SNe, SEq, SGt, SLt, SGe, SLe,
-                Xor, Shl, Shr, Sar,
-                AddF, SubF, MulF, DivF,
-                ONe, OEq, OGt, OLt, OGe, OLe
-            ],
-            bin_arm: OpData { lhs, rhs } => {
-                dfg.remove_use(lhs, (op.clone(), 0));
-                dfg.remove_use(rhs, (op, 1));
-            },
-            un_ops: [Sitofp, Fptosi, Uitofp, Zext],
-            un_arm: OpData { value } => {
-                dfg.remove_use(value, (op, 0));
-            },
-            fallback: {
-                OpData::Load { addr } => {
-                    if matches!(addr, Operand::Global(_)) {
-                        // TODO
-                    } else if matches!(addr, Operand::Value(_)) {
-                        dfg.remove_use(addr, (op, 0));
-                    } else {
-                        panic!("IR remove_uses: Load address operand is not Value or Global");
-                    }
-                }
-                OpData::Store { addr, value } => {
-                    if matches!(addr, Operand::Global(_)) {
-                        // TODO
-                    } else if matches!(addr, Operand::Value(_)) {
-                        dfg.remove_use(addr, (op.clone(), 0));
-                    } else {
-                        panic!("IR remove_uses: Store address operand is not Value or Global");
-                    }
-                    dfg.remove_use(value, (op, 1));
-                }
-                OpData::Br { cond, .. } => {
-                    dfg.remove_use(cond, (op, 0));
-                }
-                OpData::Call { args, .. } => {
-                    for (i, arg) in args.iter().enumerate() {
-                        dfg.remove_use(arg.clone(), (op.clone(), i + 1));
-                    }
-                }
-                OpData::Ret { value } => {
-                    if let Some(val) = value {
-                        dfg.remove_use(val, (op, 0));
-                    }
-                }
-                OpData::Phi { incomings } => {
-                    for (i, phi_incoming) in incomings.iter().enumerate() {
-                        if let PhiIncoming::Data { value, .. } = phi_incoming {
-                            dfg.remove_use(value.clone(), (op.clone(), i));
-                        }
-                    }
-                }
-                OpData::GEP { base, indices } => {
-                    if matches!(base, Operand::Global(_)) {
-                        // TODO
-                    } else if matches!(base, Operand::Value(_)) {
-                        dfg.remove_use(base, (op.clone(), 0));
-                    } else {
-                        panic!("IR remove_uses: GEP base operand is not Value or Global");
-                    }
-                    for (i, index) in indices.iter().enumerate() {
-                        dfg.remove_use(index.clone(), (op.clone(), i + 1));
-                    }
-                }
-                OpData::GlobalAlloca(_)
-                | OpData::Alloca(_)
-                | OpData::Jump { .. }
-                | OpData::Declare { .. } => {}
-            }
+        for (src, idx) in src_tuples {
+            dfg.remove_use(src.clone(), (op.clone(), idx));
         }
     }
 
@@ -601,6 +463,38 @@ impl IR {
         } else {
             new_bb_ref.cur.push(op.clone());
         }
+    }
+
+    pub fn get_src_tuple(
+        &self,
+        current_function: Option<Operand>,
+        op_id: Operand,
+    ) -> Vec<(&Operand, usize)> {
+        let current_function = current_function.expect("No current function");
+        self.funcs[current_function].get_src_tuple(op_id)
+    }
+
+    pub fn get_src(&self, current_function: Option<Operand>, op_id: Operand) -> Vec<&Operand> {
+        let current_function = current_function.expect("No current function");
+        self.funcs[current_function].get_src(op_id)
+    }
+
+    pub fn get_src_tuple_mut(
+        &mut self,
+        current_function: Option<Operand>,
+        op_id: Operand,
+    ) -> Vec<(&mut Operand, usize)> {
+        let current_function = current_function.expect("No current function");
+        self.funcs[current_function].get_src_tuple_mut(op_id)
+    }
+
+    pub fn get_src_mut(
+        &mut self,
+        current_function: Option<Operand>,
+        op_id: Operand,
+    ) -> Vec<&mut Operand> {
+        let current_function = current_function.expect("No current function");
+        self.funcs[current_function].get_src_mut(op_id)
     }
 
     pub fn add_phi_incoming(

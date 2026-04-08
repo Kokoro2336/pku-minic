@@ -156,8 +156,7 @@ impl Lowering {
 
     fn get_rd(&mut self, bop_id: BOperand) -> Option<BOperand> {
         let func_id = self.builder.current_function.expect("No current function");
-        self.lower_ir
-            .get_rd(Some(func_id), bop_id)
+        self.lower_ir.get_rd(Some(func_id), bop_id).cloned()
     }
 
     fn get_current_func(&self) -> Operand {
@@ -946,7 +945,9 @@ impl Lowering {
                             }
                             .into(),
                         ));
-                        let temp_vreg_id = self.get_rd(src_temp_id).expect("Move should produce a value");
+                        let temp_vreg_id = self
+                            .get_rd(src_temp_id)
+                            .expect("Move should produce a value");
 
                         let temp_rd_id = self.create(BOp::new(
                             typ,
