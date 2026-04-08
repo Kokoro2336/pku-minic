@@ -5,7 +5,7 @@ use crate::ir::back::{
     BBasicBlock, BOp, BOpData, BOperand, FrameInfo, LOpData, MOpData, Reg, VirtReg, BCFG, BDFG,
 };
 use crate::utils::arena::*;
-use crate::utils::r#match::{match_full_ops, match_some, match_rd, match_src};
+use crate::utils::r#match::{match_full_ops, match_rd, match_some, match_src};
 
 use std::ops::{Index, IndexMut};
 
@@ -36,7 +36,7 @@ impl BFunction {
             frame_info: FrameInfo::new(),
         }
     }
-    pub fn get_rd(&self, lop_id: BOperand) -> Option<BOperand> {
+    pub fn get_rd(&self, lop_id: BOperand) -> Option<&BOperand> {
         let bop = &self.dfg[lop_id];
 
         match &bop.data {
@@ -44,7 +44,7 @@ impl BFunction {
                 target: lop_data,
                 op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, Move],
                 rd_arm: LOpData(rd) => {
-                    Some(*rd)
+                    Some(rd)
                 },
                 fallback: {
                     // For other LOpData which doesn't have rd field (e.g. Call and Store), we return Undef.
@@ -71,7 +71,7 @@ impl BFunction {
                     Lw, Flw, Ld
                 ],
                 rd_arm: MOpData(rd) => {
-                    Some(*rd)
+                    Some(rd)
                 },
                 fallback: {
                     // For other MOpData which doesn't have rd field (e.g. J and Call), we return Undef.
@@ -93,7 +93,64 @@ impl BFunction {
         }
     }
 
-    pub fn get_src(&self, lop_id: BOperand) -> Vec<BOperand> {
+    pub fn get_rd_mut(&mut self, lop_id: BOperand) -> Option<&mut BOperand> {
+        let bop = &mut self.dfg[lop_id];
+
+        match &mut bop.data {
+            BOpData::L(lop_data) => match_rd! {
+                target: lop_data,
+                op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, Move],
+                rd_arm: LOpData(rd) => {
+                    Some(rd)
+                },
+                fallback: {
+                    // For other LOpData which doesn't have rd field (e.g. Call and Store), we return Undef.
+                    LOpData::Store {..}
+                    | LOpData::Call {..}
+                    | LOpData::Br {..}
+                    | LOpData::Jump {..}
+                    | LOpData::Ret => None,
+                }
+            },
+            BOpData::M(mop_data) => match_rd! {
+                target: mop_data,
+                op_with_rds: [
+                    Li, La, Mv, FmvS,
+                    Addw, Subw, Mulw, Divw, Remw,
+                    Slliw, Srliw, Sraiw,
+                    Sllw, Srlw, Sraw,
+                    Slt, Slti, Sltu, Sltiu,
+                    Addiw, Subiw, Muliw, Diviw, Remiw,
+                    Xor, Xori,
+                    FaddS, FsubS, FmulS, FdivS,
+                    FeqS, FltS, FleS, FneS, FgtS, FgeS,
+                    FcvtWS, FcvtSW, FmvWX, FmvXW,
+                    Lw, Flw, Ld
+                ],
+                rd_arm: MOpData(rd) => {
+                    Some(rd)
+                },
+                fallback: {
+                    // For other MOpData which doesn't have rd field (e.g. J and Call), we return Undef.
+                    MOpData::Sw {..}
+                    | MOpData::Fsw {..}
+                    | MOpData::Sd {..}
+                    | MOpData::J {..}
+                    | MOpData::Bnez {..}
+                    | MOpData::Call {..}
+                    | MOpData::Ret
+                    | MOpData::Beq {..}
+                    | MOpData::Bne {..}
+                    | MOpData::Blt {..}
+                    | MOpData::Bge {..}
+                    | MOpData::Bltu {..}
+                    | MOpData::Bgeu {..} => None,
+                }
+            },
+        }
+    }
+
+    pub fn get_src(&self, lop_id: BOperand) -> Vec<&BOperand> {
         let bop = &self.dfg[lop_id];
 
         match &bop.data {
@@ -107,18 +164,18 @@ impl BFunction {
                     ONe, OEq, OGt, OLt, OGe, OLe
                 ],
                 bin_arm: LOpData { lhs, rhs } => {
-                    vec![*lhs, *rhs]
+                    vec![lhs, rhs]
                 },
                 un_ops: [Sitofp, Fptosi],
                 un_arm: LOpData { value } => {
-                    vec![*value]
+                    vec![value]
                 },
                 fallback: {
-                    LOpData::Store { addr, value } => vec![*addr, *value],
-                    LOpData::Load { addr, .. } => vec![*addr],
-                    LOpData::Move { src, .. } => vec![*src],
-                    LOpData::Br { cond, .. } => vec![*cond],
-                    LOpData::Call { func } => vec![*func],
+                    LOpData::Store { addr, value } => vec![addr, value],
+                    LOpData::Load { addr, .. } => vec![addr],
+                    LOpData::Move { src, .. } => vec![src],
+                    LOpData::Br { cond, .. } => vec![cond],
+                    LOpData::Call { func } => vec![func],
                     LOpData::Jump { .. }
                     | LOpData::Ret
                     | LOpData::LoadIntImm { .. }
@@ -135,11 +192,11 @@ impl BFunction {
                     FeqS, FltS, FleS, FneS, FgtS, FgeS
                 ],
                 bin_arm: MOpData { rs1, rs2 } => {
-                    vec![*rs1, *rs2]
+                    vec![rs1, rs2]
                 },
                 un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
                 un_arm: MOpData { rs } => {
-                    vec![*rs]
+                    vec![rs]
                 },
                 fallback: {
                     MOpData::Slti { rs1, imm, .. }
@@ -152,13 +209,13 @@ impl BFunction {
                     | MOpData::Slliw { rs1, imm, .. }
                     | MOpData::Srliw { rs1, imm, .. }
                     | MOpData::Sraiw { rs1, imm, .. }
-                    | MOpData::Xori { rs1, imm, .. } => vec![*rs1, *imm],
+                    | MOpData::Xori { rs1, imm, .. } => vec![rs1, imm],
                     MOpData::Lw { base, offset, .. }
                     | MOpData::Flw { base, offset, .. }
-                    | MOpData::Ld { base, offset, .. } => vec![*base, *offset],
+                    | MOpData::Ld { base, offset, .. } => vec![base, offset],
                     MOpData::Sw { rs, base, offset }
                     | MOpData::Fsw { rs, base, offset }
-                    | MOpData::Sd { rs, base, offset } => vec![*rs, *base, *offset],
+                    | MOpData::Sd { rs, base, offset } => vec![rs, base, offset],
 
                     MOpData::Li { .. } | MOpData::La { .. } => vec![],
 
@@ -167,11 +224,95 @@ impl BFunction {
                     | MOpData::Blt { rs1, rs2, offset }
                     | MOpData::Bge { rs1, rs2, offset }
                     | MOpData::Bltu { rs1, rs2, offset }
-                    | MOpData::Bgeu { rs1, rs2, offset } => vec![*rs1, *rs2, *offset],
+                    | MOpData::Bgeu { rs1, rs2, offset } => vec![rs1, rs2, offset],
                     MOpData::Call { .. } => vec![],
                     MOpData::Ret => vec![],
-                    MOpData::J { target } => vec![*target],
-                    MOpData::Bnez { rs, .. } => vec![*rs],
+                    MOpData::J { target } => vec![target],
+                    MOpData::Bnez { rs, .. } => vec![rs],
+                }
+            },
+        }
+    }
+
+    pub fn get_src_mut(&mut self, lop_id: BOperand) -> Vec<&mut BOperand> {
+        let bop = &mut self.dfg[lop_id];
+
+        match &mut bop.data {
+            BOpData::L(lop_data) => match_src! {
+                target: lop_data,
+                bin_ops: [
+                    AddI, SubI, MulI, DivI, ModI,
+                    SNe, SEq, SGt, SLt, SGe, SLe,
+                    Xor, Shl, Shr, Sar,
+                    AddF, SubF, MulF, DivF,
+                    ONe, OEq, OGt, OLt, OGe, OLe
+                ],
+                bin_arm: LOpData { lhs, rhs } => {
+                    vec![lhs, rhs]
+                },
+                un_ops: [Sitofp, Fptosi],
+                un_arm: LOpData { value } => {
+                    vec![value]
+                },
+                fallback: {
+                    LOpData::Store { addr, value } => vec![addr, value],
+                    LOpData::Load { addr, .. } => vec![addr],
+                    LOpData::Move { src, .. } => vec![src],
+                    LOpData::Br { cond, .. } => vec![cond],
+                    LOpData::Call { func } => vec![func],
+                    LOpData::Jump { .. }
+                    | LOpData::Ret
+                    | LOpData::LoadIntImm { .. }
+                    | LOpData::LoadFloatImm { .. } => vec![],
+                }
+            },
+            BOpData::M(mop_data) => match_src! {
+                target: mop_data,
+                bin_ops: [
+                    Addw, Subw, Mulw, Divw, Remw,
+                    Sllw, Srlw, Sraw,
+                    Slt, Sltu, Xor,
+                    FaddS, FsubS, FmulS, FdivS,
+                    FeqS, FltS, FleS, FneS, FgtS, FgeS
+                ],
+                bin_arm: MOpData { rs1, rs2 } => {
+                    vec![rs1, rs2]
+                },
+                un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
+                un_arm: MOpData { rs } => {
+                    vec![rs]
+                },
+                fallback: {
+                    MOpData::Slti { rs1, imm, .. }
+                    | MOpData::Sltiu { rs1, imm, .. }
+                    | MOpData::Addiw { rs1, imm, .. }
+                    | MOpData::Subiw { rs1, imm, .. }
+                    | MOpData::Muliw { rs1, imm, .. }
+                    | MOpData::Diviw { rs1, imm, .. }
+                    | MOpData::Remiw { rs1, imm, .. }
+                    | MOpData::Slliw { rs1, imm, .. }
+                    | MOpData::Srliw { rs1, imm, .. }
+                    | MOpData::Sraiw { rs1, imm, .. }
+                    | MOpData::Xori { rs1, imm, .. } => vec![rs1, imm],
+                    MOpData::Lw { base, offset, .. }
+                    | MOpData::Flw { base, offset, .. }
+                    | MOpData::Ld { base, offset, .. } => vec![base, offset],
+                    MOpData::Sw { rs, base, offset }
+                    | MOpData::Fsw { rs, base, offset }
+                    | MOpData::Sd { rs, base, offset } => vec![rs, base, offset],
+
+                    MOpData::Li { .. } | MOpData::La { .. } => vec![],
+
+                    MOpData::Beq { rs1, rs2, offset }
+                    | MOpData::Bne { rs1, rs2, offset }
+                    | MOpData::Blt { rs1, rs2, offset }
+                    | MOpData::Bge { rs1, rs2, offset }
+                    | MOpData::Bltu { rs1, rs2, offset }
+                    | MOpData::Bgeu { rs1, rs2, offset } => vec![rs1, rs2, offset],
+                    MOpData::Call { .. } => vec![],
+                    MOpData::Ret => vec![],
+                    MOpData::J { target } => vec![target],
+                    MOpData::Bnez { rs, .. } => vec![rs],
                 }
             },
         }

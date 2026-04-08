@@ -379,6 +379,9 @@ impl BackIR {
         let vregs = &mut self.funcs[current_function.unwrap()].vregs;
         let uses = vregs[old_vreg_id].uses.clone();
 
+        // Replace the definition of old_vreg_id with new_operand.
+
+        // Replace the old_vreg_id with new_operand in all uses.
         for use_tuple in uses {
             let use_op = use_tuple.0;
             let op_id = match_some! {
@@ -532,7 +535,7 @@ impl BackIR {
             }
 
             let vregs = &mut self.funcs[current_function.unwrap()].vregs;
-            vregs.remove_use(old_vreg_id, use_tuple);
+            vregs.remove_use(*old_vreg_id, use_tuple);
             vregs.add_use(new_operand, use_tuple);
         }
     }
@@ -1487,12 +1490,12 @@ impl BackIR {
     }
 
     /// lop_id: InstId
-    pub fn get_rd(&self, current_function: Option<BOperand>, lop_id: BOperand) -> Option<BOperand> {
+    pub fn get_rd(&self, current_function: Option<BOperand>, lop_id: BOperand) -> Option<&BOperand> {
         let current_function = current_function.expect("No current function");
         self.funcs[current_function].get_rd(lop_id)
     }
 
-    pub fn get_src(&self, current_function: Option<BOperand>, src_id: BOperand) -> Vec<BOperand> {
+    pub fn get_src(&self, current_function: Option<BOperand>, src_id: BOperand) -> Vec<&BOperand> {
         let current_function = current_function.expect("No current function");
         self.funcs[current_function].get_src(src_id)
     }
