@@ -32,7 +32,7 @@ impl<'a> BDCE<'a> {
     }
 
     #[inline(always)]
-    pub fn get_rd(&self, op_id: BOperand) -> Option<BOperand> {
+    pub fn get_rd(&self, op_id: BOperand) -> Option<&BOperand> {
         let ir = self.ir.as_ref().expect("BDCE: ir is not mounted");
         ir.get_rd(self.builder.current_function, op_id)
     }
@@ -53,7 +53,7 @@ impl<'a> BDCE<'a> {
                         target: rd,
                         enu: BOperand,
                         minor_arms: {
-                            BOperand::Reg(Reg::Virt(_)) => vregs[rd].uses.is_empty(),
+                            BOperand::Reg(Reg::Virt(_)) => vregs[*rd].uses.is_empty(),
                             BOperand::Reg(Reg::X(_) | Reg::F(_)) => false,
                         },
                         uni_ops: [Undef, BB, IntImm, FloatImm, Inst, Func, Data, RoData, Extern, Slot],

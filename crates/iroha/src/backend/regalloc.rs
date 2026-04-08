@@ -196,13 +196,13 @@ impl Allocator<'_> {
     }
 
     #[inline(always)]
-    fn get_src(&self, op_id: BOperand) -> Vec<BOperand> {
+    fn get_src(&self, op_id: BOperand) -> Vec<&BOperand> {
         let func_id = self.builder.current_function;
         self.ir.as_ref().unwrap().get_src(func_id, op_id)
     }
 
     #[inline(always)]
-    fn get_rd(&self, op_id: BOperand) -> Option<BOperand> {
+    fn get_rd(&self, op_id: BOperand) -> Option<&BOperand> {
         let func_id = self.builder.current_function;
         self.ir.as_ref().unwrap().get_rd(func_id, op_id)
     }
@@ -313,10 +313,14 @@ impl Allocator<'_> {
 
             for inst_id in cur.iter().rev() {
                 let op = &self.get_func(func_id).dfg[*inst_id];
-                let rd = self.get_rd(*inst_id);
+                let rd = self.get_rd(*inst_id).cloned();
 
                 // For move instructions, we need to handle them specially.
-                let src = self.get_src(*inst_id);
+                let src = self
+                    .get_src(*inst_id)
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
                 if op.data.is_move() {
                     let rd = rd.expect("Move instruction should have rd");
                     // Ignore move that is irrelevant to current allocator.
@@ -479,8 +483,8 @@ impl Allocator<'_> {
             (rd, src[0])
         };
         // Get alias of x and y.
-        let x = self.get_alias(x);
-        let y = self.get_alias(y);
+        let x = self.get_alias(*x);
+        let y = self.get_alias(*y);
         // if y is precolored, swap x and y.
         let (u, v) = if y.is_phys() { (y, x) } else { (x, y) };
 
@@ -596,11 +600,11 @@ impl Allocator<'_> {
     fn freeze_moves(&mut self, n: BOperand) {
         for m in self.node_moves(n) {
             let v = {
-                let rd = self.get_rd(m).unwrap();
+                let rd = *self.get_rd(m).unwrap();
                 let src = self.get_src(m);
                 assert!(src.len() == 1);
                 if rd == n {
-                    src[0]
+                    *src[0]
                 } else {
                     rd
                 }
@@ -727,7 +731,7 @@ impl Allocator<'_> {
                     vec![],
                     LOpData::Store {
                         addr: slot_id,
-                        value: self.get_rd(def).unwrap(),
+                        value: *self.get_rd(def).unwrap(),
                     }
                     .into(),
                 );
@@ -756,14 +760,14 @@ impl Allocator<'_> {
 
                 let load_id = self.create(load_op);
                 let load_vreg_id = self.get_rd(load_id).unwrap();
-                new_temps.insert(load_vreg_id);
+                new_temps.insert(*load_vreg_id);
 
                 let op_data = self.get_func(func_id).dfg[r#use].data.clone();
                 // Replace the following use
                 let mut remap_use = |remap_mode: RemapMode| match remap_mode {
                     RemapMode::Def(_) => unreachable!(),
                     RemapMode::Use(old_operand, idx) => {
-                        self.replace_src((r#use, idx), old_operand, load_vreg_id);
+                        self.replace_src((r#use, idx), old_operand, *load_vreg_id);
                     }
                 };
                 match op_data {

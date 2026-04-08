@@ -344,7 +344,7 @@ impl BackIR {
         let old_vreg_id = match inst_id {
             BOperand::Inst(_) => match self.get_rd(current_function, inst_id) {
                 Some(rd) => match rd {
-                    BOperand::Reg(Reg::Virt(_)) => rd,
+                    BOperand::Reg(Reg::Virt(_)) => *rd,
                     // RAUW only works for SSA form values.
                     BOperand::Reg(Reg::X(_))
                     | BOperand::Reg(Reg::F(_))
@@ -379,163 +379,19 @@ impl BackIR {
         let vregs = &mut self.funcs[current_function.unwrap()].vregs;
         let uses = vregs[old_vreg_id].uses.clone();
 
-        // Replace the definition of old_vreg_id with new_operand.
+        // TODO: Replace the definition of old_vreg_id with new_operand.
 
         // Replace the old_vreg_id with new_operand in all uses.
         for use_tuple in uses {
-            let use_op = use_tuple.0;
-            let op_id = match_some! {
-                target: use_op,
-                enu: BOperand,
-                minor_arms: {
-                    BOperand::Inst(op_id) => op_id,
-                },
-                uni_ops: [Reg, IntImm, FloatImm, Func, Slot, Data, RoData, BB, Undef, Extern],
-                uni_arm: return
-            };
-
-            let dfg = self.dfg_mut_or_panic(
-                current_function,
-                "BackIR replace_all_uses: no current function",
-            );
-            let op = &mut dfg[op_id];
-            match &mut op.data {
-                BOpData::L(data) => match_src! {
-                    target: data,
-                    bin_ops: [
-                        AddI, SubI, MulI, DivI, ModI,
-                        SNe, SEq, SGt, SLt, SGe, SLe,
-                        Xor, Shl, Shr, Sar,
-                        AddF, SubF, MulF, DivF,
-                        ONe, OEq, OGt, OLt, OGe, OLe
-                    ],
-                    bin_arm: LOpData { lhs, rhs } => {
-                        if *lhs == old_vreg_id {
-                            *lhs = new_operand;
-                        }
-                        if *rhs == old_vreg_id {
-                            *rhs = new_operand;
-                        }
-                    },
-                    un_ops: [Sitofp, Fptosi],
-                    un_arm: LOpData { value } => {
-                        if *value == old_vreg_id {
-                            *value = new_operand;
-                        }
-                    },
-                    fallback: {
-                        LOpData::Store { addr, value } => {
-                            if *addr == old_vreg_id {
-                                *addr = new_operand;
-                            }
-                            if *value == old_vreg_id {
-                                *value = new_operand;
-                            }
-                        }
-                        LOpData::Load { addr, .. } => {
-                            if *addr == old_vreg_id {
-                                *addr = new_operand;
-                            }
-                        }
-                        LOpData::Move { src, .. } => {
-                            if *src == old_vreg_id {
-                                *src = new_operand;
-                            }
-                        }
-                        LOpData::Br { cond, .. } => {
-                            if *cond == old_vreg_id {
-                                *cond = new_operand;
-                            }
-                        }
-                        LOpData::Call { .. }
-                        | LOpData::Jump { .. }
-                        | LOpData::Ret
-                        | LOpData::LoadIntImm { .. }
-                        | LOpData::LoadFloatImm { .. } => {}
-                    }
-                },
-                BOpData::M(data) => match_src! {
-                    target: data,
-                    bin_ops: [
-                        Addw, Subw, Mulw, Divw, Remw,
-                        Sllw, Srlw, Sraw,
-                        Slt, Sltu, Xor,
-                        FaddS, FsubS, FmulS, FdivS,
-                        FeqS, FltS, FleS, FneS, FgtS, FgeS,
-                        Beq, Bne, Blt, Bge, Bltu, Bgeu
-                    ],
-                    bin_arm: MOpData { rs1, rs2 } => {
-                        if *rs1 == old_vreg_id {
-                            *rs1 = new_operand;
-                        }
-                        if *rs2 == old_vreg_id {
-                            *rs2 = new_operand;
-                        }
-                    },
-                    un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
-                    un_arm: MOpData { rs } => {
-                        if *rs == old_vreg_id {
-                            *rs = new_operand;
-                        }
-                    },
-                    fallback: {
-                        MOpData::Slti { rs1, imm, .. }
-                        | MOpData::Sltiu { rs1, imm, .. }
-                        | MOpData::Addiw { rs1, imm, .. }
-                        | MOpData::Subiw { rs1, imm, .. }
-                        | MOpData::Muliw { rs1, imm, .. }
-                        | MOpData::Diviw { rs1, imm, .. }
-                        | MOpData::Remiw { rs1, imm, .. }
-                        | MOpData::Slliw { rs1, imm, .. }
-                        | MOpData::Srliw { rs1, imm, .. }
-                        | MOpData::Sraiw { rs1, imm, .. }
-                        | MOpData::Xori { rs1, imm, .. } => {
-                            if *rs1 == old_vreg_id {
-                                *rs1 = new_operand;
-                            }
-                            if *imm == old_vreg_id {
-                                *imm = new_operand;
-                            }
-                        }
-                        MOpData::Lw { base, offset, .. }
-                        | MOpData::Flw { base, offset, .. }
-                        | MOpData::Ld { base, offset, .. } => {
-                            if *base == old_vreg_id {
-                                *base = new_operand;
-                            }
-                            if *offset == old_vreg_id {
-                                *offset = new_operand;
-                            }
-                        }
-                        MOpData::Sw { rs, base, offset }
-                        | MOpData::Fsw { rs, base, offset }
-                        | MOpData::Sd { rs, base, offset } => {
-                            if *rs == old_vreg_id {
-                                *rs = new_operand;
-                            }
-                            if *base == old_vreg_id {
-                                *base = new_operand;
-                            }
-                            if *offset == old_vreg_id {
-                                *offset = new_operand;
-                            }
-                        }
-                        MOpData::Li { .. } => {}
-                        MOpData::La { .. } => {}
-                        MOpData::J { .. } => {}
-                        MOpData::Bnez { rs, .. } => {
-                            if *rs == old_vreg_id {
-                                *rs = new_operand;
-                            }
-                        }
-                        MOpData::Call { .. } => {}
-                        MOpData::Ret => {}
-                    }
-                },
+            let src = self.get_src_mut(current_function, inst_id);
+            for operand in src {
+                if *operand == old_vreg_id {
+                    *operand = new_operand;
+                }
             }
 
             let vregs = &mut self.funcs[current_function.unwrap()].vregs;
-            vregs.remove_use(*old_vreg_id, use_tuple);
+            vregs.remove_use(old_vreg_id, use_tuple);
             vregs.add_use(new_operand, use_tuple);
         }
     }
@@ -731,7 +587,7 @@ impl BackIR {
         let old_vreg_id = match old {
             BOperand::Inst(_) => match self.get_rd(current_function, old) {
                 Some(rd) => match rd {
-                    BOperand::Reg(Reg::Virt(_)) => rd,
+                    BOperand::Reg(Reg::Virt(_)) => *rd,
                     // RAUW only works for SSA form values.
                     BOperand::Reg(Reg::X(_))
                     | BOperand::Reg(Reg::F(_))
@@ -768,7 +624,7 @@ impl BackIR {
 
         let new_vreg_id = match new {
             BOperand::Inst(_) => match self.get_rd(current_function, new) {
-                Some(rd) => rd,
+                Some(rd) => *rd,
                 None => return,
             },
             BOperand::Data(_)
@@ -787,156 +643,12 @@ impl BackIR {
 
         for use_tuple in uses {
             let use_op = use_tuple.0;
-            let op_id = match_some! {
-                target: use_op,
-                enu: BOperand,
-                minor_arms: {
-                    BOperand::Inst(op_id) => op_id,
-                },
-                uni_ops: [Reg, IntImm, FloatImm, Func, Slot, Data, RoData, BB, Undef, Extern],
-                uni_arm: return
-            };
-
-            let dfg = self.dfg_mut_or_panic(
-                current_function,
-                "BackIR replace_all_uses: no current function",
-            );
-            let op = &mut dfg[op_id];
-            match &mut op.data {
-                BOpData::L(data) => match_src! {
-                    target: data,
-                    bin_ops: [
-                        AddI, SubI, MulI, DivI, ModI,
-                        SNe, SEq, SGt, SLt, SGe, SLe,
-                        Xor, Shl, Shr, Sar,
-                        AddF, SubF, MulF, DivF,
-                        ONe, OEq, OGt, OLt, OGe, OLe
-                    ],
-                    bin_arm: LOpData { lhs, rhs } => {
-                        if *lhs == old_vreg_id {
-                            *lhs = new_vreg_id;
-                        }
-                        if *rhs == old_vreg_id {
-                            *rhs = new_vreg_id;
-                        }
-                    },
-                    un_ops: [Sitofp, Fptosi],
-                    un_arm: LOpData { value } => {
-                        if *value == old_vreg_id {
-                            *value = new_vreg_id;
-                        }
-                    },
-                    fallback: {
-                        LOpData::Store { addr, value } => {
-                            if *addr == old_vreg_id {
-                                *addr = new_vreg_id;
-                            }
-                            if *value == old_vreg_id {
-                                *value = new_vreg_id;
-                            }
-                        }
-                        LOpData::Load { addr, .. } => {
-                            if *addr == old_vreg_id {
-                                *addr = new_vreg_id;
-                            }
-                        }
-                        LOpData::Move { src, .. } => {
-                            if *src == old_vreg_id {
-                                *src = new_vreg_id;
-                            }
-                        }
-                        LOpData::Br { cond, .. } => {
-                            if *cond == old_vreg_id {
-                                *cond = new_vreg_id;
-                            }
-                        }
-                        LOpData::Call { .. }
-                        | LOpData::Jump { .. }
-                        | LOpData::Ret
-                        | LOpData::LoadIntImm { .. }
-                        | LOpData::LoadFloatImm { .. } => {}
-                    }
-                },
-                BOpData::M(data) => match_src! {
-                    target: data,
-                    bin_ops: [
-                        Addw, Subw, Mulw, Divw, Remw,
-                        Sllw, Srlw, Sraw,
-                        Slt, Sltu, Xor,
-                        FaddS, FsubS, FmulS, FdivS,
-                        FeqS, FltS, FleS, FneS, FgtS, FgeS,
-                        Beq, Bne, Blt, Bge, Bltu, Bgeu
-                    ],
-                    bin_arm: MOpData { rs1, rs2 } => {
-                        if *rs1 == old_vreg_id {
-                            *rs1 = new_vreg_id;
-                        }
-                        if *rs2 == old_vreg_id {
-                            *rs2 = new_vreg_id;
-                        }
-                    },
-                    un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
-                    un_arm: MOpData { rs } => {
-                        if *rs == old_vreg_id {
-                            *rs = new_vreg_id;
-                        }
-                    },
-                    fallback: {
-                        MOpData::Slti { rs1, imm, .. }
-                        | MOpData::Sltiu { rs1, imm, .. }
-                        | MOpData::Addiw { rs1, imm, .. }
-                        | MOpData::Subiw { rs1, imm, .. }
-                        | MOpData::Muliw { rs1, imm, .. }
-                        | MOpData::Diviw { rs1, imm, .. }
-                        | MOpData::Remiw { rs1, imm, .. }
-                        | MOpData::Slliw { rs1, imm, .. }
-                        | MOpData::Srliw { rs1, imm, .. }
-                        | MOpData::Sraiw { rs1, imm, .. }
-                        | MOpData::Xori { rs1, imm, .. } => {
-                            if *rs1 == old_vreg_id {
-                                *rs1 = new_vreg_id;
-                            }
-                            if *imm == old_vreg_id {
-                                *imm = new_vreg_id;
-                            }
-                        }
-                        MOpData::Lw { base, offset, .. }
-                        | MOpData::Flw { base, offset, .. }
-                        | MOpData::Ld { base, offset, .. } => {
-                            if *base == old_vreg_id {
-                                *base = new_vreg_id;
-                            }
-                            if *offset == old_vreg_id {
-                                *offset = new_vreg_id;
-                            }
-                        }
-                        MOpData::Sw { rs, base, offset }
-                        | MOpData::Fsw { rs, base, offset }
-                        | MOpData::Sd { rs, base, offset } => {
-                            if *rs == old_vreg_id {
-                                *rs = new_vreg_id;
-                            }
-                            if *base == old_vreg_id {
-                                *base = new_vreg_id;
-                            }
-                            if *offset == old_vreg_id {
-                                *offset = new_vreg_id;
-                            }
-                        }
-                        MOpData::Li { .. } => {}
-                        MOpData::La { .. } => {}
-                        MOpData::J { .. } => {}
-                        MOpData::Bnez { rs, .. } => {
-                            if *rs == old_vreg_id {
-                                *rs = new_vreg_id;
-                            }
-                        }
-                        MOpData::Call { .. } => {}
-                        MOpData::Ret => {}
-                    }
-                },
+            let src = self.get_src_mut(current_function, use_op);
+            for operand in src {
+                if *operand == old_vreg_id {
+                    *operand = new_vreg_id;
+                }
             }
-
             let vregs = &mut self.funcs[current_function.unwrap()].vregs;
             vregs.remove_use(old_vreg_id, use_tuple);
             vregs.add_use(new_vreg_id, use_tuple);
@@ -1490,13 +1202,75 @@ impl BackIR {
     }
 
     /// lop_id: InstId
-    pub fn get_rd(&self, current_function: Option<BOperand>, lop_id: BOperand) -> Option<&BOperand> {
+    pub fn get_rd_tuple(
+        &self,
+        current_function: Option<BOperand>,
+        inst_id: BOperand,
+    ) -> Option<(&BOperand, usize)> {
         let current_function = current_function.expect("No current function");
-        self.funcs[current_function].get_rd(lop_id)
+        self.funcs[current_function].get_rd_tuple(inst_id)
     }
 
-    pub fn get_src(&self, current_function: Option<BOperand>, src_id: BOperand) -> Vec<&BOperand> {
+    pub fn get_src_tuple(
+        &self,
+        current_function: Option<BOperand>,
+        inst_id: BOperand,
+    ) -> Vec<(&BOperand, usize)> {
         let current_function = current_function.expect("No current function");
-        self.funcs[current_function].get_src(src_id)
+        self.funcs[current_function].get_src_tuple(inst_id)
+    }
+
+    pub fn get_rd_mut_tuple(
+        &mut self,
+        current_function: Option<BOperand>,
+        inst_id: BOperand,
+    ) -> Option<(&mut BOperand, usize)> {
+        let current_function = current_function.expect("No current function");
+        self.funcs[current_function].get_rd_mut_tuple(inst_id)
+    }
+
+    pub fn get_src_mut_tuple(
+        &mut self,
+        current_function: Option<BOperand>,
+        inst_id: BOperand,
+    ) -> Vec<(&mut BOperand, usize)> {
+        let current_function = current_function.expect("No current function");
+        self.funcs[current_function].get_src_mut_tuple(inst_id)
+    }
+
+    pub fn get_rd(
+        &self,
+        current_function: Option<BOperand>,
+        inst_id: BOperand,
+    ) -> Option<&BOperand> {
+        self.get_rd_tuple(current_function, inst_id)
+            .map(|(rd, _)| rd)
+    }
+
+    pub fn get_src(&self, current_function: Option<BOperand>, inst_id: BOperand) -> Vec<&BOperand> {
+        self.get_src_tuple(current_function, inst_id)
+            .into_iter()
+            .map(|(src, _)| src)
+            .collect()
+    }
+
+    pub fn get_rd_mut(
+        &mut self,
+        current_function: Option<BOperand>,
+        inst_id: BOperand,
+    ) -> Option<&mut BOperand> {
+        self.get_rd_mut_tuple(current_function, inst_id)
+            .map(|(rd, _)| rd)
+    }
+
+    pub fn get_src_mut(
+        &mut self,
+        current_function: Option<BOperand>,
+        inst_id: BOperand,
+    ) -> Vec<&mut BOperand> {
+        self.get_src_mut_tuple(current_function, inst_id)
+            .into_iter()
+            .map(|(src, _)| src)
+            .collect()
     }
 }
