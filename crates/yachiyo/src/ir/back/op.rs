@@ -34,6 +34,8 @@ pub enum BOperand {
     Data(usize),
     /// Id of .rodata arena.
     RoData(usize),
+    /// Id of .bss arena.
+    Bss(usize),
 
     /// External function
     Extern(&'static str),
@@ -56,6 +58,7 @@ impl std::fmt::Display for BOperand {
             BOperand::Slot(id) => write!(f, "slot.{id}"),
             BOperand::Data(id) => write!(f, "data.{id}"),
             BOperand::RoData(id) => write!(f, "rodata.{id}"),
+            BOperand::Bss(id) => write!(f, "bss.{id}"),
             BOperand::Extern(name) => write!(f, "extern.{name}"),
             BOperand::Undef => write!(f, "undef"),
         }

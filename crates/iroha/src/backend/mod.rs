@@ -1,14 +1,14 @@
 //! Assembly module
 
 mod compaction;
+mod dce;
+mod instcomb;
 mod isel;
 mod lowering;
 mod regalloc;
-mod dce;
-mod instcomb;
 pub use compaction::*;
+pub use dce::*;
+pub use instcomb::*;
 pub use isel::*;
 pub use lowering::*;
 pub use regalloc::*;
-pub use dce::*;
-pub use instcomb::*;

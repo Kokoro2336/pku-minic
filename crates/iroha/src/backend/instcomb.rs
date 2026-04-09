@@ -1,6 +1,6 @@
 //! Instruction Combination (InstComb) .
 
-use yachiyo::ir::back::{BackIR, BBuilder, BOperand};
+use yachiyo::ir::back::{BBuilder, BOperand, BackIR};
 use yachiyo::pass::BPass;
 
 #[derive(Default)]
@@ -14,9 +14,7 @@ impl InstComb<'_> {
         self.builder.set_current_func(func_id);
     }
 
-    pub fn combine(&mut self) {
-        
-    }
+    pub fn combine(&mut self) {}
 }
 
 impl<'a> BPass<'a> for InstComb<'a> {
@@ -28,6 +26,5 @@ impl<'a> BPass<'a> for InstComb<'a> {
         self.ir = Some(ir);
     }
 
-    fn run(&mut self) {
-    }
+    fn run(&mut self) {}
 }

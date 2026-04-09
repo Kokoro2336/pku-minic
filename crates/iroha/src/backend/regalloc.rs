@@ -187,7 +187,7 @@ impl Allocator<'_> {
                 BOperand::Reg(Reg::F(_)) => self.typ == AllocatorType::Float,
                 BOperand::Reg(Reg::X(_)) => self.typ == AllocatorType::Int,
             },
-            uni_ops: [IntImm, FloatImm, BB, Inst, Func, Data, RoData, Slot, Undef, Extern],
+            uni_ops: [IntImm, FloatImm, BB, Inst, Func, Data, RoData, Bss, Slot, Undef, Extern],
             uni_arm: {
                 false
             }

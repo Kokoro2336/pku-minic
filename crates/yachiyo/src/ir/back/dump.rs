@@ -14,6 +14,7 @@ impl BackIR {
 
         let data_name_map = reverse_name_map(&self.data_info.map);
         let rodata_name_map = reverse_name_map(&self.rodata_info.map);
+        let bss_name_map = reverse_name_map(&self.bss_info.map);
         let func_name_map = self
             .funcs
             .collect()
@@ -23,7 +24,14 @@ impl BackIR {
 
         self.dump_data_section(&mut out, &data_name_map, &rodata_name_map, &func_name_map);
         self.dump_rodata_section(&mut out, &data_name_map, &rodata_name_map, &func_name_map);
-        self.dump_text_section(&mut out, &data_name_map, &rodata_name_map, &func_name_map);
+        self.dump_bss_section(&mut out, &bss_name_map);
+        self.dump_text_section(
+            &mut out,
+            &data_name_map,
+            &rodata_name_map,
+            &bss_name_map,
+            &func_name_map,
+        );
 
         out
     }
@@ -46,7 +54,7 @@ impl BackIR {
 
         for id in ids {
             let data = &self.data_info[id];
-            let label = symbol_name(data_name_map, id, ".Ldata");
+            let label = symbol_name(data_name_map, id, ".data");
             out.push_str(&format!(".globl {label}\n"));
             if data.align() > 1 {
                 out.push_str(&format!(".align {}\n", data.align().trailing_zeros()));
@@ -83,7 +91,7 @@ impl BackIR {
 
         for id in ids {
             let rodata = &self.rodata_info[id];
-            let label = symbol_name(rodata_name_map, id, ".Lrodata");
+            let label = symbol_name(rodata_name_map, id, ".rodata");
             if rodata.align() > 1 {
                 out.push_str(&format!(".align {}\n", rodata.align().trailing_zeros()));
             }
@@ -101,11 +109,36 @@ impl BackIR {
         out.push('\n');
     }
 
+    fn dump_bss_section(&self, out: &mut String, bss_name_map: &HashMap<usize, String>) {
+        if self.bss_info.is_empty() {
+            return;
+        }
+
+        let mut ids = self.bss_info.collect();
+        ids.sort_unstable();
+
+        out.push_str(".section .bss\n");
+
+        for id in ids {
+            let bss = &self.bss_info[id];
+            let label = symbol_name(bss_name_map, id, ".bss");
+            out.push_str(&format!(".globl {label}\n"));
+            if bss.align() > 1 {
+                out.push_str(&format!(".align {}\n", bss.align().trailing_zeros()));
+            }
+            out.push_str(&format!("{label}:\n"));
+            out.push_str(&format!("  .zero {}\n", bss.size()));
+        }
+
+        out.push('\n');
+    }
+
     fn dump_text_section(
         &self,
         out: &mut String,
         data_name_map: &HashMap<usize, String>,
         rodata_name_map: &HashMap<usize, String>,
+        bss_name_map: &HashMap<usize, String>,
         func_name_map: &HashMap<usize, String>,
     ) {
         if self.funcs.is_empty() {
@@ -122,6 +155,7 @@ impl BackIR {
             let format_ctx = AsmFormatCtx {
                 data_name_map,
                 rodata_name_map,
+                bss_name_map,
                 func_name_map,
                 current_func_name: Some(&func.name),
             };
@@ -131,7 +165,7 @@ impl BackIR {
             let mut bb_ids = func.cfg.collect();
             bb_ids.sort_unstable();
             for bb_id in bb_ids {
-                out.push_str(&format!(".L{}_bb{}:\n", func.name, bb_id));
+                out.push_str(&format!(".{}_bb{}:\n", func.name, bb_id));
                 for inst in &func.cfg[bb_id].cur {
                     let inst_id = inst.get_inst_id();
                     let op = &func.dfg[inst_id];
@@ -164,6 +198,7 @@ fn symbol_name(name_map: &HashMap<usize, String>, id: usize, fallback_prefix: &s
 struct AsmFormatCtx<'a> {
     data_name_map: &'a HashMap<usize, String>,
     rodata_name_map: &'a HashMap<usize, String>,
+    bss_name_map: &'a HashMap<usize, String>,
     func_name_map: &'a HashMap<usize, String>,
     current_func_name: Option<&'a str>,
 }
@@ -171,18 +206,19 @@ struct AsmFormatCtx<'a> {
 impl AsmFormatCtx<'_> {
     fn format_operand(&self, operand: &BOperand) -> String {
         match operand {
-            BOperand::Func(id) => symbol_name(self.func_name_map, *id, ".Lfunc"),
+            BOperand::Func(id) => symbol_name(self.func_name_map, *id, ".func"),
             BOperand::BB(id) => match self.current_func_name {
-                Some(func_name) => format!(".L{func_name}_bb{id}"),
-                None => format!(".Lbb{id}"),
+                Some(func_name) => format!(".{func_name}_bb{id}"),
+                None => format!("bb{id}"),
             },
             BOperand::Inst(id) => format!("inst.{id}"),
             BOperand::Reg(reg) => reg.to_string(),
             BOperand::IntImm(imm) => imm.to_string(),
             BOperand::FloatImm(imm) => format!("0x{imm:08x}"),
             BOperand::Slot(id) => format!("slot.{id}"),
-            BOperand::Data(id) => symbol_name(self.data_name_map, *id, ".Ldata"),
-            BOperand::RoData(id) => symbol_name(self.rodata_name_map, *id, ".Lrodata"),
+            BOperand::Data(id) => symbol_name(self.data_name_map, *id, ".data"),
+            BOperand::RoData(id) => symbol_name(self.rodata_name_map, *id, ".rodata"),
+            BOperand::Bss(id) => symbol_name(self.bss_name_map, *id, ".bss"),
             BOperand::Extern(name) => (*name).to_string(),
             BOperand::Undef => "undef".to_string(),
         }
@@ -506,7 +542,7 @@ impl AsmFormatCtx<'_> {
                     self.format_operand(offset)
                 ),
             },
-            BOpData::L(lop) => format!("L.{lop}"),
+            BOpData::L(lop) => format!("{lop}"),
         }
     }
 }
@@ -536,17 +572,22 @@ fn dump_initializer(
                 written += 4;
             }
             BOperand::Data(id) => {
-                let label = symbol_name(data_name_map, *id, ".Ldata");
+                let label = symbol_name(data_name_map, *id, ".data");
                 out.push_str(&format!("  .dword {}\n", label));
                 written += 8;
             }
             BOperand::RoData(id) => {
-                let label = symbol_name(rodata_name_map, *id, ".Lrodata");
+                let label = symbol_name(rodata_name_map, *id, ".rodata");
                 out.push_str(&format!("  .dword {}\n", label));
                 written += 8;
             }
+            BOperand::Bss(_) => {
+                panic!(
+                    "dump_initializer: .bss symbol should not appear in concrete global initializers"
+                );
+            }
             BOperand::Func(id) => {
-                let label = symbol_name(func_name_map, *id, ".Lfunc");
+                let label = symbol_name(func_name_map, *id, ".func");
                 out.push_str(&format!("  .dword {}\n", label));
                 written += 8;
             }

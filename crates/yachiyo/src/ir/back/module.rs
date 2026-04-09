@@ -1,8 +1,8 @@
 //! Lower IR module defintion, with graph structure variation APIs.
 
 use super::{
-    BBuilder, BBuilderGuard, BOp, BOpData, BOperand, DataInfo, LOpData, MOpData, Reg, RoDataInfo,
-    VirtReg, BCFG, BCG, BDFG,
+    BBuilder, BBuilderGuard, BOp, BOpData, BOperand, BssInfo, DataInfo, LOpData, MOpData, Reg,
+    RoDataInfo, VirtReg, BCFG, BCG, BDFG,
 };
 use crate::utils::arena::ArenaItem;
 use crate::utils::r#match::{match_rd, match_some};
@@ -11,6 +11,7 @@ use crate::utils::r#match::{match_rd, match_some};
 pub struct BackIR {
     pub data_info: DataInfo,
     pub rodata_info: RoDataInfo,
+    pub bss_info: BssInfo,
     pub funcs: BCG,
 }
 
@@ -25,6 +26,7 @@ impl BackIR {
         Self {
             data_info: DataInfo::new(),
             rodata_info: RoDataInfo::new(),
+            bss_info: BssInfo::new(),
             funcs: BCG::new(),
         }
     }
@@ -100,6 +102,7 @@ impl BackIR {
                     BOperand::Reg(Reg::X(_))
                     | BOperand::Reg(Reg::F(_))
                     | BOperand::Data(_)
+                    | BOperand::Bss(_)
                     | BOperand::IntImm(_)
                     | BOperand::FloatImm(_)
                     | BOperand::Slot(_)
@@ -122,6 +125,7 @@ impl BackIR {
             | BOperand::Extern(_)
             | BOperand::Undef
             | BOperand::RoData(_)
+            | BOperand::Bss(_)
             | BOperand::BB(_)
             | BOperand::Func(_) => {
                 unreachable!("replace_all_uses: new operand cannot be {:?}", inst_id)
@@ -202,6 +206,7 @@ impl BackIR {
                     BOperand::Reg(Reg::X(_))
                     | BOperand::Reg(Reg::F(_))
                     | BOperand::Data(_)
+                    | BOperand::Bss(_)
                     | BOperand::IntImm(_)
                     | BOperand::FloatImm(_)
                     | BOperand::Slot(_)
@@ -224,6 +229,7 @@ impl BackIR {
             | BOperand::Extern(_)
             | BOperand::Undef
             | BOperand::RoData(_)
+            | BOperand::Bss(_)
             | BOperand::BB(_)
             | BOperand::Func(_) => {
                 unreachable!("replace_all_uses: new operand cannot be {:?}", old)
@@ -244,7 +250,8 @@ impl BackIR {
             | BOperand::Slot(_)
             | BOperand::Undef
             | BOperand::Extern(_)
-            | BOperand::RoData(_) => new,
+            | BOperand::RoData(_)
+            | BOperand::Bss(_) => new,
 
             BOperand::BB(_) | BOperand::Func(_) => {
                 unreachable!("replace_all_uses: new operand cannot be {:?}", new)
@@ -476,6 +483,7 @@ impl BackIR {
                         }
                         BOperand::Data(_)
                         | BOperand::RoData(_)
+                        | BOperand::Bss(_)
                         | BOperand::BB(_)
                         | BOperand::Slot(_)
                         | BOperand::IntImm(_)
@@ -525,6 +533,7 @@ impl BackIR {
                         }
                         BOperand::Data(_)
                         | BOperand::RoData(_)
+                        | BOperand::Bss(_)
                         | BOperand::BB(_)
                         | BOperand::Slot(_)
                         | BOperand::IntImm(_)

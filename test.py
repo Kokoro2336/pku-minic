@@ -143,7 +143,9 @@ def main():
     parser.add_argument('--clean', action='store_true', help='Clean test directories before running')
     parser.add_argument('--graph', action='store_true', help='Generate CFG graphs (.dot/.svg) from linked LLVM IR using opt + graphviz')
     parser.add_argument('--trace', action='store_true', help='Enable trace logging')
-    parser.add_argument('--debug', action='store_true', help='Run compiler under rust-gdb for interactive debugging (single test only)')
+    debug_group = parser.add_mutually_exclusive_group()
+    debug_group.add_argument('--gdb', action='store_true', help='Run compiler under rust-gdb for interactive debugging (single test only)')
+    debug_group.add_argument('--lldb', action='store_true', help='Run compiler under rust-lldb for interactive debugging (single test only)')
     parser.add_argument('--dump-llvm-after', type=str, default='', help='Dump LLVM IR after a specific pass (pass name)')
     parser.add_argument('--dump-asm-after', type=str, default='', help='Dump assembly after a specific backend pass (pass name)')
     parser.add_argument('--emit-llvm', action='store_true', help='Enable compiler --emit-llvm explicitly for dumping LLVM IR')
@@ -267,12 +269,21 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    if args.debug:
-        if shutil.which("rust-gdb") is None:
-            print("--debug requested but rust-gdb was not found in PATH.")
+    debugger_tool = None
+    debugger_flag = None
+    if args.gdb:
+        debugger_tool = "rust-gdb"
+        debugger_flag = "--gdb"
+    elif args.lldb:
+        debugger_tool = "rust-lldb"
+        debugger_flag = "--lldb"
+
+    if debugger_tool is not None:
+        if shutil.which(debugger_tool) is None:
+            print(f"{debugger_flag} requested but {debugger_tool} was not found in PATH.")
             sys.exit(1)
         if len(test_files) != 1:
-            print("--debug supports exactly one test. Please use --test <name>.")
+            print(f"{debugger_flag} supports exactly one test. Please use --test <name>.")
             sys.exit(1)
 
     # Directories to manage
@@ -333,12 +344,20 @@ def main():
             try:
                 run_env = {**os.environ, "RUST_BACKTRACE": "1"} if args.trace else None
 
-                if args.debug:
+                if args.gdb:
                     debug_cmd = ["rust-gdb", "-tui", "--args", *cmd]
                     print(f"  [DEBUG] Launching: {' '.join(debug_cmd)}")
                     result = subprocess.run(debug_cmd, env=run_env)
                     final_returncode = result.returncode
-                    # gdb runs interactively; output is shown directly in terminal.
+                    # debugger runs interactively; output is shown directly in terminal.
+                    final_stdout = b""
+                    final_stderr = b""
+                elif args.lldb:
+                    debug_cmd = ["rust-lldb", "--", *cmd]
+                    print(f"  [DEBUG] Launching: {' '.join(debug_cmd)}")
+                    result = subprocess.run(debug_cmd, env=run_env)
+                    final_returncode = result.returncode
+                    # debugger runs interactively; output is shown directly in terminal.
                     final_stdout = b""
                     final_stderr = b""
                 else:
