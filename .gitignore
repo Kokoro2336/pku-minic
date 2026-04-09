@@ -9,6 +9,8 @@ gdb_log.txt
 graphs/
 functional_recover/
 perf/
+dump_asm/
 dump_llvm/
 .codex
 __pycache__/
+.DS_Store

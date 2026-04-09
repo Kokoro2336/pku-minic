@@ -125,6 +125,7 @@ impl Lowering {
                     // Non-load ops using a mem space must load it first.
                     BOperand::Data(_)
                     | BOperand::RoData(_)
+                    | BOperand::Bss(_)
                     | BOperand::Slot(_) => {
                         if lop_typ.unwrap() == LOpType::Load {
                             return boperand;
@@ -268,6 +269,21 @@ impl Lowering {
         };
         self.set(global_id, BOperand::RoData(rodata_id));
         BOperand::RoData(rodata_id)
+    }
+
+    #[inline(always)]
+    fn alloc_and_map_bss(
+        &mut self,
+        global_id: Operand,
+        name: Option<String>,
+        bss: Bss,
+    ) -> BOperand {
+        let bss_id = match name {
+            Some(name) => self.lower_ir.bss_info.insert(bss, name),
+            None => self.lower_ir.bss_info.alloc(bss),
+        };
+        self.set(global_id, BOperand::Bss(bss_id));
+        BOperand::Bss(bss_id)
     }
 
     #[inline(always)]
@@ -1110,46 +1126,33 @@ impl Lowering {
                     if let Some((name, mutable, typ, values)) = res {
                         let (typ, values) = match values {
                             Some(values) => {
-                                let typ = match typ {
-                                    Type::Array { base, .. } => *base.clone(),
-                                    Type::Int | Type::Float | Type::Bool | Type::Pointer { .. } => typ,
+                                let typ = match typ { 
+                                    Type::Bool => Type::Int,
+                                    Type::Array {..}
+                                    | Type::Int | Type::Float | Type::Pointer { .. } => typ,
                                     Type::Function { .. }
                                     | Type::Void
                                     | Type::Char => unreachable!("Function, Void and Char type should not be in the global array"),
                                 };
 
-                                (typ, values.iter().map(|v| match v {
+                                (typ, Some(values.iter().map(|v| match v {
                                     Literal::Int(i) => BOperand::IntImm(*i),
                                     Literal::Float(f) => BOperand::FloatImm(f.to_bits()),
                                     Literal::String(s) => unimplemented!(
                                         "String literal in global array initializer is not supported yet: {}",
                                         s
                                     ),
-                                }).collect())
+                                }).collect()))
                             }
-                            // If global array has no initializer, we need to fill it with default values according to the type.
+                            // If global array has no initializer, we move it to .bss
                             None => match &typ {
-                                Type::Int | Type::Bool => (Type::Int, vec![BOperand::IntImm(0)]),
-                                Type::Float => {
-                                    (Type::Float, vec![BOperand::FloatImm(0.0f32.to_bits())])
-                                }
+                                Type::Bool => (Type::Int, None),
+                                Type::Int
+                                | Type::Array { .. }
+                                | Type::Float => (typ, None),
                                 Type::Pointer { .. } => unimplemented!(
                                     "Uninitialized global pointer is not supported yet"
                                 ),
-                                Type::Array { base, dims } => {
-                                    let base_value = match &**base {
-                                        Type::Int
-                                        | Type::Bool => BOperand::IntImm(0),
-                                        Type::Float => BOperand::FloatImm(0.0f32.to_bits()),
-                                        Type::Pointer { .. } => unimplemented!("Uninitialized global pointer is not supported yet"),
-                                        Type::Array { .. } => unimplemented!("Multi-dimensional array without initializer is not supported yet"),
-                                        Type::Function { .. } | Type::Void | Type::Char => unreachable!("Function, Void and Char type should not be in the global array"),
-                                    };
-                                    (
-                                        *base.clone(),
-                                        vec![base_value; dims.iter().product::<u32>() as usize],
-                                    )
-                                }
                                 Type::Function { .. } | Type::Void | Type::Char => {
                                     unreachable!("Function type should not be in the global array")
                                 }
@@ -1157,11 +1160,60 @@ impl Lowering {
                         };
 
                         if mutable {
-                            let data = Data::new(typ.into(), values);
-                            self.alloc_and_map_data(Operand::Global(global), Some(name), data);
+                            if let Some(values) = values {
+                                // For initialized mutable global, we allocate it in .data section.
+                                let data = Data::new(typ, values);
+                                self.alloc_and_map_data(Operand::Global(global), Some(name), data);
+                            } else {
+                                // For uninitialized mutable global, we allocate it in .bss section.
+                                let bss = Bss::new(typ);
+                                self.alloc_and_map_bss(Operand::Global(global), Some(name), bss);
+                            }
                         } else {
-                            let rodata = RoData::new(typ.into(), values);
-                            self.alloc_and_map_rodata(Operand::Global(global), Some(name), rodata);
+                            if let Some(values) = values {
+                                // For initialized immutable global, we allocate it in .rodata section.
+                                let rodata = RoData::new(typ, values);
+                                self.alloc_and_map_rodata(
+                                    Operand::Global(global),
+                                    Some(name),
+                                    rodata,
+                                );
+                            } else {
+                                // For uninitialized immutable global, we fill its init values manually and allocate it in .rodata section.
+                                let values = match &typ {
+                                    Type::Int | Type::Bool => {
+                                        vec![BOperand::IntImm(0)]
+                                    }
+                                    Type::Float => {
+                                        vec![BOperand::FloatImm(0.0f32.to_bits())]
+                                    }
+                                    Type::Pointer { .. } => unimplemented!(
+                                        "Uninitialized global pointer is not supported yet"
+                                    ),
+                                    Type::Array { base, dims } => {
+                                        let base_value = match &**base {
+                                        Type::Int
+                                        | Type::Bool => BOperand::IntImm(0),
+                                        Type::Float => BOperand::FloatImm(0.0f32.to_bits()),
+                                        Type::Pointer { .. } => unimplemented!("Uninitialized global pointer is not supported yet"),
+                                        Type::Array { .. } => unimplemented!("Multi-dimensional array without initializer is not supported yet"),
+                                        Type::Function { .. } | Type::Void | Type::Char => unreachable!("Function, Void and Char type should not be in the global array"),
+                                    };
+                                        vec![base_value; dims.iter().product::<u32>() as usize]
+                                    }
+                                    Type::Function { .. } | Type::Void | Type::Char => {
+                                        unreachable!(
+                                            "Function type should not be in the global array"
+                                        )
+                                    }
+                                };
+                                let rodata = RoData::new(typ, values);
+                                self.alloc_and_map_rodata(
+                                    Operand::Global(global),
+                                    Some(name),
+                                    rodata,
+                                );
+                            }
                         }
                     }
                 }
@@ -1206,7 +1258,8 @@ impl Lowering {
                 .get_all_ops(Some(func_id.clone()), OpType::Phi)
                 .into_iter()
                 .for_each(|phi_id| {
-                    let phi_vreg_id = self.alloc_vreg(VirtReg::default());
+                    let typ = self.get_op_type(phi_id.clone());
+                    let phi_vreg_id = self.alloc_vreg(VirtReg::new(typ.into()));
                     // Phi is eliminated, without BOp mapped to Phi. So we map it to vreg directly.
                     self.set(phi_id, phi_vreg_id);
                 });

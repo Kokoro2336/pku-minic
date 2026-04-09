@@ -9,11 +9,22 @@ use crate::utils::r#match::{match_rd, match_src};
 
 use std::ops::{Index, IndexMut};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct VirtReg {
+    pub typ: BType,
     pub defs: Vec<BOperand>,
     /// (OpId of uses, operand idx in the use instruction)
     pub uses: Vec<(BOperand, usize)>,
+}
+
+impl VirtReg {
+    pub fn new(typ: BType) -> Self {
+        Self {
+            typ,
+            defs: Vec::new(),
+            uses: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -34,6 +45,8 @@ pub enum BOperand {
     Data(usize),
     /// Id of .rodata arena.
     RoData(usize),
+    /// Id of .bss arena.
+    Bss(usize),
 
     /// External function
     Extern(&'static str),
@@ -56,6 +69,7 @@ impl std::fmt::Display for BOperand {
             BOperand::Slot(id) => write!(f, "slot.{id}"),
             BOperand::Data(id) => write!(f, "data.{id}"),
             BOperand::RoData(id) => write!(f, "rodata.{id}"),
+            BOperand::Bss(id) => write!(f, "bss.{id}"),
             BOperand::Extern(name) => write!(f, "extern.{name}"),
             BOperand::Undef => write!(f, "undef"),
         }

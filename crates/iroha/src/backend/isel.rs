@@ -1,6 +1,7 @@
 //! Instruction Selection (ISel).
 //! Translating Lower IR into Machine IR.
 
+use yachiyo::base::Type;
 use yachiyo::ir::back::*;
 use yachiyo::pass::BPass;
 use yachiyo::utils::r#match::{match_full_ops, match_some, match_src};
@@ -265,6 +266,7 @@ impl ISel<'_> {
                                         | BOperand::Data(_)
                                         | BOperand::Extern(_)
                                         | BOperand::RoData(_)
+                                        | BOperand::Bss(_)
                                         | BOperand::Undef => panic!("Expected an integer immediate for SGt, but got {:?}", imm),
                                     };
                                     // Create slti
@@ -309,6 +311,7 @@ impl ISel<'_> {
                                         | BOperand::Extern(_)
                                         | BOperand::Data(_)
                                         | BOperand::RoData(_)
+                                        | BOperand::Bss(_)
                                         | BOperand::Undef => panic!("Expected an integer immediate for SLe, but got {:?}", imm),
                                     };
                                     // Create slti
@@ -571,14 +574,14 @@ impl ISel<'_> {
                                 );
                             }
                         },
-                        BOperand::Slot(_) | BOperand::Data(_) | BOperand::RoData(_) | BOperand::Func(_) | BOperand::BB(_) | BOperand::Inst(_) | BOperand::Undef | BOperand::FloatImm(_) | BOperand::IntImm(_) | BOperand::Extern(_) => unreachable!("Unexpected destination operand for Move: {:?}", rd),
+                        BOperand::Slot(_) | BOperand::Data(_) | BOperand::RoData(_) | BOperand::Bss(_) | BOperand::Func(_) | BOperand::BB(_) | BOperand::Inst(_) | BOperand::Undef | BOperand::FloatImm(_) | BOperand::IntImm(_) | BOperand::Extern(_) => unreachable!("Unexpected destination operand for Move: {:?}", rd),
                     };
                 }
 
                 LOpData::LoadFloatImm { imm, .. } => {
                     // Add it to the constant pool first.
                     let rodata_id = self.alloc_rodata(RoData::new(
-                        typ.clone(),
+                        Type::Float,
                         vec![BOperand::FloatImm(imm.to_bits())],
                     ));
                     let load_lop_id = self.create(

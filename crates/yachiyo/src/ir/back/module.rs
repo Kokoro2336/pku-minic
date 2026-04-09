@@ -1,8 +1,8 @@
 //! Lower IR module defintion, with graph structure variation APIs.
 
 use super::{
-    BBuilder, BBuilderGuard, BOp, BOpData, BOperand, DataInfo, LOpData, MOpData, Reg, RoDataInfo,
-    VirtReg, BCFG, BCG, BDFG,
+    BBuilder, BBuilderGuard, BOp, BOpData, BOperand, BssInfo, DataInfo, LOpData, MOpData, Reg,
+    RoDataInfo, VirtReg, BCFG, BCG, BDFG,
 };
 use crate::utils::arena::ArenaItem;
 use crate::utils::r#match::{match_rd, match_some};
@@ -11,6 +11,7 @@ use crate::utils::r#match::{match_rd, match_some};
 pub struct BackIR {
     pub data_info: DataInfo,
     pub rodata_info: RoDataInfo,
+    pub bss_info: BssInfo,
     pub funcs: BCG,
 }
 
@@ -25,6 +26,7 @@ impl BackIR {
         Self {
             data_info: DataInfo::new(),
             rodata_info: RoDataInfo::new(),
+            bss_info: BssInfo::new(),
             funcs: BCG::new(),
         }
     }
@@ -100,6 +102,7 @@ impl BackIR {
                     BOperand::Reg(Reg::X(_))
                     | BOperand::Reg(Reg::F(_))
                     | BOperand::Data(_)
+                    | BOperand::Bss(_)
                     | BOperand::IntImm(_)
                     | BOperand::FloatImm(_)
                     | BOperand::Slot(_)
@@ -122,6 +125,7 @@ impl BackIR {
             | BOperand::Extern(_)
             | BOperand::Undef
             | BOperand::RoData(_)
+            | BOperand::Bss(_)
             | BOperand::BB(_)
             | BOperand::Func(_) => {
                 unreachable!("replace_all_uses: new operand cannot be {:?}", inst_id)
@@ -202,6 +206,7 @@ impl BackIR {
                     BOperand::Reg(Reg::X(_))
                     | BOperand::Reg(Reg::F(_))
                     | BOperand::Data(_)
+                    | BOperand::Bss(_)
                     | BOperand::IntImm(_)
                     | BOperand::FloatImm(_)
                     | BOperand::Slot(_)
@@ -224,6 +229,7 @@ impl BackIR {
             | BOperand::Extern(_)
             | BOperand::Undef
             | BOperand::RoData(_)
+            | BOperand::Bss(_)
             | BOperand::BB(_)
             | BOperand::Func(_) => {
                 unreachable!("replace_all_uses: new operand cannot be {:?}", old)
@@ -244,7 +250,8 @@ impl BackIR {
             | BOperand::Slot(_)
             | BOperand::Undef
             | BOperand::Extern(_)
-            | BOperand::RoData(_) => new,
+            | BOperand::RoData(_)
+            | BOperand::Bss(_) => new,
 
             BOperand::BB(_) | BOperand::Func(_) => {
                 unreachable!("replace_all_uses: new operand cannot be {:?}", new)
@@ -449,9 +456,10 @@ impl BackIR {
     /// If rd is BOperand::Undef, it means we need to create a new virtual register and bind the operation with it.
     /// Else if rd is BOperand::Reg, we do nothing for it.
     /// Else panic and report invalid rd.
-    pub fn bind(&mut self, current_function: Option<BOperand>, op: BOperand) {
+    pub fn bind(&mut self, current_function: Option<BOperand>, op_id: BOperand) {
         let func = &mut self.funcs[current_function.unwrap()];
-        let data = &mut func.dfg[op].data;
+        let op = &mut func.dfg[op_id];
+        let (data, typ) = (&mut op.data, op.typ.clone());
         let vregs = &mut func.vregs;
 
         match data {
@@ -461,21 +469,22 @@ impl BackIR {
                 rd_arm: LOpData(rd) => {
                     match rd {
                         BOperand::Reg(_) => {
-                            crate::debug::info!("Bind existing vreg {:?} with op {:?} in function {:?}", rd, op, current_function);
+                            crate::debug::info!("Bind existing vreg {:?} with op {:?} in function {:?}", rd, op_id, current_function);
                             // Bind the operation with the existing virt reg.
-                            vregs.add_def(*rd, op);
+                            vregs.add_def(*rd, op_id);
                         }
                         BOperand::Undef => {
                             // Allocate a new virt reg for the operation.
-                            let new_vreg = vregs.alloc(VirtReg::default());
+                            let new_vreg = vregs.alloc(VirtReg::new(typ));
                             // Bind the new vreg with the operation.
                             *rd = BOperand::Reg(Reg::Virt(new_vreg));
                             // Bind the operation with the virt reg.
-                            vregs.add_def(BOperand::Reg(Reg::Virt(new_vreg)), op);
-                            crate::debug::info!("Bind new vreg {:?} with op {:?} in function {:?}", rd, op, current_function);
+                            vregs.add_def(BOperand::Reg(Reg::Virt(new_vreg)), op_id);
+                            crate::debug::info!("Bind new vreg {:?} with op {:?} in function {:?}", rd, op_id, current_function);
                         }
                         BOperand::Data(_)
                         | BOperand::RoData(_)
+                        | BOperand::Bss(_)
                         | BOperand::BB(_)
                         | BOperand::Slot(_)
                         | BOperand::IntImm(_)
@@ -514,17 +523,18 @@ impl BackIR {
                     match rd {
                         BOperand::Reg(_) => {
                             // Bind the operation with the existing virt reg.
-                            vregs.add_def(*rd, op);
+                            vregs.add_def(*rd, op_id);
                         }
                         BOperand::Undef => {
-                            let new_vreg = vregs.alloc(VirtReg::default());
+                            let new_vreg = vregs.alloc(VirtReg::new(typ));
                             // Bind the new vreg with the operation.
                             *rd = BOperand::Reg(Reg::Virt(new_vreg));
                             // Bind the operation with the virt reg.
-                            vregs.add_def(BOperand::Reg(Reg::Virt(new_vreg)), op);
+                            vregs.add_def(BOperand::Reg(Reg::Virt(new_vreg)), op_id);
                         }
                         BOperand::Data(_)
                         | BOperand::RoData(_)
+                        | BOperand::Bss(_)
                         | BOperand::BB(_)
                         | BOperand::Slot(_)
                         | BOperand::IntImm(_)

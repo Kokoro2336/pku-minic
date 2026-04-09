@@ -175,10 +175,7 @@ impl Allocator<'_> {
             minor_arms: {
                 BOperand::Reg(Reg::Virt(_)) => {
                     let vreg = &self.get_func(func_id).vregs[vreg_id];
-                    assert!(!vreg.defs.is_empty());
-                    let first_def = vreg.defs[0];
-                    let op = &self.get_func(func_id).dfg[first_def];
-                    match &op.typ {
+                    match &vreg.typ {
                         BType::I32 | BType::U64 => self.typ == AllocatorType::Int,
                         BType::F32 => self.typ == AllocatorType::Float,
                         BType::Void => false,
@@ -187,7 +184,7 @@ impl Allocator<'_> {
                 BOperand::Reg(Reg::F(_)) => self.typ == AllocatorType::Float,
                 BOperand::Reg(Reg::X(_)) => self.typ == AllocatorType::Int,
             },
-            uni_ops: [IntImm, FloatImm, BB, Inst, Func, Data, RoData, Slot, Undef, Extern],
+            uni_ops: [IntImm, FloatImm, BB, Inst, Func, Data, RoData, Bss, Slot, Undef, Extern],
             uni_arm: {
                 false
             }
@@ -220,13 +217,6 @@ impl Allocator<'_> {
     #[inline(always)]
     fn get_func_mut(&mut self, func_id: BOperand) -> &mut BFunction {
         &mut self.ir.as_mut().unwrap().funcs[func_id]
-    }
-
-    #[inline(always)]
-    fn get_op_type(&self, op_id: BOperand) -> BType {
-        let func_id = self.builder.current_function.unwrap();
-        let op = &self.get_func(func_id).dfg[op_id];
-        op.typ.clone()
     }
 
     #[inline(always)]
@@ -705,15 +695,12 @@ impl Allocator<'_> {
 
         for spilled in std::mem::take(&mut self.spilled_nodes).iter() {
             let vreg_id = BOperand::Reg(Reg::Virt(spilled));
-            let (defs, uses) = {
+            let (typ, defs, uses) = {
                 let func_id = self.builder.current_function.unwrap();
                 let vreg = &self.get_func(func_id).vregs[vreg_id];
-                (vreg.defs.clone(), vreg.uses.clone())
+                (vreg.typ.clone(), vreg.defs.clone(), vreg.uses.clone())
             };
             // Allocate new slot
-            assert!(!defs.is_empty());
-            let first_def = defs[0];
-            let typ = self.get_op_type(first_def);
             let slot_id = self.alloc_slot(Slot::Local {
                 size: typ.size(),
                 align: typ.align(),
