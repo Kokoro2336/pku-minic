@@ -9,11 +9,22 @@ use crate::utils::r#match::{match_rd, match_src};
 
 use std::ops::{Index, IndexMut};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct VirtReg {
+    pub typ: BType,
     pub defs: Vec<BOperand>,
     /// (OpId of uses, operand idx in the use instruction)
     pub uses: Vec<(BOperand, usize)>,
+}
+
+impl VirtReg {
+    pub fn new(typ: BType) -> Self {
+        Self {
+            typ,
+            defs: Vec::new(),
+            uses: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]

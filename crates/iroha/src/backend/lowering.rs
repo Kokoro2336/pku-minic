@@ -1258,7 +1258,8 @@ impl Lowering {
                 .get_all_ops(Some(func_id.clone()), OpType::Phi)
                 .into_iter()
                 .for_each(|phi_id| {
-                    let phi_vreg_id = self.alloc_vreg(VirtReg::default());
+                    let typ = self.get_op_type(phi_id.clone());
+                    let phi_vreg_id = self.alloc_vreg(VirtReg::new(typ.into()));
                     // Phi is eliminated, without BOp mapped to Phi. So we map it to vreg directly.
                     self.set(phi_id, phi_vreg_id);
                 });
