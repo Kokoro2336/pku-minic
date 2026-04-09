@@ -949,7 +949,7 @@ impl Default for RegAlloc<'_> {
 
 impl<'a> BPass<'a> for RegAlloc<'a> {
     fn name(&self) -> &str {
-        "Register Allocation"
+        "RegAlloc"
     }
 
     fn mount(&mut self, ir: &'a mut BackIR) {
