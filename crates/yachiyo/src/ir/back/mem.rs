@@ -1,12 +1,12 @@
 //! Memory management for BackIR.
 
 use crate::base::Type;
-use crate::config::{STK_FRM_ALIGN, PARAM_REG_MAX_NUM};
+use crate::config::{PARAM_REG_MAX_NUM, STK_FRM_ALIGN};
 use crate::ir::back::BOperand;
 use crate::utils::arena::*;
 
-use std::ops::{Index, IndexMut};
 use rustc_hash::FxHashMap;
+use std::ops::{Index, IndexMut};
 
 pub trait MemInfo {
     fn size(&self) -> u32;
@@ -146,7 +146,7 @@ pub enum Slot {
         size: u32,
         align: u32,
         offset: i32,
-    }
+    },
 }
 
 impl FrameInfo {
@@ -185,7 +185,13 @@ impl FrameInfo {
             let mut offset = 0_u32;
             for id in arg_ids.iter() {
                 if let BOperand::Slot(slot_id) = id {
-                    if let Slot::Arg { size, align, offset: slot_offset, .. } = &mut self.storage[*slot_id] {
+                    if let Slot::Arg {
+                        size,
+                        align,
+                        offset: slot_offset,
+                        ..
+                    } = &mut self.storage[*slot_id]
+                    {
                         offset = align_up(offset, *align);
                         *slot_offset = offset as i32;
                         offset += *size;
@@ -204,7 +210,10 @@ impl FrameInfo {
 
             arg_ids
         } else {
-            panic!("get_arg_offsets: expected function type, got {:?}", func_typ);
+            panic!(
+                "get_arg_offsets: expected function type, got {:?}",
+                func_typ
+            );
         }
     }
 

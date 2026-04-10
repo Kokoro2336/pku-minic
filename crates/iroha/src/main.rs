@@ -108,7 +108,7 @@ fn main() -> Result<()> {
         .register(Box::new(BDCE::default()))
         .register(Box::new(BCompaction::default()))
         .register(Box::new(RegAlloc::default()))
-        .register(Box::new(InstComb::default()))
+        .register(Box::new(Peephole::default()))
         .run(&mut back_ir);
 
     Ok(())

@@ -100,6 +100,13 @@ impl BOperand {
         }
     }
     #[inline(always)]
+    pub fn get_phys_reg(&self) -> Reg {
+        match self {
+            BOperand::Reg(reg @ Reg::X(_)) | BOperand::Reg(reg @ Reg::F(_)) => *reg,
+            _ => panic!("Not a physical register operand: {:?}", self),
+        }
+    }
+    #[inline(always)]
     pub fn get_func_id(&self) -> usize {
         match self {
             BOperand::Func(id) => *id,
@@ -134,6 +141,8 @@ pub enum BAttr {
     /// Indicates that this move is a phi move. If an instruction has this attribute, ISel won't create.
     PhiMove,
     /// For call instructions, indicates the operand is a return value.
+    Clobber,
+    /// For the result of call instruction.
     ImplicitDef(BOperand),
     /// For call instructions, indicates the operand is a used value that is not explicitly passed in the operand list,
     /// e.g. caller-saved registers.
@@ -165,6 +174,12 @@ impl BOpData {
         match self {
             BOpData::M(mop_data) => matches!(mop_data, MOpData::Mv { .. } | MOpData::FmvS { .. }),
             BOpData::L(lop_data) => matches!(lop_data, LOpData::Move { .. }),
+        }
+    }
+    pub fn is_call(&self) -> bool {
+        match self {
+            BOpData::M(mop_data) => matches!(mop_data, MOpData::Call { .. }),
+            BOpData::L(lop_data) => matches!(lop_data, LOpData::Call { .. }),
         }
     }
     #[inline(always)]

@@ -2,13 +2,18 @@
 //! Based on Appel and George's paper Iterated Register Coalescing.
 //! Reference: https://dl.acm.org/doi/10.1145/229542.229546
 
-use std::ops::BitOr;
+use std::ops::{BitAndAssign, BitOr};
 
 use crate::analysis::{LiveAnalysis, LiveOuts};
 use yachiyo::analysis::analyze;
+use yachiyo::config::{
+    CALLEE_SAVED_FREGS, CALLEE_SAVED_XREGS, CALLER_SAVED_FREGS, CALLER_SAVED_XREGS, COLOR_FREGS,
+    COLOR_XREGS, RESERVED_REG,
+};
+use yachiyo::config::{INT_IMM_MAX, INT_IMM_MIN, REGS_NUM};
 use yachiyo::ir::back::{
-    BBuilder, BFunction, BOp, BOperand, BType, BackIR, LOpData, Reg, Slot, CALLEE_SAVED_FREGS,
-    CALLEE_SAVED_XREGS, CALLER_SAVED_FREGS, CALLER_SAVED_XREGS, COLOR_FREGS, COLOR_XREGS,
+    BAttr, BBuilder, BFunction, BOp, BOpData, BOperand, BType, BackIR, LOpData, MOpData, MemInfo,
+    Reg, Slot, XReg,
 };
 use yachiyo::pass::BPass;
 use yachiyo::utils::r#match::match_some;
@@ -16,6 +21,26 @@ use yachiyo::utils::set::{array_set, ArraySet, BitSet};
 use yachiyo::utils::worklist::{Worklist, WorklistTrait};
 
 use rustc_hash::FxHashSet;
+
+const RESERVED_REG_BOPRD: BOperand = BOperand::Reg(Reg::X(RESERVED_REG));
+const SP_BOPRD: BOperand = BOperand::Reg(Reg::X(XReg::Sp));
+
+/// typ: The type of rs.
+fn dispatch_store(typ: BType, rs: BOperand, base: BOperand, offset: BOperand) -> BOp {
+    match typ {
+        BType::I32 | BType::U64 => BOp::new(BType::Void, vec![], MOpData::Sw { rs, base, offset }.into()),
+        BType::F32 => BOp::new(BType::Void, vec![], MOpData::Fsw { rs, base, offset }.into()),
+        BType::Void => unreachable!(),
+    }
+}
+/// typ: The type of rd.
+fn dispatch_load(typ: BType, rd: BOperand, base: BOperand, offset: BOperand) -> BOp {
+    match typ {
+        BType::I32 | BType::U64 => BOp::new(typ, vec![], MOpData::Lw { rd, base, offset }.into()),
+        BType::F32 => BOp::new(typ, vec![], MOpData::Flw { rd, base, offset }.into()),
+        BType::Void => unreachable!(),
+    }
+}
 
 #[derive(PartialEq, Eq, Default)]
 #[allow(unused)]
@@ -245,20 +270,38 @@ impl Allocator<'_> {
     }
 
     #[inline(always)]
-    fn get_colors(&self) -> Vec<Reg> {
+    fn get_colors<T: FromIterator<Reg>>(&self) -> T {
         match self.typ {
+            // Callee-saved registers are preferred.
             AllocatorType::Int => CALLEE_SAVED_XREGS
                 .to_vec()
                 .into_iter()
                 .map(Reg::X)
                 .chain(CALLER_SAVED_XREGS.to_vec().into_iter().map(Reg::X))
-                .collect(),
+                .collect::<T>(),
             AllocatorType::Float => CALLEE_SAVED_FREGS
                 .to_vec()
                 .into_iter()
                 .map(Reg::F)
                 .chain(CALLER_SAVED_FREGS.to_vec().into_iter().map(Reg::F))
-                .collect(),
+                .collect::<T>(),
+            AllocatorType::Vector => unimplemented!(),
+        }
+    }
+
+    #[inline(always)]
+    fn get_clobbered<T: FromIterator<Reg>>(&self) -> T {
+        match self.typ {
+            AllocatorType::Int => CALLER_SAVED_XREGS
+                .to_vec()
+                .into_iter()
+                .map(Reg::X)
+                .collect::<T>(),
+            AllocatorType::Float => CALLER_SAVED_FREGS
+                .to_vec()
+                .into_iter()
+                .map(Reg::F)
+                .collect::<T>(),
             AllocatorType::Vector => unimplemented!(),
         }
     }
@@ -311,11 +354,24 @@ impl Allocator<'_> {
                 let rd = self.get_rd(*inst_id).cloned();
 
                 // For move instructions, we need to handle them specially.
-                let src = self
+                let mut src = self
                     .get_src(*inst_id)
                     .into_iter()
                     .cloned()
                     .collect::<Vec<_>>();
+                // If the instruction has implicit use operand, we also add the implicit use operand to src.
+                op.attrs
+                    .iter()
+                    .find(|attr| matches!(attr, BAttr::ImplicitUse(_)))
+                    .and_then(|implicit_use| {
+                        if let BAttr::ImplicitUse(implicit_src) = implicit_use {
+                            src.extend(implicit_src);
+                            Some(())
+                        } else {
+                            None
+                        }
+                    });
+
                 if op.data.is_move() {
                     let rd = rd.expect("Move instruction should have rd");
                     // Ignore move that is irrelevant to current allocator.
@@ -339,17 +395,40 @@ impl Allocator<'_> {
                     }
                 }
 
-                // Since SysY only produce 1 rd at most,
-                // we don't need to add def to current live for building interference graph between current defs.
-
+                let op = &self.get_func(func_id).dfg[*inst_id];
                 if let Some(rd) = rd {
-                    // Add interference edges between rd and all live-out nodes.
-                    // All of the current live nodes are included, but we'll filter out non-target nodes in add_edge function.
-                    for live_var in live.iter() {
-                        self.add_edge(rd, *live_var);
+                    let mut rds = array_set![rd];
+                    // Special handling for call instruction: add all clobbered registers to rd, since they are all defined by the call instruction.
+                    if op.attrs.contains(&BAttr::Clobber) {
+                        rds = rds.union(
+                            &self
+                                .get_clobbered::<ArraySet<Reg>>()
+                                .into_iter()
+                                .map(BOperand::Reg)
+                                .collect(),
+                        );
+                    }
+                    op.attrs
+                        .iter()
+                        .find(|attr| matches!(attr, BAttr::ImplicitDef(_)))
+                        .and_then(|attr| {
+                            if let BAttr::ImplicitDef(implicit_rd) = attr {
+                                rds.insert(*implicit_rd);
+                                Some(())
+                            } else {
+                                None
+                            }
+                        });
+
+                    for rd in rds.iter() {
+                        // Add interference edges between rd and all live-out nodes.
+                        // All of the current live nodes are included, but we'll filter out non-target nodes in add_edge function.
+                        for live_var in live.iter() {
+                            self.add_edge(*rd, *live_var);
+                        }
                     }
                     // Remove def from live set
-                    live = live.difference(&array_set![rd]);
+                    live = live.difference(&rds);
                 }
 
                 // Retrieve src
@@ -629,7 +708,7 @@ impl Allocator<'_> {
 
     fn assign_colors(&mut self) {
         while let Some(n) = self.select_stack.pop() {
-            let mut ok_colors = self.get_colors();
+            let mut ok_colors = self.get_colors::<Vec<Reg>>();
             // Use physical adjacent list rather than adjacent().
             for w in self.adj_list[n.get_virt_id()].iter() {
                 if w.is_phys() {
@@ -925,19 +1004,498 @@ impl Allocator<'_> {
         );
         // Rewrite the program to replace the virtual registers.
         self.rewrite();
-        // TODO: Translate high-level Load/Store.
     }
 }
 
 pub struct RegAlloc<'a> {
     ir: Option<&'a mut BackIR>,
+    builder: BBuilder,
     allocators: Vec<Allocator<'a>>,
+
+    // ========= Frame Lowering Structures ==========
+    /// ra & Saved Registers -> Slot
+    slot_map: Vec<BOperand>,
+    /// Used Registers
+    used_phys: BitSet,
+}
+
+impl RegAlloc<'_> {
+    #[inline(always)]
+    fn init(&mut self, func_id: BOperand) {
+        self.builder.set_current_func(func_id);
+    }
+
+    fn reset(&mut self) {
+        self.slot_map.clear();
+        self.used_phys.clear();
+        self.slot_map.resize(REGS_NUM, BOperand::Undef);
+    }
+
+    #[inline(always)]
+    fn create(&mut self, op: BOp) -> BOperand {
+        let func_id = self.builder.current_function;
+        let ir = self.ir.as_mut().unwrap();
+        ir.create(&self.builder, func_id, op)
+    }
+
+    #[inline(always)]
+    fn get_src(&self, op_id: BOperand) -> Vec<&BOperand> {
+        let func_id = self.builder.current_function;
+        self.ir.as_ref().unwrap().get_src(func_id, op_id)
+    }
+
+    #[inline(always)]
+    fn get_rd(&self, op_id: BOperand) -> Option<&BOperand> {
+        let func_id = self.builder.current_function;
+        self.ir.as_ref().unwrap().get_rd(func_id, op_id)
+    }
+
+    #[inline(always)]
+    fn get_op_type(&self, operand: BOperand) -> BType {
+        let func_id = self.builder.current_function.unwrap();
+
+        match operand {
+            BOperand::Inst(id) => {
+                let op = &self.get_func(func_id).dfg[id];
+                op.typ.clone()
+            }
+            BOperand::Reg(reg) => match reg {
+                Reg::X(_) => BType::I32,
+                Reg::F(_) => BType::F32,
+                Reg::Virt(_) => self.get_func(func_id).vregs[operand].typ.clone(),
+            },
+            BOperand::IntImm(_) => BType::I32,
+            BOperand::FloatImm(_) => BType::F32,
+            BOperand::Undef => BType::Void,
+            BOperand::Func(_)
+            | BOperand::Extern(_)
+            | BOperand::BB(_)
+            | BOperand::Slot(_)
+            | BOperand::Data(_)
+            | BOperand::RoData(_)
+            | BOperand::Bss(_) => unreachable!(),
+        }
+    }
+
+    #[inline(always)]
+    fn get_func(&self, func_id: BOperand) -> &BFunction {
+        &self.ir.as_ref().unwrap().funcs[func_id]
+    }
+
+    #[inline(always)]
+    fn get_func_mut(&mut self, func_id: BOperand) -> &mut BFunction {
+        &mut self.ir.as_mut().unwrap().funcs[func_id]
+    }
+
+    #[inline(always)]
+    fn alloc_and_map_slot(&mut self, reg: Reg, slot: Slot) -> BOperand {
+        let func_id = self.builder.current_function.unwrap();
+        let func = self.get_func_mut(func_id);
+        let slot_id = func.frame_info.alloc(slot);
+        self.slot_map[u8::from(reg) as usize] = BOperand::Slot(slot_id);
+        BOperand::Slot(slot_id)
+    }
+
+    #[inline(always)]
+    fn get_offset(&self, slot_id: BOperand) -> BOperand {
+        let func_id = self.builder.current_function.unwrap();
+        BOperand::IntImm(match &self.get_func(func_id).frame_info[slot_id] {
+            Slot::Local { offset, .. } => *offset,
+            Slot::Param { offset, .. } => *offset,
+            Slot::Arg { offset, .. } => *offset,
+            Slot::CalleeSaved { offset, .. } => *offset,
+        })
+    }
+
+    #[inline(always)]
+    fn get_phys_bitset() -> BitSet {
+        let mut bitset = BitSet::new();
+        for reg in CALLEE_SAVED_XREGS.iter().chain(CALLER_SAVED_XREGS.iter()) {
+            bitset.insert(u8::from(Reg::X(*reg)) as usize);
+        }
+        for reg in CALLEE_SAVED_FREGS.iter().chain(CALLER_SAVED_FREGS.iter()) {
+            bitset.insert(u8::from(Reg::F(*reg)) as usize);
+        }
+        bitset
+    }
+
+    #[inline(always)]
+    fn replace_op(&mut self, inst_id: BOperand, bb_id: BOperand, new_op: BOp) {
+        let func_id = self.builder.current_function;
+        self.ir.as_mut().unwrap().replace_op_no_rauw(
+            &mut self.builder,
+            func_id,
+            inst_id,
+            bb_id,
+            new_op,
+        );
+    }
+
+    #[inline(always)]
+    fn legalize_offset(&mut self, imm: BOperand) -> BOperand {
+        match_some! {
+            target: imm,
+            enu: BOperand,
+            minor_arms: {
+                BOperand::IntImm(i) => {
+                    if !(INT_IMM_MIN..=INT_IMM_MAX).contains(&i) {
+                        self.create(BOp::new(
+                            BType::I32,
+                            vec![],
+                            MOpData::Li { rd: RESERVED_REG_BOPRD, imm: i }.into(),
+                        ));
+                        self.create(BOp::new(
+                            BType::U64,
+                            vec![],
+                            MOpData::Addw { rd: RESERVED_REG_BOPRD, rs1: RESERVED_REG_BOPRD, rs2: SP_BOPRD }.into(),
+                        ));
+                        RESERVED_REG_BOPRD
+                    } else {
+                        imm
+                    }
+                }
+            },
+            uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
+            uni_arm: {
+                unreachable!("Expected integer immediate, found {:?}", imm);
+            }
+        }
+    }
+
+    /// 1. Move sp
+    /// 2. Save callee-saved registers
+    /// 3. Save ra if the function is not a leaf.
+    fn prologue(&mut self) {
+        let func_id = self.builder.current_function.unwrap();
+        let entry = self.get_func(func_id).cfg.entry;
+        if entry.is_none() {
+            return;
+        }
+        let entry = BOperand::BB(entry.unwrap());
+        self.builder.set_current_block(entry);
+        self.builder
+            .set_at_head(self.ir.as_mut().unwrap(), self.builder.current_function);
+
+        let sp_offset = -(self.get_func(func_id).frame_info.size() as i32);
+
+        if !(INT_IMM_MIN..=INT_IMM_MAX).contains(&sp_offset) {
+            self.create(BOp::new(
+                BType::I32,
+                vec![],
+                MOpData::Li {
+                    rd: RESERVED_REG_BOPRD,
+                    imm: sp_offset,
+                }
+                .into(),
+            ));
+            self.create(BOp::new(
+                BType::U64,
+                vec![],
+                MOpData::Addw {
+                    rd: SP_BOPRD,
+                    rs1: SP_BOPRD,
+                    rs2: RESERVED_REG_BOPRD,
+                }
+                .into(),
+            ));
+        } else {
+            self.create(BOp::new(
+                BType::U64,
+                vec![],
+                MOpData::Addiw {
+                    rd: SP_BOPRD,
+                    rs1: SP_BOPRD,
+                    imm: BOperand::IntImm(sp_offset),
+                }
+                .into(),
+            ));
+        }
+
+        for saved in 0..self.slot_map.len() {
+            let slot_id = self.slot_map[saved];
+            let reg = Reg::from(saved as u8);
+            let offset = self.legalize_offset(self.get_offset(slot_id));
+            let value = BOperand::Reg(reg);
+            match_some! {
+                target: offset,
+                enu: BOperand,
+                minor_arms: {
+                    BOperand::IntImm(_) => {
+                        dispatch_store(self.get_op_type(value), value, SP_BOPRD, offset);
+                    }
+                    BOperand::Reg(_) => {
+                        dispatch_store(self.get_op_type(value), value, offset, BOperand::IntImm(0));
+                    }
+                },
+                uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
+                uni_arm: {
+                    unreachable!("Expected integer immediate, found {:?}", offset);
+                }
+            }
+        }
+    }
+
+    /// 1. Restore ra if the function is not a leaf.
+    /// 2. Restore callee-saved registers
+    /// 3. Move sp back
+    fn epilogue(&mut self) {
+        let func_id = self.builder.current_function.unwrap();
+        for saved in 0..self.slot_map.len() {
+            let slot_id = self.slot_map[saved];
+            let reg = Reg::from(saved as u8);
+            let offset = self.legalize_offset(self.get_offset(slot_id));
+            let rd = BOperand::Reg(reg);
+            match_some! {
+                target: offset,
+                enu: BOperand,
+                minor_arms: {
+                    BOperand::IntImm(_) => {
+                        dispatch_load(self.get_op_type(rd), rd, SP_BOPRD, offset);
+                    }
+                    BOperand::Reg(_) => {
+                        dispatch_load(self.get_op_type(rd), rd, offset, BOperand::IntImm(0));
+                    }
+                },
+                uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
+                uni_arm: {
+                    unreachable!("Expected integer immediate, found {:?}", offset);
+                }
+            }
+        }
+
+        let sp_offset = self.get_func(func_id).frame_info.size() as i32;
+
+        if !(INT_IMM_MIN..=INT_IMM_MAX).contains(&sp_offset) {
+            self.create(BOp::new(
+                BType::I32,
+                vec![],
+                MOpData::Li {
+                    rd: RESERVED_REG_BOPRD,
+                    imm: sp_offset,
+                }
+                .into(),
+            ));
+            self.create(BOp::new(
+                BType::U64,
+                vec![],
+                MOpData::Addw {
+                    rd: SP_BOPRD,
+                    rs1: SP_BOPRD,
+                    rs2: RESERVED_REG_BOPRD,
+                }
+                .into(),
+            ));
+        } else {
+            self.create(BOp::new(
+                BType::U64,
+                vec![],
+                MOpData::Addiw {
+                    rd: SP_BOPRD,
+                    rs1: SP_BOPRD,
+                    imm: BOperand::IntImm(sp_offset),
+                }
+                .into(),
+            ));
+        }
+    }
+
+    /// * Check whether the function is a leaf
+    /// * Figure out the used registers
+    /// * Allocate space for callee-saved registers & ra.
+    fn pre_check(&mut self) {
+        let func_id = self.builder.current_function.unwrap();
+        let bb_ids = self.get_func(func_id).cfg.ids();
+        let mut is_leaf = true;
+
+        for bb_id in bb_ids {
+            let bb_id = BOperand::BB(bb_id);
+            let inst_ids = self.get_func(func_id).cfg[bb_id].cur.clone();
+            for inst_id in inst_ids {
+                let data = &self.get_func(func_id).dfg[inst_id].data;
+                if data.is_call() {
+                    is_leaf = false;
+                }
+                let src = self
+                    .get_src(inst_id)
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                for operand in src {
+                    if operand.is_phys() {
+                        self.used_phys
+                            .insert(u8::from(operand.get_phys_reg()) as usize);
+                    }
+                }
+                let rd = self.get_rd(inst_id).cloned();
+                if let Some(rd) = rd {
+                    if rd.is_phys() {
+                        self.used_phys.insert(u8::from(rd.get_phys_reg()) as usize);
+                    }
+                }
+            }
+        }
+
+        // If the function is not a leaf, we should allocate space for ra.
+        if !is_leaf {
+            // Emm...though ra is actually caller-saved, we still allocate CalleeSaved for it.
+            self.alloc_and_map_slot(
+                Reg::X(XReg::Ra),
+                Slot::CalleeSaved {
+                    size: BType::U64.size(),
+                    align: BType::U64.align(),
+                    offset: 0,
+                },
+            );
+        }
+        // Allocate space for used callee-saved registers.
+        let mut used_callee_saved = Self::get_phys_bitset();
+        used_callee_saved.bitand_assign(&self.used_phys);
+        for reg in used_callee_saved.iter() {
+            let reg = Reg::from(reg as u8);
+            self.alloc_and_map_slot(
+                reg,
+                Slot::CalleeSaved {
+                    size: BType::U64.size(),
+                    align: BType::U64.align(),
+                    offset: 0,
+                },
+            );
+        }
+    }
+
+    /// * Load/Store Lowering
+    /// * Prologue/Epilogue Insertion
+    fn frame_lowering(&mut self) {
+        let func_id = self.builder.current_function.unwrap();
+        let bb_ids = self.get_func(func_id).cfg.ids();
+        for bb_id in bb_ids {
+            let bb_id = BOperand::BB(bb_id);
+            self.builder.set_current_block(bb_id);
+
+            let inst_ids = self.get_func(func_id).cfg[bb_id].cur.clone();
+            for inst_id in inst_ids {
+                let op = &self.get_func(func_id).dfg[inst_id];
+                let (op_data, rd_typ) = (op.data.clone(), op.typ.clone());
+                if let BOpData::L(LOpData::Store { addr, value }) = op_data {
+                    self.builder.set_before_inst(
+                        self.ir.as_mut().unwrap(),
+                        self.builder.current_function,
+                        Some(inst_id),
+                    );
+                    let store_op = match_some! {
+                        target: addr,
+                        enu: BOperand,
+                        minor_arms: {
+                            BOperand::Slot(_) => {
+                                let offset = self.legalize_offset(self.get_offset(addr));
+                                match_some! {
+                                    target: offset,
+                                    enu: BOperand,
+                                    minor_arms: {
+                                        BOperand::IntImm(_) => {
+                                            dispatch_store(self.get_op_type(value), value, SP_BOPRD, offset)
+                                        }
+                                        BOperand::Reg(_) => {
+                                            dispatch_store(self.get_op_type(value), value, offset, BOperand::IntImm(0))
+                                        }
+                                    },
+                                    uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
+                                    uni_arm: {
+                                        unreachable!("Expected integer immediate, found {:?}", offset);
+                                    }
+                                }
+                            }
+                            BOperand::Data(_)
+                            | BOperand::RoData(_)
+                            | BOperand::Bss(_) => {
+                                // We still keep Data/RoData/Bss Id as the operand. DumpASM will find the global symbol of the id.
+                                self.create(BOp::new(
+                                    BType::U64,
+                                    vec![],
+                                    MOpData::La {
+                                        rd: RESERVED_REG_BOPRD,
+                                        target: addr,
+                                    }.into()
+                                ));
+                                dispatch_store(self.get_op_type(value), value, RESERVED_REG_BOPRD, BOperand::IntImm(0))
+                            }
+                        },
+                        uni_ops: [Reg, IntImm, FloatImm, Func, BB, Inst, Extern, Undef],
+                        uni_arm: {
+                            unreachable!("Expected memory enetities, found {:?}", addr);
+                        }
+                    };
+                    self.replace_op(inst_id, bb_id, store_op);
+                } else if let BOpData::L(LOpData::Load { rd, addr }) = op_data {
+                    self.builder.set_before_inst(
+                        self.ir.as_mut().unwrap(),
+                        self.builder.current_function,
+                        Some(inst_id),
+                    );
+                    let load_op = match_some! {
+                        target: addr,
+                        enu: BOperand,
+                        minor_arms: {
+                            BOperand::Slot(_) => {
+                                let offset = self.legalize_offset(self.get_offset(addr));
+                                match_some! {
+                                    target: offset,
+                                    enu: BOperand,
+                                    minor_arms: {
+                                        BOperand::IntImm(_) => {
+                                            dispatch_load(rd_typ, rd, SP_BOPRD, offset)
+                                        }
+                                        BOperand::Reg(_) => {
+                                            dispatch_load(rd_typ, rd, offset, BOperand::IntImm(0))
+                                        }
+                                    },
+                                    uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
+                                    uni_arm: {
+                                        unreachable!("Expected integer immediate, found {:?}", offset);
+                                    }
+                                }
+                            }
+                            BOperand::Data(_)
+                            | BOperand::RoData(_)
+                            | BOperand::Bss(_) => {
+                                self.create(BOp::new(
+                                    BType::U64,
+                                    vec![],
+                                    MOpData::La {
+                                        rd: RESERVED_REG_BOPRD,
+                                        target: addr,
+                                    }.into()
+                                ));
+                                dispatch_load(rd_typ, rd, RESERVED_REG_BOPRD, BOperand::IntImm(0))
+                            }
+                        },
+                        uni_ops: [Reg, IntImm, FloatImm, Func, BB, Inst, Extern, Undef],
+                        uni_arm: {
+                            unreachable!("Expected memory enetities, found {:?}", addr);
+                        }
+                    };
+                    self.replace_op(inst_id, bb_id, load_op);
+                } else if let BOpData::M(MOpData::Ret) = op_data {
+                    self.builder.set_before_inst(
+                        self.ir.as_mut().unwrap(),
+                        self.builder.current_function,
+                        Some(inst_id),
+                    );
+                    // Insert epilogue
+                    self.epilogue();
+                }
+            }
+        }
+    }
 }
 
 impl Default for RegAlloc<'_> {
     fn default() -> Self {
         Self {
             ir: None,
+            builder: BBuilder::default(),
+            slot_map: Vec::new(),
+            used_phys: BitSet::new(),
             allocators: vec![
                 // Run float first.
                 Allocator::new(AllocatorType::Float),
@@ -957,16 +1515,35 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
     }
 
     fn run(&mut self) {
+        // Mount IR on allocators
         for allocator in self.allocators.iter_mut() {
-            // Mount IR on allocator
             let ir_ptr = *self.ir.as_mut().unwrap() as *mut BackIR;
             unsafe {
                 allocator.ir = Some(&mut *ir_ptr);
             }
-            for func_id in self.ir.as_ref().unwrap().funcs.ids() {
-                allocator.init(BOperand::Func(func_id));
+        }
+
+        for func_id in self.ir.as_ref().unwrap().funcs.ids() {
+            let func_id = BOperand::Func(func_id);
+            self.init(func_id);
+            self.reset();
+
+            // ========== RA Phase ==========
+            for allocator in self.allocators.iter_mut() {
+                allocator.init(func_id);
                 allocator.run();
             }
+
+            // ========== Post-RA Phase ==========
+            // Pre checking
+            self.pre_check();
+            // Build stack frame
+            let func = self.get_func_mut(func_id);
+            func.frame_info.build();
+            // Prologue
+            self.prologue();
+            // Lower the frame
+            self.frame_lowering();
         }
     }
 }

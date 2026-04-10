@@ -1,73 +1,5 @@
 //! Definition of registers for BackIR.
 
-// Configs
-pub const RESERVED_REG: XReg = XReg::T6; // Reserved for spill code.
-pub const CALLER_SAVED_XREGS: &[XReg] = &[
-    XReg::T0,
-    XReg::T1,
-    XReg::T2,
-    XReg::T3,
-    XReg::T4,
-    XReg::T5,
-    XReg::T6,
-    XReg::A0,
-    XReg::A1,
-    XReg::A2,
-    XReg::A3,
-    XReg::A4,
-    XReg::A5,
-    XReg::A6,
-    XReg::A7,
-];
-pub const CALLEE_SAVED_XREGS: &[XReg] = &[
-    XReg::S0,
-    XReg::S1,
-    XReg::S2,
-    XReg::S3,
-    XReg::S4,
-    XReg::S5,
-    XReg::S6,
-    XReg::S7,
-    XReg::S8,
-    XReg::S9,
-    XReg::S10,
-    XReg::S11,
-];
-pub const CALLER_SAVED_FREGS: &[FReg] = &[
-    FReg::Ft0,
-    FReg::Ft1,
-    FReg::Ft2,
-    FReg::Ft3,
-    FReg::Ft4,
-    FReg::Ft5,
-    FReg::Ft6,
-    FReg::Ft7,
-    FReg::Fa0,
-    FReg::Fa1,
-    FReg::Fa2,
-    FReg::Fa3,
-    FReg::Fa4,
-    FReg::Fa5,
-    FReg::Fa6,
-    FReg::Fa7,
-];
-pub const CALLEE_SAVED_FREGS: &[FReg] = &[
-    FReg::Fs0,
-    FReg::Fs1,
-    FReg::Fs2,
-    FReg::Fs3,
-    FReg::Fs4,
-    FReg::Fs5,
-    FReg::Fs6,
-    FReg::Fs7,
-    FReg::Fs8,
-    FReg::Fs9,
-    FReg::Fs10,
-    FReg::Fs11,
-];
-pub const COLOR_XREGS: usize = CALLER_SAVED_XREGS.len() + CALLEE_SAVED_XREGS.len();
-pub const COLOR_FREGS: usize = CALLER_SAVED_FREGS.len() + CALLEE_SAVED_FREGS.len();
-
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum XReg {
@@ -183,57 +115,57 @@ pub enum FReg {
     // Temporaries (Caller-Saved)
     // These registers are volatile across function calls.
     // ==========================================
-    Ft0 = 0,
-    Ft1 = 1,
-    Ft2 = 2,
-    Ft3 = 3,
-    Ft4 = 4,
-    Ft5 = 5,
-    Ft6 = 6,
-    Ft7 = 7,
+    Ft0 = 32,
+    Ft1 = 33,
+    Ft2 = 34,
+    Ft3 = 35,
+    Ft4 = 36,
+    Ft5 = 37,
+    Ft6 = 38,
+    Ft7 = 39,
 
     // ==========================================
     // Saved Registers (Callee-Saved)
     // The Callee MUST save and restore these if they are mutated.
     // ==========================================
-    Fs0 = 8,
-    Fs1 = 9,
+    Fs0 = 40,
+    Fs1 = 41,
 
     // ==========================================
     // Arguments / Return Values (Caller-Saved)
     // Used to pass the first 8 floating-point arguments.
     // `Fa0` and `Fa1` are additionally used for FP return values.
     // ==========================================
-    Fa0 = 10,
-    Fa1 = 11,
-    Fa2 = 12,
-    Fa3 = 13,
-    Fa4 = 14,
-    Fa5 = 15,
-    Fa6 = 16,
-    Fa7 = 17,
+    Fa0 = 42,
+    Fa1 = 43,
+    Fa2 = 44,
+    Fa3 = 45,
+    Fa4 = 46,
+    Fa5 = 47,
+    Fa6 = 48,
+    Fa7 = 49,
 
     // ==========================================
     // More Saved Registers (Callee-Saved)
     // ==========================================
-    Fs2 = 18,
-    Fs3 = 19,
-    Fs4 = 20,
-    Fs5 = 21,
-    Fs6 = 22,
-    Fs7 = 23,
-    Fs8 = 24,
-    Fs9 = 25,
-    Fs10 = 26,
-    Fs11 = 27,
+    Fs2 = 50,
+    Fs3 = 51,
+    Fs4 = 52,
+    Fs5 = 53,
+    Fs6 = 54,
+    Fs7 = 55,
+    Fs8 = 56,
+    Fs9 = 57,
+    Fs10 = 58,
+    Fs11 = 59,
 
     // ==========================================
     // More Temporaries (Caller-Saved)
     // ==========================================
-    Ft8 = 28,
-    Ft9 = 29,
-    Ft10 = 30,
-    Ft11 = 31,
+    Ft8 = 60,
+    Ft9 = 61,
+    Ft10 = 62,
+    Ft11 = 63,
 }
 
 impl std::fmt::Display for FReg {
@@ -330,6 +262,28 @@ impl std::fmt::Display for Reg {
             Reg::Virt(id) => write!(f, "v{id}"),
             Reg::X(xreg) => write!(f, "{xreg}"),
             Reg::F(freg) => write!(f, "{freg}"),
+        }
+    }
+}
+
+impl From<Reg> for u8 {
+    fn from(reg: Reg) -> Self {
+        match reg {
+            Reg::Virt(id) => id as u8,
+            Reg::X(xreg) => xreg.into(),
+            Reg::F(freg) => freg.into(),
+        }
+    }
+}
+
+impl From<u8> for Reg {
+    fn from(id: u8) -> Self {
+        if id < 32 {
+            Reg::X(unsafe { std::mem::transmute::<u8, XReg>(id) })
+        } else if id < 64 {
+            Reg::F(unsafe { std::mem::transmute::<u8, FReg>(id) })
+        } else {
+            panic!("Invalid register ID: {id}");
         }
     }
 }

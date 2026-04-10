@@ -2,7 +2,10 @@
 //! Reference: https://github.com/bytecodealliance/wasmtime/blob/main/cranelift/frontend/src/frontend/safepoints.rs
 
 use yachiyo::analysis::Analysis;
-use yachiyo::ir::back::{BFunction, BOperand};
+use yachiyo::config::{
+    CALLEE_SAVED_FREGS, CALLEE_SAVED_XREGS, CALLER_SAVED_FREGS, CALLER_SAVED_XREGS,
+};
+use yachiyo::ir::back::{BAttr, BFunction, BOperand, Reg};
 use yachiyo::utils::set::ArraySet;
 use yachiyo::utils::set::BitSet;
 use yachiyo::utils::worklist::{Worklist, WorklistTrait};
@@ -70,6 +73,27 @@ impl LiveAnalysis<'_> {
     }
 
     #[inline(always)]
+    fn get_clobbered(&self, typ: Reg) -> ArraySet<BOperand> {
+        match typ {
+            Reg::X(_) => CALLEE_SAVED_XREGS
+                .to_vec()
+                .into_iter()
+                .chain(CALLER_SAVED_XREGS.to_vec())
+                .map(Reg::X)
+                .map(BOperand::Reg)
+                .collect::<ArraySet<BOperand>>(),
+            Reg::F(_) => CALLEE_SAVED_FREGS
+                .to_vec()
+                .into_iter()
+                .chain(CALLER_SAVED_FREGS.to_vec())
+                .map(Reg::F)
+                .map(BOperand::Reg)
+                .collect::<ArraySet<BOperand>>(),
+            Reg::Virt(_) => unreachable!(),
+        }
+    }
+
+    #[inline(always)]
     fn get_src(&self, op_id: BOperand) -> Vec<BOperand> {
         self.func
             .unwrap()
@@ -82,6 +106,38 @@ impl LiveAnalysis<'_> {
     #[inline(always)]
     fn process_def(&mut self, op_id: BOperand) {
         let def = self.get_rd(op_id);
+        let op = &self.func.unwrap().dfg[op_id];
+        // If the instruction has an implicit def, remove it from the live set.
+        op.attrs
+            .iter()
+            .find(|attr| matches!(attr, BAttr::ImplicitDef(_)))
+            .and_then(|implicit_def| {
+                if let BAttr::ImplicitDef(implicit_def_op) = implicit_def {
+                    // Remove implicit def operand from live set.
+                    self.current_live.remove(implicit_def_op);
+                    Some(())
+                } else {
+                    None
+                }
+            });
+        op.attrs
+            .iter()
+            .find(|attr| matches!(attr, BAttr::Clobber))
+            .and_then(|clobber| {
+                if let BAttr::Clobber = clobber {
+                    // If the instruction has a clobber attribute, remove all clobbered registers from the live set.
+                    let clobbered_regs = self.get_clobbered(match def {
+                        Some(BOperand::Reg(reg)) => reg,
+                        _ => unreachable!(),
+                    });
+                    for reg in clobbered_regs {
+                        self.current_live.remove(&reg);
+                    }
+                    Some(())
+                } else {
+                    None
+                }
+            });
         if let Some(def) = def {
             self.current_live.remove(&def);
         }
@@ -89,7 +145,20 @@ impl LiveAnalysis<'_> {
 
     #[inline(always)]
     fn process_use(&mut self, op_id: BOperand) {
-        let uses = self.get_src(op_id);
+        let mut uses = self.get_src(op_id);
+        let op = &self.func.unwrap().dfg[op_id];
+        op.attrs
+            .iter()
+            .find(|attr| matches!(attr, BAttr::ImplicitUse(_)))
+            .and_then(|implicit_use| {
+                if let BAttr::ImplicitUse(implicit_src) = implicit_use {
+                    // Add implicit use operands to uses.
+                    uses.extend(implicit_src);
+                    Some(())
+                } else {
+                    None
+                }
+            });
         for use_id in uses {
             // Live analysis only cares about registers.
             if !matches!(use_id, BOperand::Reg(_)) {

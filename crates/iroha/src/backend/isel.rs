@@ -584,22 +584,14 @@ impl ISel<'_> {
                         Type::Float,
                         vec![BOperand::FloatImm(imm.to_bits())],
                     ));
-                    let load_lop_id = self.create(
-                        BOp::new(
-                            BType::I32,
-                            vec![],
-                            // CAUTION: Create LOpData::Load here.
-                            LOpData::Load { rd: BOperand::Undef, addr: rodata_id }.into(),
-                        )
-                    );
-                    let load_vreg_id = self.get_vreg_id(load_lop_id);
                     self.replace_op_rauw(
                         lop_id,
                         BOp::new(
                             BType::F32,
                             vec![],
-                            MOpData::FmvWX { rd: BOperand::Undef, rs: load_vreg_id }.into(),
-                        ),
+                            // CAUTION: Create LOpData::Load here.
+                            LOpData::Load { rd: BOperand::Undef, addr: rodata_id }.into(),
+                        )
                     );
                 }
 
