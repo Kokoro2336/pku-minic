@@ -155,9 +155,16 @@ impl Lowering {
         filter(res)
     }
 
+    #[inline(always)]
     fn get_rd(&mut self, bop_id: BOperand) -> Option<BOperand> {
         let func_id = self.builder.current_function.expect("No current function");
         self.lower_ir.get_rd(Some(func_id), bop_id).cloned()
+    }
+
+    #[inline(always)]
+    fn get_spilled_arg_offsets(&mut self, func_id: Operand, func_typ: &Type) -> Vec<BOperand> {
+        let lfunc_id = self.get(func_id.clone(), None);
+        self.lower_ir.funcs[lfunc_id.get_func_id()].frame_info.get_spilled_arg_offsets(lfunc_id, func_typ)
     }
 
     fn get_current_func(&self) -> Operand {
@@ -568,6 +575,9 @@ impl Lowering {
                     let mut param_regs = Self::get_param_regs(
                         &param_types[..param_types.len().min(PARAM_REG_MAX_NUM as usize)]
                     );
+                    // Get the spilled arg offsets for this call.
+                    let spilled_arg_offsets = self.get_spilled_arg_offsets(func.clone(), &func_type);
+
                     for (idx, arg) in args.iter().enumerate() {
                         let arg_typ = self.get_op_type(arg.clone());
                         if idx < PARAM_REG_MAX_NUM as usize {
@@ -585,11 +595,7 @@ impl Lowering {
                                 .into(),
                             ));
                         } else {
-                            let slot_id = self.alloc_slot(Slot::Arg {
-                                size: arg_typ.size(),
-                                align: arg_typ.align(),
-                                offset: 0, // We will calculate the offset in the stack frame layout phase.
-                            });
+                            let slot_id = spilled_arg_offsets[idx - PARAM_REG_MAX_NUM as usize];
                             let arg = self.get(
                                 arg.clone(),
                                 Some(LOpType::Store),
@@ -855,6 +861,7 @@ impl Lowering {
                             }
                         };
                         let slot_id = self.alloc_slot(Slot::Param {
+                            index: idx as u32,
                             size,
                             align,
                             offset: 0,
@@ -1147,9 +1154,7 @@ impl Lowering {
                             // If global array has no initializer, we move it to .bss
                             None => match &typ {
                                 Type::Bool => (Type::Int, None),
-                                Type::Int
-                                | Type::Array { .. }
-                                | Type::Float => (typ, None),
+                                Type::Int | Type::Array { .. } | Type::Float => (typ, None),
                                 Type::Pointer { .. } => unimplemented!(
                                     "Uninitialized global pointer is not supported yet"
                                 ),

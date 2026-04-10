@@ -33,7 +33,7 @@ impl BFunction {
             cfg: BCFG::new(),
             dfg: BDFG::new(),
             vregs: VRegs::new(),
-            frame_info: FrameInfo::new(),
+            frame_info: FrameInfo::default(),
         }
     }
     pub fn get_rd_tuple(&self, lop_id: BOperand) -> Option<(&BOperand, usize)> {
