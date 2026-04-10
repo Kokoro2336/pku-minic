@@ -1,6 +1,6 @@
 //! Instruction Combination (InstComb) .
 
-use yachiyo::ir::back::{BBuilder, BOperand, BackIR, BFunction, BOpData, LOpData, MOpData};
+use yachiyo::ir::back::{BBuilder, BFunction, BOpData, BOperand, BackIR, LOpData, MOpData};
 use yachiyo::pass::BPass;
 use yachiyo::utils::r#match::match_some;
 
@@ -29,7 +29,10 @@ impl InstComb<'_> {
     #[inline(always)]
     pub fn remove_op(&mut self, op_id: BOperand, bb_id: BOperand) {
         let func_id = self.builder.current_function;
-        self.ir.as_mut().unwrap().remove_op(func_id, op_id, Some(bb_id));
+        self.ir
+            .as_mut()
+            .unwrap()
+            .remove_op(func_id, op_id, Some(bb_id));
     }
 
     pub fn combine(&mut self) {
@@ -72,7 +75,7 @@ impl InstComb<'_> {
                         },
                         uni_ops: [Li, La, Addw, Subw, Mulw, Divw, Remw, Sllw, Sraw, Srlw, Slt, Slti, Sltu, Sltiu, Addiw, Slliw, Srliw, Sraiw, Subiw, Muliw, Xor, FmvS, FaddS, FsubS, FmulS, FdivS, FeqS, Diviw, Remiw, Xori, FltS, FleS, FneS, FgtS, FgeS, FcvtSW, FcvtWS, FmvWX, FmvXW, Lw, Sw, Flw, Ld, Sd, Fsw, J, Bnez, Ret, Bne, Beq, Blt, Bge, Bltu, Bgeu, Call],
                         uni_arm: {}
-                    }
+                    },
                 }
             }
         }
