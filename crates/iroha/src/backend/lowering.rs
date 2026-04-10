@@ -2,7 +2,7 @@
 
 use yachiyo::ast::Literal;
 use yachiyo::base::Type;
-use yachiyo::config::{PARAM_REG_MAX_NUM, INT_IMM_MAX, INT_IMM_MIN};
+use yachiyo::config::{INT_IMM_MAX, INT_IMM_MIN, PARAM_REG_MAX_NUM};
 use yachiyo::ir::back::*;
 use yachiyo::ir::mid::*;
 use yachiyo::utils::r#match::match_some;

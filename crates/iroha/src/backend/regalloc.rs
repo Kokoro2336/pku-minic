@@ -6,12 +6,15 @@ use std::ops::BitOr;
 
 use crate::analysis::{LiveAnalysis, LiveOuts};
 use yachiyo::analysis::analyze;
-use yachiyo::ir::back::{
-    BAttr, BBuilder, BFunction, BOp, BOperand, BType, BackIR, LOpData, Reg, Slot,
+use yachiyo::config::{
     CALLEE_SAVED_FREGS, CALLEE_SAVED_XREGS, CALLER_SAVED_FREGS, CALLER_SAVED_XREGS, COLOR_FREGS,
-    COLOR_XREGS, RESERVED_REG, MOpData, XReg
+    COLOR_XREGS, RESERVED_REG,
 };
-use yachiyo::config::{INT_IMM_MAX, INT_IMM_MIN};
+use yachiyo::config::{INT_IMM_MAX, INT_IMM_MIN, REGS_NUM};
+use yachiyo::ir::back::{
+    BAttr, BBuilder, BFunction, BOp, BOpData, BOperand, BType, BackIR, LOpData, MOpData, Reg, Slot,
+    XReg,
+};
 use yachiyo::pass::BPass;
 use yachiyo::utils::r#match::match_some;
 use yachiyo::utils::set::{array_set, ArraySet, BitSet};
@@ -984,6 +987,60 @@ impl Allocator<'_> {
         // Rewrite the program to replace the virtual registers.
         self.rewrite();
     }
+}
+
+pub struct RegAlloc<'a> {
+    ir: Option<&'a mut BackIR>,
+    builder: BBuilder,
+    allocators: Vec<Allocator<'a>>,
+
+    // ========= Frame Lowering Structures ==========
+    /// ra & Saved Registers -> Slot
+    slot_map: Vec<BOperand>,
+    /// Used Registers
+    used_phys: BitSet,
+}
+
+impl RegAlloc<'_> {
+    #[inline(always)]
+    fn init(&mut self, func_id: BOperand) {
+        self.builder.set_current_func(func_id);
+    }
+
+    fn reset(&mut self) {
+        self.slot_map.clear();
+        self.used_phys.clear();
+        self.slot_map.resize(REGS_NUM, BOperand::Undef);
+    }
+
+    #[inline(always)]
+    fn create(&mut self, op: BOp) -> BOperand {
+        let func_id = self.builder.current_function;
+        let ir = self.ir.as_mut().unwrap();
+        ir.create(&self.builder, func_id, op)
+    }
+
+    #[inline(always)]
+    fn get_src(&self, op_id: BOperand) -> Vec<&BOperand> {
+        let func_id = self.builder.current_function;
+        self.ir.as_ref().unwrap().get_src(func_id, op_id)
+    }
+
+    #[inline(always)]
+    fn get_rd(&self, op_id: BOperand) -> Option<&BOperand> {
+        let func_id = self.builder.current_function;
+        self.ir.as_ref().unwrap().get_rd(func_id, op_id)
+    }
+
+    #[inline(always)]
+    fn get_func(&self, func_id: BOperand) -> &BFunction {
+        &self.ir.as_ref().unwrap().funcs[func_id]
+    }
+
+    #[inline(always)]
+    fn get_func_mut(&mut self, func_id: BOperand) -> &mut BFunction {
+        &mut self.ir.as_mut().unwrap().funcs[func_id]
+    }
 
     #[inline(always)]
     fn get_offset(&self, slot_id: BOperand) -> BOperand {
@@ -999,10 +1056,13 @@ impl Allocator<'_> {
     #[inline(always)]
     fn replace_op(&mut self, inst_id: BOperand, bb_id: BOperand, new_op: BOp) {
         let func_id = self.builder.current_function;
-        self.ir
-            .as_mut()
-            .unwrap()
-            .replace_op_no_rauw(&mut self.builder, func_id, inst_id, bb_id, new_op);
+        self.ir.as_mut().unwrap().replace_op_no_rauw(
+            &mut self.builder,
+            func_id,
+            inst_id,
+            bb_id,
+            new_op,
+        );
     }
 
     #[inline(always)]
@@ -1036,6 +1096,50 @@ impl Allocator<'_> {
         }
     }
 
+    fn prologue(&mut self) {}
+
+    fn epilogue(&mut self) {}
+
+    /// * Check whether the function is a leaf
+    /// * Figure out the used registers
+    /// * Allocate space for callee-saved registers & ra.
+    fn pre_frame_lowerinng(&mut self) {
+        let func_id = self.builder.current_function.unwrap();
+        let bb_ids = self.get_func(func_id).cfg.ids();
+        let mut is_leaf = true;
+
+        for bb_id in bb_ids {
+            let bb_id = BOperand::BB(bb_id);
+            let inst_ids = self.get_func(func_id).cfg[bb_id].cur.clone();
+            for inst_id in inst_ids {
+                let data = &self.get_func(func_id).dfg[inst_id].data;
+                if data.is_call() {
+                    is_leaf = false;
+                }
+                let src = self
+                    .get_src(inst_id)
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                for operand in src {
+                    if operand.is_phys() {
+                        self.used_phys
+                            .insert(u8::from(operand.get_phys_reg()) as usize);
+                    }
+                }
+                let rd = self.get_rd(inst_id).cloned();
+                if let Some(rd) = rd {
+                    if rd.is_phys() {
+                        self.used_phys.insert(u8::from(rd.get_phys_reg()) as usize);
+                    }
+                }
+            }
+        }
+
+        // If the function is not a leaf, we should allocate space for ra.
+        if !is_leaf {}
+    }
+
     /// * Load/Store Lowering
     /// * Prologue/Epilogue Insertion
     fn frame_lowering(&mut self) {
@@ -1048,175 +1152,175 @@ impl Allocator<'_> {
             let inst_ids = self.get_func(func_id).cfg[bb_id].cur.clone();
             for inst_id in inst_ids {
                 let op = &self.get_func(func_id).dfg[inst_id];
-                let (op_data, typ): (LOpData, BType) = (op.data.clone().into(), op.typ.clone());
-                match_some! {
-                    target: op_data,
-                    enu: LOpData,
-                    minor_arms: {
-                        LOpData::Store { addr, value } => {
-                            self.builder.set_before_inst(self.ir.as_mut().unwrap(), self.builder.current_function, Some(inst_id));
-                            let store_op = match_some! {
-                                target: addr,
-                                enu: BOperand,
-                                minor_arms: {
-                                    BOperand::Slot(_) => {
-                                        let offset = self.legalize_offset(self.get_offset(addr));
-                                        match_some! {
-                                            target: offset,
-                                            enu: BOperand,
-                                            minor_arms: {
-                                                BOperand::IntImm(_) => {
-                                                    BOp::new(
-                                                        typ,
-                                                        vec![],
-                                                        MOpData::Sw {
-                                                            rs: value,
-                                                            base: BOperand::Reg(Reg::X(XReg::Sp)),
-                                                            offset,
-                                                        }
-                                                        .into(),
-                                                    )
+                let (op_data, typ) = (op.data.clone(), op.typ.clone());
+                if let BOpData::L(LOpData::Store { addr, value }) = op_data {
+                    self.builder.set_before_inst(
+                        self.ir.as_mut().unwrap(),
+                        self.builder.current_function,
+                        Some(inst_id),
+                    );
+                    let store_op = match_some! {
+                        target: addr,
+                        enu: BOperand,
+                        minor_arms: {
+                            BOperand::Slot(_) => {
+                                let offset = self.legalize_offset(self.get_offset(addr));
+                                match_some! {
+                                    target: offset,
+                                    enu: BOperand,
+                                    minor_arms: {
+                                        BOperand::IntImm(_) => {
+                                            BOp::new(
+                                                typ,
+                                                vec![],
+                                                MOpData::Sw {
+                                                    rs: value,
+                                                    base: BOperand::Reg(Reg::X(XReg::Sp)),
+                                                    offset,
                                                 }
-                                                BOperand::Reg(_) => {
-                                                    BOp::new(
-                                                        typ,
-                                                        vec![],
-                                                        MOpData::Sw {
-                                                            rs: value,
-                                                            base: offset,
-                                                            offset: BOperand::IntImm(0),
-                                                        }
-                                                        .into(),
-                                                    )
-                                                }
-                                            },
-                                            uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
-                                            uni_arm: {
-                                                unreachable!("Expected integer immediate, found {:?}", offset);
-                                            }
+                                                .into(),
+                                            )
                                         }
-                                    }
-                                    BOperand::Data(_)
-                                    | BOperand::RoData(_)
-                                    | BOperand::Bss(_) => {
-                                        // We still keep Data/RoData/Bss Id as the operand. DumpASM will find the global symbol of the id.
-                                        self.create(BOp::new(
-                                            BType::U64,
-                                            vec![],
-                                            MOpData::La {
-                                                rd: RESERVED_REG_BOPRD,
-                                                target: addr,
-                                            }.into()
-                                        ));
-                                        BOp::new(
-                                            typ,
-                                            vec![],
-                                            MOpData::Sw {
-                                                rs: value,
-                                                base: RESERVED_REG_BOPRD,
-                                                offset: BOperand::IntImm(0),
-                                            }.into()
-                                        )
-                                    }
-                                },
-                                uni_ops: [Reg, IntImm, FloatImm, Func, BB, Inst, Extern, Undef],
-                                uni_arm: {
-                                    unreachable!("Expected memory enetities, found {:?}", addr);
-                                }
-                            };
-                            self.replace_op(inst_id, bb_id, store_op);
-                        },
-                        LOpData::Load { rd, addr } => {
-                            self.builder.set_before_inst(self.ir.as_mut().unwrap(), self.builder.current_function, Some(inst_id));
-                            let load_op = match_some! {
-                                target: addr,
-                                enu: BOperand,
-                                minor_arms: {
-                                    BOperand::Slot(_) => {
-                                        let offset = self.legalize_offset(self.get_offset(addr));
-                                        match_some! {
-                                            target: offset,
-                                            enu: BOperand,
-                                            minor_arms: {
-                                                BOperand::IntImm(_) => {
-                                                    BOp::new(
-                                                        typ,
-                                                        vec![],
-                                                        MOpData::Lw {
-                                                            // Now rd is physical register, reuse it directly.
-                                                            rd,
-                                                            base: BOperand::Reg(Reg::X(XReg::Sp)),
-                                                            offset,
-                                                        }
-                                                        .into(),
-                                                    )
+                                        BOperand::Reg(_) => {
+                                            BOp::new(
+                                                typ,
+                                                vec![],
+                                                MOpData::Sw {
+                                                    rs: value,
+                                                    base: offset,
+                                                    offset: BOperand::IntImm(0),
                                                 }
-                                                BOperand::Reg(_) => {
-                                                    BOp::new(
-                                                        typ,
-                                                        vec![],
-                                                        MOpData::Lw {
-                                                            rd,
-                                                            base: offset,
-                                                            offset: BOperand::IntImm(0),
-                                                        }
-                                                        .into(),
-                                                    )
-                                                }
-                                            },
-                                            uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
-                                            uni_arm: {
-                                                unreachable!("Expected integer immediate, found {:?}", offset);
-                                            }
+                                                .into(),
+                                            )
                                         }
+                                    },
+                                    uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
+                                    uni_arm: {
+                                        unreachable!("Expected integer immediate, found {:?}", offset);
                                     }
-                                    BOperand::Data(_)
-                                    | BOperand::RoData(_)
-                                    | BOperand::Bss(_) => {
-                                        self.create(BOp::new(
-                                            BType::U64,
-                                            vec![],
-                                            MOpData::La {
-                                                rd: RESERVED_REG_BOPRD,
-                                                target: addr,
-                                            }.into()
-                                        ));
-                                        BOp::new(
-                                            typ,
-                                            vec![],
-                                            MOpData::Lw {
-                                                rd,
-                                                base: RESERVED_REG_BOPRD,
-                                                offset: BOperand::IntImm(0),
-                                            }.into()
-                                        )
-                                    }
-                                },
-                                uni_ops: [Reg, IntImm, FloatImm, Func, BB, Inst, Extern, Undef],
-                                uni_arm: {
-                                    unreachable!("Expected memory enetities, found {:?}", addr);
                                 }
-                            };
-                            self.replace_op(inst_id, bb_id, load_op);
+                            }
+                            BOperand::Data(_)
+                            | BOperand::RoData(_)
+                            | BOperand::Bss(_) => {
+                                // We still keep Data/RoData/Bss Id as the operand. DumpASM will find the global symbol of the id.
+                                self.create(BOp::new(
+                                    BType::U64,
+                                    vec![],
+                                    MOpData::La {
+                                        rd: RESERVED_REG_BOPRD,
+                                        target: addr,
+                                    }.into()
+                                ));
+                                BOp::new(
+                                    typ,
+                                    vec![],
+                                    MOpData::Sw {
+                                        rs: value,
+                                        base: RESERVED_REG_BOPRD,
+                                        offset: BOperand::IntImm(0),
+                                    }.into()
+                                )
+                            }
                         },
-                    },
-                    uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, Call, LoadIntImm, LoadFloatImm, Ret, Br, Jump],
-                    uni_arm: {}
+                        uni_ops: [Reg, IntImm, FloatImm, Func, BB, Inst, Extern, Undef],
+                        uni_arm: {
+                            unreachable!("Expected memory enetities, found {:?}", addr);
+                        }
+                    };
+                    self.replace_op(inst_id, bb_id, store_op);
+                } else if let BOpData::L(LOpData::Load { rd, addr }) = op_data {
+                    self.builder.set_before_inst(
+                        self.ir.as_mut().unwrap(),
+                        self.builder.current_function,
+                        Some(inst_id),
+                    );
+                    let load_op = match_some! {
+                        target: addr,
+                        enu: BOperand,
+                        minor_arms: {
+                            BOperand::Slot(_) => {
+                                let offset = self.legalize_offset(self.get_offset(addr));
+                                match_some! {
+                                    target: offset,
+                                    enu: BOperand,
+                                    minor_arms: {
+                                        BOperand::IntImm(_) => {
+                                            BOp::new(
+                                                typ,
+                                                vec![],
+                                                MOpData::Lw {
+                                                    // Now rd is physical register, reuse it directly.
+                                                    rd,
+                                                    base: BOperand::Reg(Reg::X(XReg::Sp)),
+                                                    offset,
+                                                }
+                                                .into(),
+                                            )
+                                        }
+                                        BOperand::Reg(_) => {
+                                            BOp::new(
+                                                typ,
+                                                vec![],
+                                                MOpData::Lw {
+                                                    rd,
+                                                    base: offset,
+                                                    offset: BOperand::IntImm(0),
+                                                }
+                                                .into(),
+                                            )
+                                        }
+                                    },
+                                    uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
+                                    uni_arm: {
+                                        unreachable!("Expected integer immediate, found {:?}", offset);
+                                    }
+                                }
+                            }
+                            BOperand::Data(_)
+                            | BOperand::RoData(_)
+                            | BOperand::Bss(_) => {
+                                self.create(BOp::new(
+                                    BType::U64,
+                                    vec![],
+                                    MOpData::La {
+                                        rd: RESERVED_REG_BOPRD,
+                                        target: addr,
+                                    }.into()
+                                ));
+                                BOp::new(
+                                    typ,
+                                    vec![],
+                                    MOpData::Lw {
+                                        rd,
+                                        base: RESERVED_REG_BOPRD,
+                                        offset: BOperand::IntImm(0),
+                                    }.into()
+                                )
+                            }
+                        },
+                        uni_ops: [Reg, IntImm, FloatImm, Func, BB, Inst, Extern, Undef],
+                        uni_arm: {
+                            unreachable!("Expected memory enetities, found {:?}", addr);
+                        }
+                    };
+                    self.replace_op(inst_id, bb_id, load_op);
+                } else if let BOpData::M(MOpData::Ret) = op_data {
+                    // Insert epilogue
+                    self.epilogue();
                 }
             }
         }
     }
 }
 
-pub struct RegAlloc<'a> {
-    ir: Option<&'a mut BackIR>,
-    allocators: Vec<Allocator<'a>>,
-}
-
 impl Default for RegAlloc<'_> {
     fn default() -> Self {
         Self {
             ir: None,
+            builder: BBuilder::default(),
+            slot_map: Vec::new(),
+            used_phys: BitSet::new(),
             allocators: vec![
                 // Run float first.
                 Allocator::new(AllocatorType::Float),
@@ -1236,24 +1340,35 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
     }
 
     fn run(&mut self) {
+        // Mount IR on allocators
         for allocator in self.allocators.iter_mut() {
-            // Mount IR on allocator
             let ir_ptr = *self.ir.as_mut().unwrap() as *mut BackIR;
             unsafe {
                 allocator.ir = Some(&mut *ir_ptr);
             }
-            for func_id in self.ir.as_ref().unwrap().funcs.ids() {
-                let func_id = BOperand::Func(func_id);
+        }
+
+        for func_id in self.ir.as_ref().unwrap().funcs.ids() {
+            let func_id = BOperand::Func(func_id);
+            self.init(func_id);
+            self.reset();
+
+            // ========== RA Phase ==========
+            for allocator in self.allocators.iter_mut() {
                 allocator.init(func_id);
-
-                // ========== RA Phase ==========
                 allocator.run();
-
-                // ========== Post-RA Phase ==========
-                // Build stack frame
-                let func = allocator.get_func_mut(func_id);
-                func.frame_info.build();
             }
+
+            // ========== Post-RA Phase ==========
+            // Pre checking
+            self.pre_frame_lowerinng();
+            // Build stack frame
+            let func = self.get_func_mut(func_id);
+            func.frame_info.build();
+            // Prologue
+            self.prologue();
+            // Lower the frame
+            self.frame_lowering();
         }
     }
 }

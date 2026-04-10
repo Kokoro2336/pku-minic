@@ -2,7 +2,10 @@
 //! Reference: https://github.com/bytecodealliance/wasmtime/blob/main/cranelift/frontend/src/frontend/safepoints.rs
 
 use yachiyo::analysis::Analysis;
-use yachiyo::ir::back::{BAttr, BFunction, BOperand, CALLEE_SAVED_FREGS, CALLEE_SAVED_XREGS, CALLER_SAVED_FREGS, CALLER_SAVED_XREGS, Reg};
+use yachiyo::config::{
+    CALLEE_SAVED_FREGS, CALLEE_SAVED_XREGS, CALLER_SAVED_FREGS, CALLER_SAVED_XREGS,
+};
+use yachiyo::ir::back::{BAttr, BFunction, BOperand, Reg};
 use yachiyo::utils::set::ArraySet;
 use yachiyo::utils::set::BitSet;
 use yachiyo::utils::worklist::{Worklist, WorklistTrait};
@@ -125,7 +128,7 @@ impl LiveAnalysis<'_> {
                     // If the instruction has a clobber attribute, remove all clobbered registers from the live set.
                     let clobbered_regs = self.get_clobbered(match def {
                         Some(BOperand::Reg(reg)) => reg,
-                        _ => unreachable!()
+                        _ => unreachable!(),
                     });
                     for reg in clobbered_regs {
                         self.current_live.remove(&reg);
