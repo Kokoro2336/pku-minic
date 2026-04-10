@@ -2,7 +2,7 @@
 
 use yachiyo::ast::Literal;
 use yachiyo::base::Type;
-use yachiyo::config::PARAM_REG_MAX_NUM;
+use yachiyo::config::{PARAM_REG_MAX_NUM, INT_IMM_MAX, INT_IMM_MIN};
 use yachiyo::ir::back::*;
 use yachiyo::ir::mid::*;
 use yachiyo::utils::r#match::match_some;
@@ -72,9 +72,6 @@ impl Lowering {
         };
 
         let mut filter = |boperand: BOperand| -> BOperand {
-            const INT_IMM_MAX: i32 = 2047;
-            const INT_IMM_MIN: i32 = -2048;
-
             match_some! {
                 target: boperand,
                 enu: BOperand,

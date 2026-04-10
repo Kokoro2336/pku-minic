@@ -9,7 +9,7 @@ use yachiyo::analysis::analyze;
 use yachiyo::ir::back::{
     BAttr, BBuilder, BFunction, BOp, BOperand, BType, BackIR, LOpData, Reg, Slot,
     CALLEE_SAVED_FREGS, CALLEE_SAVED_XREGS, CALLER_SAVED_FREGS, CALLER_SAVED_XREGS, COLOR_FREGS,
-    COLOR_XREGS,
+    COLOR_XREGS, RESERVED_REG
 };
 use yachiyo::pass::BPass;
 use yachiyo::utils::r#match::match_some;
@@ -17,6 +17,8 @@ use yachiyo::utils::set::{array_set, ArraySet, BitSet};
 use yachiyo::utils::worklist::{Worklist, WorklistTrait};
 
 use rustc_hash::FxHashSet;
+
+const RESERVED_REG_BOPRD: BOperand = BOperand::Reg(Reg::X(RESERVED_REG));
 
 #[derive(PartialEq, Eq, Default)]
 #[allow(unused)]
@@ -980,7 +982,12 @@ impl Allocator<'_> {
         );
         // Rewrite the program to replace the virtual registers.
         self.rewrite();
-        // TODO: Translate high-level Load/Store.
+    }
+
+    /// * Load/Store Lowering
+    /// * Prologue/Epilogue Insertion
+    fn frame_lowering(&mut self) {
+
     }
 }
 
@@ -1019,8 +1026,16 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
                 allocator.ir = Some(&mut *ir_ptr);
             }
             for func_id in self.ir.as_ref().unwrap().funcs.ids() {
-                allocator.init(BOperand::Func(func_id));
+                let func_id = BOperand::Func(func_id);
+                allocator.init(func_id);
+
+                // ========== RA Phase ==========
                 allocator.run();
+
+                // ========== Post-RA Phase ==========
+                // Build stack frame
+                let func = allocator.get_func_mut(func_id);
+                func.frame_info.build();
             }
         }
     }
