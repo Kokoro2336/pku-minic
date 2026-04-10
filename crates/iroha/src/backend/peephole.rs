@@ -1,16 +1,16 @@
-//! Instruction Combination (InstComb) .
+//! Peephole Optimization for BackIR.
 
 use yachiyo::ir::back::{BBuilder, BFunction, BOpData, BOperand, BackIR, LOpData, MOpData};
 use yachiyo::pass::BPass;
 use yachiyo::utils::r#match::match_some;
 
 #[derive(Default)]
-pub struct InstComb<'a> {
+pub struct Peephole<'a> {
     ir: Option<&'a mut BackIR>,
     builder: BBuilder,
 }
 
-impl InstComb<'_> {
+impl Peephole<'_> {
     #[inline(always)]
     fn init(&mut self, func_id: BOperand) {
         self.builder.set_current_func(func_id);
@@ -82,9 +82,9 @@ impl InstComb<'_> {
     }
 }
 
-impl<'a> BPass<'a> for InstComb<'a> {
+impl<'a> BPass<'a> for Peephole<'a> {
     fn name(&self) -> &str {
-        "InstComb"
+        "Peephole"
     }
 
     fn mount(&mut self, ir: &'a mut BackIR) {
