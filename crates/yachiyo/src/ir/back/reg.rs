@@ -275,3 +275,15 @@ impl From<Reg> for u8 {
         }
     }
 }
+
+impl From<u8> for Reg {
+    fn from(id: u8) -> Self {
+        if id < 32 {
+            Reg::X(unsafe { std::mem::transmute::<u8, XReg>(id) })
+        } else if id < 64 {
+            Reg::F(unsafe { std::mem::transmute::<u8, FReg>(id) })
+        } else {
+            panic!("Invalid register ID: {id}");
+        }
+    }
+}

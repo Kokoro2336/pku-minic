@@ -2,7 +2,7 @@
 //! Based on Appel and George's paper Iterated Register Coalescing.
 //! Reference: https://dl.acm.org/doi/10.1145/229542.229546
 
-use std::ops::BitOr;
+use std::ops::{BitAndAssign, BitOr};
 
 use crate::analysis::{LiveAnalysis, LiveOuts};
 use yachiyo::analysis::analyze;
@@ -1043,6 +1043,15 @@ impl RegAlloc<'_> {
     }
 
     #[inline(always)]
+    fn alloc_and_map_slot(&mut self, reg: Reg, slot: Slot) -> BOperand {
+        let func_id = self.builder.current_function.unwrap();
+        let func = self.get_func_mut(func_id);
+        let slot_id = func.frame_info.alloc(slot);
+        self.slot_map[u8::from(reg) as usize] = BOperand::Slot(slot_id);
+        BOperand::Slot(slot_id)
+    }
+
+    #[inline(always)]
     fn get_offset(&self, slot_id: BOperand) -> BOperand {
         let func_id = self.builder.current_function.unwrap();
         BOperand::IntImm(match &self.get_func(func_id).frame_info[slot_id] {
@@ -1051,6 +1060,18 @@ impl RegAlloc<'_> {
             Slot::Arg { offset, .. } => *offset,
             Slot::CalleeSaved { offset, .. } => *offset,
         })
+    }
+
+    #[inline(always)]
+    fn get_phys_bitset() -> BitSet {
+        let mut bitset = BitSet::new();
+        for reg in CALLEE_SAVED_XREGS.iter().chain(CALLER_SAVED_XREGS.iter()) {
+            bitset.insert(u8::from(Reg::X(*reg)) as usize);
+        }
+        for reg in CALLEE_SAVED_FREGS.iter().chain(CALLER_SAVED_FREGS.iter()) {
+            bitset.insert(u8::from(Reg::F(*reg)) as usize);
+        }
+        bitset
     }
 
     #[inline(always)]
@@ -1103,7 +1124,7 @@ impl RegAlloc<'_> {
     /// * Check whether the function is a leaf
     /// * Figure out the used registers
     /// * Allocate space for callee-saved registers & ra.
-    fn pre_frame_lowerinng(&mut self) {
+    fn pre_check(&mut self) {
         let func_id = self.builder.current_function.unwrap();
         let bb_ids = self.get_func(func_id).cfg.ids();
         let mut is_leaf = true;
@@ -1137,12 +1158,81 @@ impl RegAlloc<'_> {
         }
 
         // If the function is not a leaf, we should allocate space for ra.
-        if !is_leaf {}
+        if !is_leaf {
+            // Emm...though ra is actually caller-saved, we still allocate CalleeSaved for it.
+            self.alloc_and_map_slot(Reg::X(XReg::Ra), Slot::CalleeSaved {
+                size: BType::U64.size(),
+                align: BType::U64.align(),
+                offset: 0,
+            });
+        }
+        // Allocate space for used callee-saved registers.
+        let mut used_callee_saved = Self::get_phys_bitset();
+        used_callee_saved.bitand_assign(&self.used_phys);
+        for reg in used_callee_saved.iter() {
+            let reg = Reg::from(reg as u8);
+            self.alloc_and_map_slot(reg, Slot::CalleeSaved {
+                size: reg.get_type().size(),
+                align: reg.get_type().align(),
+                offset: 0,
+            });
+        }
     }
 
     /// * Load/Store Lowering
     /// * Prologue/Epilogue Insertion
     fn frame_lowering(&mut self) {
+        fn dispatch_store(typ: BType, rs: BOperand, base: BOperand, offset: BOperand) -> BOp {
+            match typ {
+                BType::I32 | BType::U64 => BOp::new(
+                    typ,
+                    vec![],
+                    MOpData::Sw {
+                        rs,
+                        base,
+                        offset,
+                    }
+                    .into(),
+                ),
+                BType::F32 => BOp::new(
+                    typ,
+                    vec![],
+                    MOpData::Fsw {
+                        rs,
+                        base,
+                        offset,
+                    }
+                    .into(),
+                ),
+                BType::Void => unreachable!()
+            }
+        }
+        fn dispatch_load(typ: BType, rd: BOperand, base: BOperand, offset: BOperand) -> BOp {
+            match typ {
+                BType::I32 | BType::U64 => BOp::new(
+                    typ,
+                    vec![],
+                    MOpData::Lw {
+                        rd,
+                        base,
+                        offset,
+                    }
+                    .into(),
+                ),
+                BType::F32 => BOp::new(
+                    typ,
+                    vec![],
+                    MOpData::Flw {
+                        rd,
+                        base,
+                        offset,
+                    }
+                    .into(),
+                ),
+                BType::Void => unreachable!()
+            }
+        }
+
         let func_id = self.builder.current_function.unwrap();
         let bb_ids = self.get_func(func_id).cfg.ids();
         for bb_id in bb_ids {
@@ -1170,28 +1260,10 @@ impl RegAlloc<'_> {
                                     enu: BOperand,
                                     minor_arms: {
                                         BOperand::IntImm(_) => {
-                                            BOp::new(
-                                                typ,
-                                                vec![],
-                                                MOpData::Sw {
-                                                    rs: value,
-                                                    base: BOperand::Reg(Reg::X(XReg::Sp)),
-                                                    offset,
-                                                }
-                                                .into(),
-                                            )
+                                            dispatch_store(typ, value, BOperand::Reg(Reg::X(XReg::Sp)), offset)
                                         }
                                         BOperand::Reg(_) => {
-                                            BOp::new(
-                                                typ,
-                                                vec![],
-                                                MOpData::Sw {
-                                                    rs: value,
-                                                    base: offset,
-                                                    offset: BOperand::IntImm(0),
-                                                }
-                                                .into(),
-                                            )
+                                            dispatch_store(typ, value, offset, BOperand::IntImm(0))
                                         }
                                     },
                                     uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
@@ -1212,15 +1284,7 @@ impl RegAlloc<'_> {
                                         target: addr,
                                     }.into()
                                 ));
-                                BOp::new(
-                                    typ,
-                                    vec![],
-                                    MOpData::Sw {
-                                        rs: value,
-                                        base: RESERVED_REG_BOPRD,
-                                        offset: BOperand::IntImm(0),
-                                    }.into()
-                                )
+                                dispatch_store(typ, value, RESERVED_REG_BOPRD, BOperand::IntImm(0))
                             }
                         },
                         uni_ops: [Reg, IntImm, FloatImm, Func, BB, Inst, Extern, Undef],
@@ -1246,29 +1310,10 @@ impl RegAlloc<'_> {
                                     enu: BOperand,
                                     minor_arms: {
                                         BOperand::IntImm(_) => {
-                                            BOp::new(
-                                                typ,
-                                                vec![],
-                                                MOpData::Lw {
-                                                    // Now rd is physical register, reuse it directly.
-                                                    rd,
-                                                    base: BOperand::Reg(Reg::X(XReg::Sp)),
-                                                    offset,
-                                                }
-                                                .into(),
-                                            )
+                                            dispatch_load(typ, rd, BOperand::Reg(Reg::X(XReg::Sp)), offset)
                                         }
                                         BOperand::Reg(_) => {
-                                            BOp::new(
-                                                typ,
-                                                vec![],
-                                                MOpData::Lw {
-                                                    rd,
-                                                    base: offset,
-                                                    offset: BOperand::IntImm(0),
-                                                }
-                                                .into(),
-                                            )
+                                            dispatch_load(typ, rd, offset, BOperand::IntImm(0))
                                         }
                                     },
                                     uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
@@ -1288,15 +1333,7 @@ impl RegAlloc<'_> {
                                         target: addr,
                                     }.into()
                                 ));
-                                BOp::new(
-                                    typ,
-                                    vec![],
-                                    MOpData::Lw {
-                                        rd,
-                                        base: RESERVED_REG_BOPRD,
-                                        offset: BOperand::IntImm(0),
-                                    }.into()
-                                )
+                                dispatch_load(typ, rd, RESERVED_REG_BOPRD, BOperand::IntImm(0))
                             }
                         },
                         uni_ops: [Reg, IntImm, FloatImm, Func, BB, Inst, Extern, Undef],
@@ -1361,7 +1398,7 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
 
             // ========== Post-RA Phase ==========
             // Pre checking
-            self.pre_frame_lowerinng();
+            self.pre_check();
             // Build stack frame
             let func = self.get_func_mut(func_id);
             func.frame_info.build();
