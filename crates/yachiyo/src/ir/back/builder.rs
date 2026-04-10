@@ -112,6 +112,20 @@ impl BBuilder {
         }
     }
 
+    pub fn set_at_head(&mut self, program: &mut BackIR, current_function: Option<BOperand>) {
+        let cfg = program.cfg_mut_or_panic(
+            current_function,
+            "BBuilder set_at_head: no current function",
+        );
+        if self.current_block.is_none() {
+            panic!("BBuilder set_at_head: current_block is None");
+        }
+
+        let current_block = self.current_block.as_ref().unwrap();
+        let first = cfg[current_block.get_bb_id()].cur.first().cloned();
+        self.current_inst = first;
+    }
+
     pub fn set_after_inst(
         &mut self,
         program: &mut BackIR,
