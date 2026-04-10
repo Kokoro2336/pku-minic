@@ -164,7 +164,9 @@ impl Lowering {
     #[inline(always)]
     fn get_spilled_arg_offsets(&mut self, func_id: Operand, func_typ: &Type) -> Vec<BOperand> {
         let lfunc_id = self.get(func_id.clone(), None);
-        self.lower_ir.funcs[lfunc_id.get_func_id()].frame_info.get_spilled_arg_offsets(lfunc_id, func_typ)
+        self.lower_ir.funcs[lfunc_id.get_func_id()]
+            .frame_info
+            .get_spilled_arg_offsets(lfunc_id, func_typ)
     }
 
     fn get_current_func(&self) -> Operand {
@@ -575,6 +577,18 @@ impl Lowering {
                     let mut param_regs = Self::get_param_regs(
                         &param_types[..param_types.len().min(PARAM_REG_MAX_NUM as usize)]
                     );
+                    let implicit_use = BAttr::ImplicitUse(param_regs.iter().map(|reg| match reg {
+                        Reg::X(xreg) => BOperand::Reg(Reg::X(*xreg)),
+                        Reg::F(freg) => BOperand::Reg(Reg::F(*freg)),
+                        Reg::Virt(_) => unreachable!(),
+                    }).collect());
+                    let implicit_def = BAttr::ImplicitDef(match ret_typ {
+                        Type::Float => BOperand::Reg(Reg::F(FReg::Fa0)),
+                        Type::Bool | Type::Int | Type::Pointer { .. } => BOperand::Reg(Reg::X(XReg::A0)),
+                        Type::Array { .. } | Type::Function { .. } | Type::Void | Type::Char => {
+                            unreachable!("Array, Function, Void and Char type should not be directly returned")
+                        }
+                    });
                     // Get the spilled arg offsets for this call.
                     let spilled_arg_offsets = self.get_spilled_arg_offsets(func.clone(), &func_type);
 
@@ -617,7 +631,12 @@ impl Lowering {
                     self.create(BOp::new(
                         // Since call doesn't produce a value in Lower IR, the type should be void.
                         Type::Void.into(),
-                        vec![],
+                        vec![
+                            // Call implicitly uses some physical registers.
+                            implicit_use, implicit_def,
+                            // Call implicitly clobbers all caller-saved registers.
+                            BAttr::Clobber,
+                        ],
                         LOpData::Call {
                             func,
                         }
@@ -770,31 +789,41 @@ impl Lowering {
                     }
                 }
                 OpData::Ret { value } => {
-                    if let Some(value) = value {
+                    let rd = if let Some(value) = value {
                         let move_typ = self.get_op_type(value.clone());
                         let value = self.get(
                             value,
                             Some(LOpType::Move),
                         );
+                        let rd = match move_typ {
+                            Type::Float => Reg::F(FReg::Fa0),
+                            Type::Bool | Type::Int | Type::Pointer { .. } => Reg::X(XReg::A0),
+                            Type::Array { .. } | Type::Function { .. } | Type::Void | Type::Char => {
+                                unreachable!("Array, Function, Void and Char type should not be directly returned")
+                            }
+                        };
                         self.create(BOp::new(
                             move_typ.clone().into(),
                             vec![],
                             LOpData::Move {
-                                rd: BOperand::Reg(match move_typ {
-                                    Type::Float => Reg::F(FReg::Fa0),
-                                    Type::Bool | Type::Int | Type::Pointer { .. } => Reg::X(XReg::A0),
-                                    Type::Array { .. } | Type::Function { .. } | Type::Void | Type::Char => {
-                                        unreachable!("Array, Function, Void and Char type should not be directly returned")
-                                    }
-                                }),
+                                rd: BOperand::Reg(rd),
                                 src: value,
                             }
                             .into(),
                         ));
-                    }
+                        Some(rd)
+                    } else {
+                        None
+                    };
                     // Ret itself never binds with any value.
                     self.create(
-                        BOp::new(Type::Void.into(), vec![], LOpData::Ret.into()),
+                        BOp::new(Type::Void.into(),
+                            if let Some(rd) = rd {
+                                vec![BAttr::ImplicitUse(vec![BOperand::Reg(rd)])]
+                            } else {
+                                vec![]
+                            }
+                        , LOpData::Ret.into()),
                     );
                 }
 

@@ -134,6 +134,8 @@ pub enum BAttr {
     /// Indicates that this move is a phi move. If an instruction has this attribute, ISel won't create.
     PhiMove,
     /// For call instructions, indicates the operand is a return value.
+    Clobber,
+    /// For the result of call instruction.
     ImplicitDef(BOperand),
     /// For call instructions, indicates the operand is a used value that is not explicitly passed in the operand list,
     /// e.g. caller-saved registers.

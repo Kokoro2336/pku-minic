@@ -7,8 +7,9 @@ use std::ops::BitOr;
 use crate::analysis::{LiveAnalysis, LiveOuts};
 use yachiyo::analysis::analyze;
 use yachiyo::ir::back::{
-    BBuilder, BFunction, BOp, BOperand, BType, BackIR, LOpData, Reg, Slot, CALLEE_SAVED_FREGS,
-    CALLEE_SAVED_XREGS, CALLER_SAVED_FREGS, CALLER_SAVED_XREGS, COLOR_FREGS, COLOR_XREGS,
+    BAttr, BBuilder, BFunction, BOp, BOperand, BType, BackIR, LOpData, Reg, Slot,
+    CALLEE_SAVED_FREGS, CALLEE_SAVED_XREGS, CALLER_SAVED_FREGS, CALLER_SAVED_XREGS, COLOR_FREGS,
+    COLOR_XREGS,
 };
 use yachiyo::pass::BPass;
 use yachiyo::utils::r#match::match_some;
@@ -245,20 +246,38 @@ impl Allocator<'_> {
     }
 
     #[inline(always)]
-    fn get_colors(&self) -> Vec<Reg> {
+    fn get_colors<T: FromIterator<Reg>>(&self) -> T {
         match self.typ {
+            // Callee-saved registers are preferred.
             AllocatorType::Int => CALLEE_SAVED_XREGS
                 .to_vec()
                 .into_iter()
                 .map(Reg::X)
                 .chain(CALLER_SAVED_XREGS.to_vec().into_iter().map(Reg::X))
-                .collect(),
+                .collect::<T>(),
             AllocatorType::Float => CALLEE_SAVED_FREGS
                 .to_vec()
                 .into_iter()
                 .map(Reg::F)
                 .chain(CALLER_SAVED_FREGS.to_vec().into_iter().map(Reg::F))
-                .collect(),
+                .collect::<T>(),
+            AllocatorType::Vector => unimplemented!(),
+        }
+    }
+
+    #[inline(always)]
+    fn get_clobbered<T: FromIterator<Reg>>(&self) -> T {
+        match self.typ {
+            AllocatorType::Int => CALLER_SAVED_XREGS
+                .to_vec()
+                .into_iter()
+                .map(Reg::X)
+                .collect::<T>(),
+            AllocatorType::Float => CALLER_SAVED_FREGS
+                .to_vec()
+                .into_iter()
+                .map(Reg::F)
+                .collect::<T>(),
             AllocatorType::Vector => unimplemented!(),
         }
     }
@@ -311,11 +330,24 @@ impl Allocator<'_> {
                 let rd = self.get_rd(*inst_id).cloned();
 
                 // For move instructions, we need to handle them specially.
-                let src = self
+                let mut src = self
                     .get_src(*inst_id)
                     .into_iter()
                     .cloned()
                     .collect::<Vec<_>>();
+                // If the instruction has implicit use operand, we also add the implicit use operand to src.
+                op.attrs
+                    .iter()
+                    .find(|attr| matches!(attr, BAttr::ImplicitUse(_)))
+                    .and_then(|implicit_use| {
+                        if let BAttr::ImplicitUse(implicit_src) = implicit_use {
+                            src.extend(implicit_src);
+                            Some(())
+                        } else {
+                            None
+                        }
+                    });
+
                 if op.data.is_move() {
                     let rd = rd.expect("Move instruction should have rd");
                     // Ignore move that is irrelevant to current allocator.
@@ -339,17 +371,40 @@ impl Allocator<'_> {
                     }
                 }
 
-                // Since SysY only produce 1 rd at most,
-                // we don't need to add def to current live for building interference graph between current defs.
-
+                let op = &self.get_func(func_id).dfg[*inst_id];
                 if let Some(rd) = rd {
-                    // Add interference edges between rd and all live-out nodes.
-                    // All of the current live nodes are included, but we'll filter out non-target nodes in add_edge function.
-                    for live_var in live.iter() {
-                        self.add_edge(rd, *live_var);
+                    let mut rds = array_set![rd];
+                    // Special handling for call instruction: add all clobbered registers to rd, since they are all defined by the call instruction.
+                    if op.attrs.contains(&BAttr::Clobber) {
+                        rds = rds.union(
+                            &self
+                                .get_clobbered::<ArraySet<Reg>>()
+                                .into_iter()
+                                .map(BOperand::Reg)
+                                .collect(),
+                        );
+                    }
+                    op.attrs
+                        .iter()
+                        .find(|attr| matches!(attr, BAttr::ImplicitDef(_)))
+                        .and_then(|attr| {
+                            if let BAttr::ImplicitDef(implicit_rd) = attr {
+                                rds.insert(*implicit_rd);
+                                Some(())
+                            } else {
+                                None
+                            }
+                        });
+
+                    for rd in rds.iter() {
+                        // Add interference edges between rd and all live-out nodes.
+                        // All of the current live nodes are included, but we'll filter out non-target nodes in add_edge function.
+                        for live_var in live.iter() {
+                            self.add_edge(*rd, *live_var);
+                        }
                     }
                     // Remove def from live set
-                    live = live.difference(&array_set![rd]);
+                    live = live.difference(&rds);
                 }
 
                 // Retrieve src
@@ -629,7 +684,7 @@ impl Allocator<'_> {
 
     fn assign_colors(&mut self) {
         while let Some(n) = self.select_stack.pop() {
-            let mut ok_colors = self.get_colors();
+            let mut ok_colors = self.get_colors::<Vec<Reg>>();
             // Use physical adjacent list rather than adjacent().
             for w in self.adj_list[n.get_virt_id()].iter() {
                 if w.is_phys() {

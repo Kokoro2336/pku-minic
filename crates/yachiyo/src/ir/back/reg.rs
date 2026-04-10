@@ -9,7 +9,7 @@ pub const CALLER_SAVED_XREGS: &[XReg] = &[
     XReg::T3,
     XReg::T4,
     XReg::T5,
-    XReg::T6,
+    // XReg::T6 is reserved for spill code.
     XReg::A0,
     XReg::A1,
     XReg::A2,
