@@ -158,14 +158,13 @@ impl Lowering {
     self.lower_ir.get_rd(Some(func_id), bop_id).cloned()
   }
 
-  /// func_typ: the type of callee function.
   #[inline(always)]
-  fn get_spilled_arg_offsets(&mut self, func_typ: &Type) -> Vec<BOperand> {
+  fn get_spilled_arg_offsets(&mut self, callee_func_id: BOperand, callee_func_typ: &Type) -> Vec<BOperand> {
     // We should update the slots in caller's frame info.
     let lfunc_id = self.builder.current_function.expect("No current function");
     self.lower_ir.funcs[lfunc_id]
       .frame_info
-      .get_spilled_arg_offsets(lfunc_id, func_typ)
+      .get_spilled_arg_offsets(callee_func_id, callee_func_typ)
   }
 
   fn get_current_func(&self) -> Operand {
@@ -569,8 +568,9 @@ impl Lowering {
             },
             OpData::Call { func, args } => {
                 // Create move instructions for args
-                let func_type = self.get_op_type(func.clone());
-                let (param_types, ret_typ) = match &func_type {
+                let callee_func_id = self.get(func.clone(), None);
+                let callee_func_type = self.get_op_type(func.clone());
+                let (param_types, ret_typ) = match &callee_func_type {
                     Type::Function { param_types, return_type } => (param_types.clone(), *return_type.clone()),
                     _ => unreachable!("Only function type can be called"),
                 };
@@ -591,7 +591,7 @@ impl Lowering {
                     }
                 };
                 // Get the spilled arg offsets for this call.
-                let spilled_arg_offsets = self.get_spilled_arg_offsets(&func_type);
+                let spilled_arg_offsets = self.get_spilled_arg_offsets(callee_func_id, &callee_func_type);
 
                 for (idx, arg) in args.iter().enumerate() {
                     let arg_typ = self.get_op_type(arg.clone());
@@ -1328,7 +1328,7 @@ impl Lowering {
             // Set current inst, or potential LoadIntImm will be generated at the end of BB.
             let lterm_id = {
               let bb = &self.lower_ir.funcs[lfunc_id].cfg[lbb_id];
-              *bb.cur.last().expect("No terminator in the block")
+              *bb.cur.last().unwrap()
             };
             self.builder.set_current_inst(lterm_id);
 
@@ -1369,7 +1369,7 @@ impl Lowering {
         // Set current inst
         let lterm_id = {
           let bb = &self.lower_ir.funcs[lfunc_id].cfg[lbb_id];
-          *bb.cur.last().expect("No terminator in the block")
+          *bb.cur.last().unwrap()
         };
         self.builder.set_current_inst(lterm_id);
 

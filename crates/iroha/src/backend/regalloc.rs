@@ -1586,11 +1586,6 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
       // Build stack frame
       let func = self.get_func_mut(func_id);
       func.frame_info.build();
-      yachiyo::debug::info!(
-        "frame_info len: {}, frame_info: {:?}",
-        func.frame_info.len(),
-        func.frame_info
-      );
       // Prologue
       self.prologue();
       // Lower the frame

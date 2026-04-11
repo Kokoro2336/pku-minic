@@ -480,7 +480,7 @@ impl ISel<'_> {
         },
         fallback: {
             LOpData::Store {..}
-            | LOpData::Load {..} => {/*do nothing. Store/Load should not be rewritten in ISel, since concrete offset is known. */}
+            | LOpData::Load {..} => {/*do nothing. Store/Load will be lowered in Post-RA later. */}
 
             LOpData::Call { func } => {
                 self.replace_op_rauw(

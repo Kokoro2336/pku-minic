@@ -23,7 +23,7 @@ impl<'a> BPass<'a> for BCompaction<'a> {
     for func_id in self.ir.as_ref().unwrap().funcs.collect_internal() {
       self.ir.as_mut().unwrap().funcs[func_id].vregs.clear_dead();
     }
-    // gc
+    // Garbage collection
     self.ir.as_mut().unwrap().funcs.gc();
   }
 }

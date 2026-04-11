@@ -167,11 +167,11 @@ impl FrameInfo {
     self.storage.is_empty()
   }
 
-  pub fn get_spilled_arg_offsets(&mut self, func_id: BOperand, func_typ: &Type) -> Vec<BOperand> {
-    if self.arg_outgoing.contains_key(&func_id) {
-      return self.arg_outgoing[&func_id].clone();
+  pub fn get_spilled_arg_offsets(&mut self, callee_func_id: BOperand, callee_func_typ: &Type) -> Vec<BOperand> {
+    if self.arg_outgoing.contains_key(&callee_func_id) {
+      return self.arg_outgoing[&callee_func_id].clone();
     }
-    if let Type::Function { param_types, .. } = func_typ {
+    if let Type::Function { param_types, .. } = callee_func_typ {
       let arg_ids = param_types
         .iter()
         .enumerate()
@@ -214,13 +214,13 @@ impl FrameInfo {
       // Update the max outgoing size in site.
       self.arg_outgoing_size = self.arg_outgoing_size.max(offset);
       // Update layout map.
-      self.arg_outgoing.insert(func_id, arg_ids.clone());
+      self.arg_outgoing.insert(callee_func_id, arg_ids.clone());
 
       arg_ids
     } else {
       panic!(
         "get_arg_offsets: expected function type, got {:?}",
-        func_typ
+        callee_func_typ
       );
     }
   }
