@@ -57,14 +57,14 @@ impl<'a> BDCE<'a> {
                         BOperand::Reg(Reg::Virt(_)) => vregs[*rd].uses.is_empty(),
                         BOperand::Reg(Reg::X(_) | Reg::F(_)) => false,
                     },
-                    uni_ops: [Undef, BB, IntImm, FloatImm, Inst, Func, Data, RoData, Bss, Extern, Slot],
+                    uni_ops: [Undef, BB, IntImm, FloatImm, Inst, Func, Data, RoData, Bss, Slot],
                     uni_arm: false
                 }
             }
             BOperand::Reg(Reg::Virt(_)) => vregs[operand].uses.is_empty(),
             BOperand::Reg(Reg::X(_) | Reg::F(_)) => false,
         },
-        uni_ops: [Undef, BB, IntImm, FloatImm, Inst, Func, Data, RoData, Bss, Extern, Slot],
+        uni_ops: [Undef, BB, IntImm, FloatImm, Inst, Func, Data, RoData, Bss, Slot],
         uni_arm: false
     }
   }
@@ -167,7 +167,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
                   }
               }
           },
-          uni_ops: [Reg, Undef, BB, IntImm, FloatImm, Func, Data, RoData, Bss, Extern, Slot],
+          uni_ops: [Reg, Undef, BB, IntImm, FloatImm, Func, Data, RoData, Bss, Slot],
           uni_arm: {}
       }
     }
@@ -177,7 +177,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
       .as_ref()
       .expect("BDCE: ir is not mounted")
       .funcs
-      .ids();
+      .collect_internal();
 
     for func_id in func_ids {
       self.init(BOperand::Func(func_id));

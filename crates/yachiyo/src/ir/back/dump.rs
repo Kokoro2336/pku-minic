@@ -219,7 +219,6 @@ impl AsmFormatCtx<'_> {
       BOperand::Data(id) => symbol_name(self.data_name_map, *id, ".data"),
       BOperand::RoData(id) => symbol_name(self.rodata_name_map, *id, ".rodata"),
       BOperand::Bss(id) => symbol_name(self.bss_name_map, *id, ".bss"),
-      BOperand::Extern(name) => (*name).to_string(),
       BOperand::Undef => "undef".to_string(),
     }
   }
@@ -587,10 +586,6 @@ fn dump_initializer(
       BOperand::Func(id) => {
         let label = symbol_name(func_name_map, *id, ".func");
         out.push_str(&format!("  .dword {}\n", label));
-        written += 8;
-      }
-      BOperand::Extern(name) => {
-        out.push_str(&format!("  .dword {}\n", name));
         written += 8;
       }
       BOperand::Reg(_) | BOperand::BB(_) | BOperand::Inst(_) | BOperand::Slot(_) => {

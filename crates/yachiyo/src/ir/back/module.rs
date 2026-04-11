@@ -107,7 +107,6 @@ impl BackIR {
           | BOperand::FloatImm(_)
           | BOperand::Slot(_)
           | BOperand::Undef
-          | BOperand::Extern(_)
           | BOperand::RoData(_)
           | BOperand::BB(_)
           | BOperand::Inst(_)
@@ -122,7 +121,6 @@ impl BackIR {
       | BOperand::IntImm(_)
       | BOperand::FloatImm(_)
       | BOperand::Slot(_)
-      | BOperand::Extern(_)
       | BOperand::Undef
       | BOperand::RoData(_)
       | BOperand::Bss(_)
@@ -211,7 +209,6 @@ impl BackIR {
           | BOperand::FloatImm(_)
           | BOperand::Slot(_)
           | BOperand::Undef
-          | BOperand::Extern(_)
           | BOperand::RoData(_)
           | BOperand::BB(_)
           | BOperand::Inst(_)
@@ -226,7 +223,6 @@ impl BackIR {
       | BOperand::IntImm(_)
       | BOperand::FloatImm(_)
       | BOperand::Slot(_)
-      | BOperand::Extern(_)
       | BOperand::Undef
       | BOperand::RoData(_)
       | BOperand::Bss(_)
@@ -249,7 +245,6 @@ impl BackIR {
       | BOperand::FloatImm(_)
       | BOperand::Slot(_)
       | BOperand::Undef
-      | BOperand::Extern(_)
       | BOperand::RoData(_)
       | BOperand::Bss(_) => new,
 
@@ -488,7 +483,6 @@ impl BackIR {
                   | BOperand::BB(_)
                   | BOperand::Slot(_)
                   | BOperand::IntImm(_)
-                  | BOperand::Extern(_)
                   | BOperand::FloatImm(_)
                   | BOperand::Func(_)
                   | BOperand::Inst(_) => unreachable!("Invalid rd operand {:?} in LOpData", rd),
@@ -539,7 +533,6 @@ impl BackIR {
                   | BOperand::Slot(_)
                   | BOperand::IntImm(_)
                   | BOperand::FloatImm(_)
-                  | BOperand::Extern(_)
                   | BOperand::Func(_)
                   | BOperand::Inst(_) => unreachable!("Invalid rd operand {:?} in MOpData", rd),
               }

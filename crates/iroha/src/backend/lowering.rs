@@ -142,7 +142,7 @@ impl Lowering {
               },
               BOperand::Inst(_) => unreachable!("Inst should never be used as an operand in get()"),
           },
-          uni_ops: [Undef, Reg, Func, BB, Extern],
+          uni_ops: [Undef, Reg, Func, BB],
           uni_arm: {
               boperand
           }
@@ -161,7 +161,7 @@ impl Lowering {
   #[inline(always)]
   fn get_spilled_arg_offsets(&mut self, func_id: Operand, func_typ: &Type) -> Vec<BOperand> {
     let lfunc_id = self.get(func_id.clone(), None);
-    self.lower_ir.funcs[lfunc_id.get_func_id()]
+    self.lower_ir.funcs[lfunc_id]
       .frame_info
       .get_spilled_arg_offsets(lfunc_id, func_typ)
   }
@@ -1247,12 +1247,7 @@ impl Lowering {
     for func_id in self.ir.funcs.ids() {
       let func = &self.ir.funcs[func_id];
       let name = func.name.clone();
-      if func.is_external {
-        // Simply map external functions to Extern operand with the function name.
-        self.set(Operand::Func(func_id), BOperand::Extern(String::leak(name)));
-      } else {
-        self.alloc_and_map_func(Operand::Func(func_id), BFunction::new(name));
-      }
+      self.alloc_and_map_func(Operand::Func(func_id), BFunction::new(name, func.is_external));
     }
   }
 

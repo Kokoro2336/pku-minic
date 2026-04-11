@@ -93,7 +93,7 @@ impl<'a> BPass<'a> for Peephole<'a> {
   }
 
   fn run(&mut self) {
-    for func_id in self.ir.as_ref().unwrap().funcs.ids() {
+    for func_id in self.ir.as_ref().unwrap().funcs.collect_internal() {
       self.init(BOperand::Func(func_id));
       self.combine();
     }

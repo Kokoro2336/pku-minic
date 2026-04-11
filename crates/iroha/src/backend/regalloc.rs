@@ -216,7 +216,7 @@ impl Allocator<'_> {
             BOperand::Reg(Reg::F(_)) => self.typ == AllocatorType::Float,
             BOperand::Reg(Reg::X(_)) => self.typ == AllocatorType::Int,
         },
-        uni_ops: [IntImm, FloatImm, BB, Inst, Func, Data, RoData, Bss, Slot, Undef, Extern],
+        uni_ops: [IntImm, FloatImm, BB, Inst, Func, Data, RoData, Bss, Slot, Undef],
         uni_arm: {
             false
         }
@@ -1075,7 +1075,6 @@ impl RegAlloc<'_> {
       BOperand::FloatImm(_) => BType::F32,
       BOperand::Undef => BType::Void,
       BOperand::Func(_)
-      | BOperand::Extern(_)
       | BOperand::BB(_)
       | BOperand::Slot(_)
       | BOperand::Data(_)
@@ -1162,7 +1161,7 @@ impl RegAlloc<'_> {
                 }
             }
         },
-        uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
+        uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
         uni_arm: {
             unreachable!("Expected integer immediate, found {:?}", imm);
         }
@@ -1239,7 +1238,7 @@ impl RegAlloc<'_> {
                   dispatch_store(self.get_operand_type(value), value, offset, BOperand::IntImm(0));
               }
           },
-          uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
+          uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
           uni_arm: {
               unreachable!("Expected integer immediate, found {:?}", offset);
           }
@@ -1271,7 +1270,7 @@ impl RegAlloc<'_> {
                   dispatch_load(self.get_operand_type(rd), rd, offset, BOperand::IntImm(0));
               }
           },
-          uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
+          uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
           uni_arm: {
               unreachable!("Expected integer immediate, found {:?}", offset);
           }
@@ -1415,7 +1414,7 @@ impl RegAlloc<'_> {
                                   dispatch_store(self.get_operand_type(value), value, offset, BOperand::IntImm(0))
                               }
                           },
-                          uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
+                          uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
                           uni_arm: {
                               unreachable!("Expected integer immediate, found {:?}", offset);
                           }
@@ -1439,7 +1438,7 @@ impl RegAlloc<'_> {
                       dispatch_store(self.get_operand_type(value), value, addr, BOperand::IntImm(0))
                   }
               },
-              uni_ops: [IntImm, FloatImm, Func, BB, Inst, Extern, Undef],
+              uni_ops: [IntImm, FloatImm, Func, BB, Inst, Undef],
               uni_arm: {
                   unreachable!("Expected memory enetities, found {:?}", addr);
               }
@@ -1468,7 +1467,7 @@ impl RegAlloc<'_> {
                                   dispatch_load(rd_typ, rd, offset, BOperand::IntImm(0))
                               }
                           },
-                          uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
+                          uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
                           uni_arm: {
                               unreachable!("Expected integer immediate, found {:?}", offset);
                           }
@@ -1491,7 +1490,7 @@ impl RegAlloc<'_> {
                       dispatch_load(rd_typ, rd, addr, BOperand::IntImm(0))
                   }
               },
-              uni_ops: [IntImm, FloatImm, Func, BB, Inst, Extern, Undef],
+              uni_ops: [IntImm, FloatImm, Func, BB, Inst, Undef],
               uni_arm: {
                   unreachable!("Expected memory enetities, found {:?}", addr);
               }
@@ -1545,7 +1544,7 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
       }
     }
 
-    for func_id in self.ir.as_ref().unwrap().funcs.ids() {
+    for func_id in self.ir.as_ref().unwrap().funcs.collect_internal() {
       let func_id = BOperand::Func(func_id);
       self.init(func_id);
       self.reset();
