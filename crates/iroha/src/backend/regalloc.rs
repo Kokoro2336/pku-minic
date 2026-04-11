@@ -216,7 +216,7 @@ impl Allocator<'_> {
             BOperand::Reg(Reg::F(_)) => self.typ == AllocatorType::Float,
             BOperand::Reg(Reg::X(_)) => self.typ == AllocatorType::Int,
         },
-        uni_ops: [IntImm, FloatImm, BB, Inst, Func, Data, RoData, Bss, Slot, Undef, Extern],
+        uni_ops: [IntImm, FloatImm, BB, Inst, Func, Data, RoData, Bss, Slot, Undef],
         uni_arm: {
             false
         }
@@ -1058,7 +1058,7 @@ impl RegAlloc<'_> {
   }
 
   #[inline(always)]
-  fn get_op_type(&self, operand: BOperand) -> BType {
+  fn get_operand_type(&self, operand: BOperand) -> BType {
     let func_id = self.builder.current_function.unwrap();
 
     match operand {
@@ -1075,7 +1075,6 @@ impl RegAlloc<'_> {
       BOperand::FloatImm(_) => BType::F32,
       BOperand::Undef => BType::Void,
       BOperand::Func(_)
-      | BOperand::Extern(_)
       | BOperand::BB(_)
       | BOperand::Slot(_)
       | BOperand::Data(_)
@@ -1100,6 +1099,18 @@ impl RegAlloc<'_> {
     let func = self.get_func_mut(func_id);
     let slot_id = func.frame_info.alloc(slot);
     self.slot_map[u8::from(reg) as usize] = BOperand::Slot(slot_id);
+
+    yachiyo::debug::info!(
+      "Allocated slot for register {:?} in function v{}. slot_id: {:?}, slot_info: {:?}",
+      reg,
+      func_id,
+      slot_id,
+      {
+        let func = self.get_func_mut(func_id);
+        &func.frame_info[slot_id]
+      }
+    );
+
     BOperand::Slot(slot_id)
   }
 
@@ -1162,7 +1173,7 @@ impl RegAlloc<'_> {
                 }
             }
         },
-        uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
+        uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
         uni_arm: {
             unreachable!("Expected integer immediate, found {:?}", imm);
         }
@@ -1221,6 +1232,10 @@ impl RegAlloc<'_> {
 
     for saved in 0..self.slot_map.len() {
       let slot_id = self.slot_map[saved];
+      // Ignore those registers that are not used and thus not saved.
+      if slot_id == BOperand::Undef {
+        continue;
+      }
       let reg = Reg::from(saved as u8);
       let offset = self.legalize_offset(self.get_offset(slot_id));
       let value = BOperand::Reg(reg);
@@ -1229,13 +1244,13 @@ impl RegAlloc<'_> {
           enu: BOperand,
           minor_arms: {
               BOperand::IntImm(_) => {
-                  dispatch_store(self.get_op_type(value), value, SP_BOPRD, offset);
+                  dispatch_store(self.get_operand_type(value), value, SP_BOPRD, offset);
               }
               BOperand::Reg(_) => {
-                  dispatch_store(self.get_op_type(value), value, offset, BOperand::IntImm(0));
+                  dispatch_store(self.get_operand_type(value), value, offset, BOperand::IntImm(0));
               }
           },
-          uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
+          uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
           uni_arm: {
               unreachable!("Expected integer immediate, found {:?}", offset);
           }
@@ -1250,6 +1265,9 @@ impl RegAlloc<'_> {
     let func_id = self.builder.current_function.unwrap();
     for saved in 0..self.slot_map.len() {
       let slot_id = self.slot_map[saved];
+      if slot_id == BOperand::Undef {
+        continue;
+      }
       let reg = Reg::from(saved as u8);
       let offset = self.legalize_offset(self.get_offset(slot_id));
       let rd = BOperand::Reg(reg);
@@ -1258,13 +1276,13 @@ impl RegAlloc<'_> {
           enu: BOperand,
           minor_arms: {
               BOperand::IntImm(_) => {
-                  dispatch_load(self.get_op_type(rd), rd, SP_BOPRD, offset);
+                  dispatch_load(self.get_operand_type(rd), rd, SP_BOPRD, offset);
               }
               BOperand::Reg(_) => {
-                  dispatch_load(self.get_op_type(rd), rd, offset, BOperand::IntImm(0));
+                  dispatch_load(self.get_operand_type(rd), rd, offset, BOperand::IntImm(0));
               }
           },
-          uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
+          uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
           uni_arm: {
               unreachable!("Expected integer immediate, found {:?}", offset);
           }
@@ -1385,11 +1403,18 @@ impl RegAlloc<'_> {
       for inst_id in inst_ids {
         let op = &self.get_func(func_id).dfg[inst_id];
         let (op_data, rd_typ) = (op.data.clone(), op.typ.clone());
+        
         if let BOpData::L(LOpData::Store { addr, value }) = op_data {
           self.builder.set_before_inst(
             self.ir.as_mut().unwrap(),
             self.builder.current_function,
             Some(inst_id),
+          );
+          yachiyo::debug::info!(
+            "Lowering store instruction. inst_id: {:?}, addr: {:?}, value: {:?}",
+            inst_id,
+            addr,
+            value
           );
           let store_op = match_some! {
               target: addr,
@@ -1402,13 +1427,13 @@ impl RegAlloc<'_> {
                           enu: BOperand,
                           minor_arms: {
                               BOperand::IntImm(_) => {
-                                  dispatch_store(self.get_op_type(value), value, SP_BOPRD, offset)
+                                  dispatch_store(self.get_operand_type(value), value, SP_BOPRD, offset)
                               }
                               BOperand::Reg(_) => {
-                                  dispatch_store(self.get_op_type(value), value, offset, BOperand::IntImm(0))
+                                  dispatch_store(self.get_operand_type(value), value, offset, BOperand::IntImm(0))
                               }
                           },
-                          uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
+                          uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
                           uni_arm: {
                               unreachable!("Expected integer immediate, found {:?}", offset);
                           }
@@ -1426,10 +1451,13 @@ impl RegAlloc<'_> {
                               target: addr,
                           }.into()
                       ));
-                      dispatch_store(self.get_op_type(value), value, RESERVED_REG_BOPRD, BOperand::IntImm(0))
+                      dispatch_store(self.get_operand_type(value), value, RESERVED_REG_BOPRD, BOperand::IntImm(0))
+                  },
+                  BOperand::Reg(_) => {
+                      dispatch_store(self.get_operand_type(value), value, addr, BOperand::IntImm(0))
                   }
               },
-              uni_ops: [Reg, IntImm, FloatImm, Func, BB, Inst, Extern, Undef],
+              uni_ops: [IntImm, FloatImm, Func, BB, Inst, Undef],
               uni_arm: {
                   unreachable!("Expected memory enetities, found {:?}", addr);
               }
@@ -1440,6 +1468,12 @@ impl RegAlloc<'_> {
             self.ir.as_mut().unwrap(),
             self.builder.current_function,
             Some(inst_id),
+          );
+          yachiyo::debug::info!(
+            "Lowering load instruction. inst_id: {:?}, rd: {:?}, addr: {:?}",
+            inst_id,
+            rd,
+            addr
           );
           let load_op = match_some! {
               target: addr,
@@ -1458,7 +1492,7 @@ impl RegAlloc<'_> {
                                   dispatch_load(rd_typ, rd, offset, BOperand::IntImm(0))
                               }
                           },
-                          uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
+                          uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
                           uni_arm: {
                               unreachable!("Expected integer immediate, found {:?}", offset);
                           }
@@ -1476,9 +1510,12 @@ impl RegAlloc<'_> {
                           }.into()
                       ));
                       dispatch_load(rd_typ, rd, RESERVED_REG_BOPRD, BOperand::IntImm(0))
+                  },
+                  BOperand::Reg(_) => {
+                      dispatch_load(rd_typ, rd, addr, BOperand::IntImm(0))
                   }
               },
-              uni_ops: [Reg, IntImm, FloatImm, Func, BB, Inst, Extern, Undef],
+              uni_ops: [IntImm, FloatImm, Func, BB, Inst, Undef],
               uni_arm: {
                   unreachable!("Expected memory enetities, found {:?}", addr);
               }
@@ -1532,7 +1569,7 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
       }
     }
 
-    for func_id in self.ir.as_ref().unwrap().funcs.ids() {
+    for func_id in self.ir.as_ref().unwrap().funcs.collect_internal() {
       let func_id = BOperand::Func(func_id);
       self.init(func_id);
       self.reset();

@@ -142,7 +142,7 @@ impl Lowering {
               },
               BOperand::Inst(_) => unreachable!("Inst should never be used as an operand in get()"),
           },
-          uni_ops: [Undef, Reg, Func, BB, Extern],
+          uni_ops: [Undef, Reg, Func, BB],
           uni_arm: {
               boperand
           }
@@ -159,11 +159,12 @@ impl Lowering {
   }
 
   #[inline(always)]
-  fn get_spilled_arg_offsets(&mut self, func_id: Operand, func_typ: &Type) -> Vec<BOperand> {
-    let lfunc_id = self.get(func_id.clone(), None);
-    self.lower_ir.funcs[lfunc_id.get_func_id()]
+  fn get_spilled_arg_offsets(&mut self, callee_func_id: BOperand, callee_func_typ: &Type) -> Vec<BOperand> {
+    // We should update the slots in caller's frame info.
+    let lfunc_id = self.builder.current_function.expect("No current function");
+    self.lower_ir.funcs[lfunc_id]
       .frame_info
-      .get_spilled_arg_offsets(lfunc_id, func_typ)
+      .get_spilled_arg_offsets(callee_func_id, callee_func_typ)
   }
 
   fn get_current_func(&self) -> Operand {
@@ -567,8 +568,9 @@ impl Lowering {
             },
             OpData::Call { func, args } => {
                 // Create move instructions for args
-                let func_type = self.get_op_type(func.clone());
-                let (param_types, ret_typ) = match &func_type {
+                let callee_func_id = self.get(func.clone(), None);
+                let callee_func_type = self.get_op_type(func.clone());
+                let (param_types, ret_typ) = match &callee_func_type {
                     Type::Function { param_types, return_type } => (param_types.clone(), *return_type.clone()),
                     _ => unreachable!("Only function type can be called"),
                 };
@@ -580,15 +582,16 @@ impl Lowering {
                     Reg::F(freg) => BOperand::Reg(Reg::F(*freg)),
                     Reg::Virt(_) => unreachable!(),
                 }).collect());
-                let implicit_def = BAttr::ImplicitDef(match ret_typ {
-                    Type::Float => BOperand::Reg(Reg::F(FReg::Fa0)),
-                    Type::Bool | Type::Int | Type::Pointer { .. } => BOperand::Reg(Reg::X(XReg::A0)),
-                    Type::Array { .. } | Type::Function { .. } | Type::Void | Type::Char => {
-                        unreachable!("Array, Function, Void and Char type should not be directly returned")
+                let implicit_def = match ret_typ {
+                    Type::Float => Some(BAttr::ImplicitDef(BOperand::Reg(Reg::F(FReg::Fa0)))),
+                    Type::Bool | Type::Int | Type::Pointer { .. } => Some(BAttr::ImplicitDef(BOperand::Reg(Reg::X(XReg::A0)))),
+                    Type::Void => None,
+                    Type::Array { .. } | Type::Function { .. } | Type::Char => {
+                        unreachable!("Unexpected return type: {:?}", ret_typ)
                     }
-                });
+                };
                 // Get the spilled arg offsets for this call.
-                let spilled_arg_offsets = self.get_spilled_arg_offsets(func.clone(), &func_type);
+                let spilled_arg_offsets = self.get_spilled_arg_offsets(callee_func_id, &callee_func_type);
 
                 for (idx, arg) in args.iter().enumerate() {
                     let arg_typ = self.get_op_type(arg.clone());
@@ -629,12 +632,19 @@ impl Lowering {
                 self.create(BOp::new(
                     // Since call doesn't produce a value in Lower IR, the type should be void.
                     Type::Void.into(),
-                    vec![
+                    match implicit_def {
+                      Some(def) => vec![
+                        def,
                         // Call implicitly uses some physical registers.
-                        implicit_use, implicit_def,
+                        implicit_use,
                         // Call implicitly clobbers all caller-saved registers.
                         BAttr::Clobber,
-                    ],
+                      ],
+                      None => vec![
+                        implicit_use,
+                        BAttr::Clobber,
+                      ],
+                    },
                     LOpData::Call {
                         func,
                     }
@@ -1247,12 +1257,10 @@ impl Lowering {
     for func_id in self.ir.funcs.ids() {
       let func = &self.ir.funcs[func_id];
       let name = func.name.clone();
-      if func.is_external {
-        // Simply map external functions to Extern operand with the function name.
-        self.set(Operand::Func(func_id), BOperand::Extern(String::leak(name)));
-      } else {
-        self.alloc_and_map_func(Operand::Func(func_id), BFunction::new(name));
-      }
+      self.alloc_and_map_func(
+        Operand::Func(func_id),
+        BFunction::new(name, func.is_external),
+      );
     }
   }
 
@@ -1320,7 +1328,7 @@ impl Lowering {
             // Set current inst, or potential LoadIntImm will be generated at the end of BB.
             let lterm_id = {
               let bb = &self.lower_ir.funcs[lfunc_id].cfg[lbb_id];
-              *bb.cur.last().expect("No terminator in the block")
+              *bb.cur.last().unwrap()
             };
             self.builder.set_current_inst(lterm_id);
 
@@ -1361,7 +1369,7 @@ impl Lowering {
         // Set current inst
         let lterm_id = {
           let bb = &self.lower_ir.funcs[lfunc_id].cfg[lbb_id];
-          *bb.cur.last().expect("No terminator in the block")
+          *bb.cur.last().unwrap()
         };
         self.builder.set_current_inst(lterm_id);
 

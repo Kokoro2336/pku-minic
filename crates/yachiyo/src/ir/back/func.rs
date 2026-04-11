@@ -16,6 +16,7 @@ pub type VRegs = IndexedArena<VirtReg>;
 #[derive(Debug, Clone)]
 pub struct BFunction {
   pub name: String,
+  pub is_external: bool,
   pub cfg: BCFG,
   pub dfg: BDFG,
   /// Virtual registers used in this function.
@@ -27,13 +28,14 @@ pub struct BFunction {
 }
 
 impl BFunction {
-  pub fn new(name: String) -> Self {
+  pub fn new(name: String, is_external: bool) -> Self {
     Self {
       name,
       cfg: BCFG::new(),
       dfg: BDFG::new(),
       vregs: VRegs::new(),
       frame_info: FrameInfo::default(),
+      is_external,
     }
   }
   pub fn get_rd_tuple(&self, lop_id: BOperand) -> Option<(&BOperand, usize)> {
@@ -100,7 +102,7 @@ impl VRegs {
             BOperand::Reg(Reg::X(_))
             | BOperand::Reg(Reg::F(_)) => return,
         },
-        uni_ops: [IntImm, FloatImm, Func, Inst, Slot, Data, RoData, Bss, BB, Undef, Extern],
+        uni_ops: [IntImm, FloatImm, Func, Inst, Slot, Data, RoData, Bss, BB, Undef],
         uni_arm: return
     };
     let vreg = &mut self[op_id];
@@ -118,7 +120,7 @@ impl VRegs {
             BOperand::Reg(Reg::X(_))
             | BOperand::Reg(Reg::F(_)) => return,
         },
-        uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, Bss, BB, Undef, Extern],
+        uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, Bss, BB, Undef],
         uni_arm: return
     };
     let vreg = &mut self[vreg_id];
@@ -141,7 +143,7 @@ impl VRegs {
             BOperand::Reg(Reg::X(_))
             | BOperand::Reg(Reg::F(_)) => return,
         },
-        uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, Bss, BB, Undef, Extern],
+        uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, Bss, BB, Undef],
         uni_arm: return
     };
     let vreg = &mut self[vreg_id];
@@ -162,7 +164,7 @@ impl VRegs {
             BOperand::Reg(Reg::X(_))
             | BOperand::Reg(Reg::F(_)) => return,
         },
-        uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, Bss, BB, Undef, Extern],
+        uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, Bss, BB, Undef],
         uni_arm: return
     };
     let vreg = &mut self[vreg_id];
@@ -536,5 +538,26 @@ impl Arena<BFunction> for BCG {
         });
 
     old_arena
+  }
+}
+
+impl BCG {
+  pub fn collect_internal(&self) -> Vec<usize> {
+    self
+      .storage
+      .iter()
+      .enumerate()
+      .filter_map(|(idx, item)| {
+        if let ArenaItem::Data(func) = item {
+          if !func.is_external {
+            Some(idx)
+          } else {
+            None
+          }
+        } else {
+          None
+        }
+      })
+      .collect()
   }
 }
