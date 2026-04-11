@@ -158,6 +158,14 @@ impl FrameInfo {
   pub fn alloc(&mut self, slot: Slot) -> usize {
     self.storage.alloc(slot)
   }
+  
+  pub fn len(&self) -> usize {
+    self.storage.len()
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.storage.is_empty()
+  }
 
   pub fn get_spilled_arg_offsets(&mut self, func_id: BOperand, func_typ: &Type) -> Vec<BOperand> {
     if self.arg_outgoing.contains_key(&func_id) {
@@ -372,6 +380,20 @@ impl IndexMut<BOperand> for FrameInfo {
         index
       ),
     }
+  }
+}
+
+impl Index<usize> for FrameInfo {
+  type Output = Slot;
+
+  fn index(&self, index: usize) -> &Self::Output {
+    &self.storage[index]
+  }
+}
+
+impl IndexMut<usize> for FrameInfo {
+  fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+    &mut self.storage[index]
   }
 }
 

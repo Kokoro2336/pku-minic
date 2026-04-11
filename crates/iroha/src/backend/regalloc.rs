@@ -1099,6 +1099,18 @@ impl RegAlloc<'_> {
     let func = self.get_func_mut(func_id);
     let slot_id = func.frame_info.alloc(slot);
     self.slot_map[u8::from(reg) as usize] = BOperand::Slot(slot_id);
+
+    yachiyo::debug::info!(
+      "Allocated slot for register {:?} in function v{}. slot_id: {:?}, slot_info: {:?}",
+      reg,
+      func_id,
+      slot_id,
+      {
+        let func = self.get_func_mut(func_id);
+        &func.frame_info[slot_id]
+      }
+    );
+
     BOperand::Slot(slot_id)
   }
 
@@ -1391,11 +1403,18 @@ impl RegAlloc<'_> {
       for inst_id in inst_ids {
         let op = &self.get_func(func_id).dfg[inst_id];
         let (op_data, rd_typ) = (op.data.clone(), op.typ.clone());
+        
         if let BOpData::L(LOpData::Store { addr, value }) = op_data {
           self.builder.set_before_inst(
             self.ir.as_mut().unwrap(),
             self.builder.current_function,
             Some(inst_id),
+          );
+          yachiyo::debug::info!(
+            "Lowering store instruction. inst_id: {:?}, addr: {:?}, value: {:?}",
+            inst_id,
+            addr,
+            value
           );
           let store_op = match_some! {
               target: addr,
@@ -1449,6 +1468,12 @@ impl RegAlloc<'_> {
             self.ir.as_mut().unwrap(),
             self.builder.current_function,
             Some(inst_id),
+          );
+          yachiyo::debug::info!(
+            "Lowering load instruction. inst_id: {:?}, rd: {:?}, addr: {:?}",
+            inst_id,
+            rd,
+            addr
           );
           let load_op = match_some! {
               target: addr,
@@ -1561,6 +1586,11 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
       // Build stack frame
       let func = self.get_func_mut(func_id);
       func.frame_info.build();
+      yachiyo::debug::info!(
+        "frame_info len: {}, frame_info: {:?}",
+        func.frame_info.len(),
+        func.frame_info
+      );
       // Prologue
       self.prologue();
       // Lower the frame

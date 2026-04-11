@@ -158,9 +158,11 @@ impl Lowering {
     self.lower_ir.get_rd(Some(func_id), bop_id).cloned()
   }
 
+  /// func_typ: the type of callee function.
   #[inline(always)]
-  fn get_spilled_arg_offsets(&mut self, func_id: Operand, func_typ: &Type) -> Vec<BOperand> {
-    let lfunc_id = self.get(func_id.clone(), None);
+  fn get_spilled_arg_offsets(&mut self, func_typ: &Type) -> Vec<BOperand> {
+    // We should update the slots in caller's frame info.
+    let lfunc_id = self.builder.current_function.expect("No current function");
     self.lower_ir.funcs[lfunc_id]
       .frame_info
       .get_spilled_arg_offsets(lfunc_id, func_typ)
@@ -589,7 +591,7 @@ impl Lowering {
                     }
                 };
                 // Get the spilled arg offsets for this call.
-                let spilled_arg_offsets = self.get_spilled_arg_offsets(func.clone(), &func_type);
+                let spilled_arg_offsets = self.get_spilled_arg_offsets(&func_type);
 
                 for (idx, arg) in args.iter().enumerate() {
                     let arg_typ = self.get_op_type(arg.clone());
