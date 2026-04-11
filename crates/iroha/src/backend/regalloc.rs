@@ -1058,7 +1058,7 @@ impl RegAlloc<'_> {
   }
 
   #[inline(always)]
-  fn get_op_type(&self, operand: BOperand) -> BType {
+  fn get_operand_type(&self, operand: BOperand) -> BType {
     let func_id = self.builder.current_function.unwrap();
 
     match operand {
@@ -1233,10 +1233,10 @@ impl RegAlloc<'_> {
           enu: BOperand,
           minor_arms: {
               BOperand::IntImm(_) => {
-                  dispatch_store(self.get_op_type(value), value, SP_BOPRD, offset);
+                  dispatch_store(self.get_operand_type(value), value, SP_BOPRD, offset);
               }
               BOperand::Reg(_) => {
-                  dispatch_store(self.get_op_type(value), value, offset, BOperand::IntImm(0));
+                  dispatch_store(self.get_operand_type(value), value, offset, BOperand::IntImm(0));
               }
           },
           uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
@@ -1265,10 +1265,10 @@ impl RegAlloc<'_> {
           enu: BOperand,
           minor_arms: {
               BOperand::IntImm(_) => {
-                  dispatch_load(self.get_op_type(rd), rd, SP_BOPRD, offset);
+                  dispatch_load(self.get_operand_type(rd), rd, SP_BOPRD, offset);
               }
               BOperand::Reg(_) => {
-                  dispatch_load(self.get_op_type(rd), rd, offset, BOperand::IntImm(0));
+                  dispatch_load(self.get_operand_type(rd), rd, offset, BOperand::IntImm(0));
               }
           },
           uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
@@ -1409,10 +1409,10 @@ impl RegAlloc<'_> {
                           enu: BOperand,
                           minor_arms: {
                               BOperand::IntImm(_) => {
-                                  dispatch_store(self.get_op_type(value), value, SP_BOPRD, offset)
+                                  dispatch_store(self.get_operand_type(value), value, SP_BOPRD, offset)
                               }
                               BOperand::Reg(_) => {
-                                  dispatch_store(self.get_op_type(value), value, offset, BOperand::IntImm(0))
+                                  dispatch_store(self.get_operand_type(value), value, offset, BOperand::IntImm(0))
                               }
                           },
                           uni_ops: [Reg, Func, BB, Inst, Extern, Slot, Undef, FloatImm, Data, RoData, Bss],
@@ -1433,10 +1433,13 @@ impl RegAlloc<'_> {
                               target: addr,
                           }.into()
                       ));
-                      dispatch_store(self.get_op_type(value), value, RESERVED_REG_BOPRD, BOperand::IntImm(0))
+                      dispatch_store(self.get_operand_type(value), value, RESERVED_REG_BOPRD, BOperand::IntImm(0))
+                  },
+                  BOperand::Reg(_) => {
+                      dispatch_store(self.get_operand_type(value), value, addr, BOperand::IntImm(0))
                   }
               },
-              uni_ops: [Reg, IntImm, FloatImm, Func, BB, Inst, Extern, Undef],
+              uni_ops: [IntImm, FloatImm, Func, BB, Inst, Extern, Undef],
               uni_arm: {
                   unreachable!("Expected memory enetities, found {:?}", addr);
               }
@@ -1483,9 +1486,12 @@ impl RegAlloc<'_> {
                           }.into()
                       ));
                       dispatch_load(rd_typ, rd, RESERVED_REG_BOPRD, BOperand::IntImm(0))
+                  },
+                  BOperand::Reg(_) => {
+                      dispatch_load(rd_typ, rd, addr, BOperand::IntImm(0))
                   }
               },
-              uni_ops: [Reg, IntImm, FloatImm, Func, BB, Inst, Extern, Undef],
+              uni_ops: [IntImm, FloatImm, Func, BB, Inst, Extern, Undef],
               uni_arm: {
                   unreachable!("Expected memory enetities, found {:?}", addr);
               }
