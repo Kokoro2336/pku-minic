@@ -12,590 +12,586 @@ use yachiyo::pass::Pass;
 use std::collections::HashMap;
 
 struct InsertPhi<'a> {
-    program: &'a mut IR,
-    builder: Builder,
-    // Former computed frontiers
-    frontiers: Vec<DomFrontier>,
+  program: &'a mut IR,
+  builder: Builder,
+  // Former computed frontiers
+  frontiers: Vec<DomFrontier>,
 
-    // Ancillary state fields
-    // VarId -> Vec of BBId
-    defsites: Vec<Vec<usize>>,
-    // The original defs in BBId, BBId -> Vec of OpId
-    origins: Vec<Vec<usize>>,
-    // The BBId that contains a phi for OpId, VarId -> Vec of BBId
-    phis: Vec<Vec<usize>>,
+  // Ancillary state fields
+  // VarId -> Vec of BBId
+  defsites: Vec<Vec<usize>>,
+  // The original defs in BBId, BBId -> Vec of OpId
+  origins: Vec<Vec<usize>>,
+  // The BBId that contains a phi for OpId, VarId -> Vec of BBId
+  phis: Vec<Vec<usize>>,
 
-    // Temporary map from OpId to VarId to avoid sparse indexing of the above structures
-    // FuncId -> OpId -> VarId
-    op_to_var: HashMap<usize, usize>,
-    var_to_op: HashMap<usize, usize>,
-    var_counter: usize,
+  // Temporary map from OpId to VarId to avoid sparse indexing of the above structures
+  // FuncId -> OpId -> VarId
+  op_to_var: HashMap<usize, usize>,
+  var_to_op: HashMap<usize, usize>,
+  var_counter: usize,
 }
 
 impl<'a> InsertPhi<'a> {
-    pub fn new(program: &'a mut IR, frontiers: Vec<DomFrontier>) -> Self {
-        Self {
-            program,
-            builder: Builder::new(),
-            frontiers,
-            defsites: vec![],
-            origins: vec![],
-            phis: vec![],
-            op_to_var: HashMap::new(),
-            var_to_op: HashMap::new(),
-            var_counter: 0,
-        }
+  pub fn new(program: &'a mut IR, frontiers: Vec<DomFrontier>) -> Self {
+    Self {
+      program,
+      builder: Builder::new(),
+      frontiers,
+      defsites: vec![],
+      origins: vec![],
+      phis: vec![],
+      op_to_var: HashMap::new(),
+      var_to_op: HashMap::new(),
+      var_counter: 0,
+    }
+  }
+
+  pub fn init(&mut self, func_id: Operand) {
+    self.op_to_var.clear();
+    self.var_to_op.clear();
+    self.var_counter = 0;
+
+    let (cfg_len, allocas) = {
+      self.builder.set_current_func(Some(func_id.clone()));
+      let func = &self.program.funcs[func_id.clone()];
+      let cfg_len = func.cfg.storage.len();
+      (
+        cfg_len,
+        self
+          .program
+          .get_all_ops(self.builder.current_function.clone(), OpType::Alloca),
+      )
+    };
+
+    // Initialize the map between OpId and VarId
+    for alloca in allocas.into_iter() {
+      let op_id = match alloca {
+        Operand::Value(id) => id,
+        _ => panic!("InsertPhi: allocas contains non-op"),
+      };
+      let var_id = self.var_counter;
+      self.var_counter += 1;
+
+      self.op_to_var.insert(op_id, var_id);
+      self.var_to_op.insert(var_id, op_id);
     }
 
-    pub fn init(&mut self, func_id: Operand) {
-        self.op_to_var.clear();
-        self.var_to_op.clear();
-        self.var_counter = 0;
+    self.defsites = vec![vec![]; self.var_counter];
+    self.origins = vec![vec![]; cfg_len];
+    self.phis = vec![vec![]; self.var_counter];
 
-        let (cfg_len, allocas) = {
-            self.builder.set_current_func(Some(func_id.clone()));
-            let func = &self.program.funcs[func_id.clone()];
-            let cfg_len = func.cfg.storage.len();
-            (
-                cfg_len,
-                self.program
-                    .get_all_ops(self.builder.current_function.clone(), OpType::Alloca),
-            )
-        };
+    // Compute defsites, origins and phis
+    let bb_ids = self.program.funcs[func_id.clone()].cfg.collect();
+    for bb_id in bb_ids {
+      let func = &self.program.funcs[func_id.clone()];
+      let block = &func.cfg[bb_id];
+      for op_id_operand in &block.cur {
+        let op = &func.dfg[op_id_operand.clone()];
+        if op.is(OpType::Store) {
+          let addr = match &op.data {
+            OpData::Store { addr, .. } => addr,
+            _ => panic!("InsertPhi: expected store op"),
+          };
 
-        // Initialize the map between OpId and VarId
-        for alloca in allocas.into_iter() {
-            let op_id = match alloca {
-                Operand::Value(id) => id,
-                _ => panic!("InsertPhi: allocas contains non-op"),
+          if let Operand::Value(addr_id) = addr {
+            let addr_op = &func.dfg[addr.clone()];
+            if !addr_op
+              .attrs
+              .iter()
+              .any(|attr| matches!(attr, Attr::Promotion))
+            {
+              // If the store address doesn't have OldIdx attribute, it might not be a relevant store for mem2reg (e.g., global or array), so we skip it.
+              continue;
+            }
+
+            if let Some(&var_id) = self.op_to_var.get(addr_id) {
+              self.defsites[var_id].push(bb_id);
+              self.origins[bb_id].push(var_id);
+            }
+          }
+          // If it's not in op_to_var, it might not be a relevant store for mem2reg (e.g., global or array), so we skip it.
+        }
+      }
+    }
+  }
+
+  pub fn insert(&mut self) {
+    let defsites_len = self.defsites.len();
+    let func_id = self.builder.current_function.clone().unwrap();
+    let func_idx = func_id.get_func_id();
+    for idx in 0..defsites_len {
+      while let Some(bb_id) = self.defsites[idx].pop() {
+        let frontiers = self.frontiers[func_idx][bb_id].clone();
+        for frontier in frontiers {
+          // If the phi already exists, we don't need to insert it again, but we still need to update the origins.
+          if !self.phis[idx].contains(&frontier) {
+            // Get number of preds of the frontier block
+            let preds_num = {
+              let func = &self.program.funcs[func_id.clone()];
+              let block = &func.cfg[frontier];
+              block.preds.len()
             };
-            let var_id = self.var_counter;
-            self.var_counter += 1;
+            // Insert phi
+            // Use guard to save the old context
+            {
+              let mut guard = BuilderGuard::new(&mut self.builder);
+              let current_function = guard.current_function.clone();
 
-            self.op_to_var.insert(op_id, var_id);
-            self.var_to_op.insert(var_id, op_id);
-        }
+              guard.set_current_block(Operand::BB(frontier));
 
-        self.defsites = vec![vec![]; self.var_counter];
-        self.origins = vec![vec![]; cfg_len];
-        self.phis = vec![vec![]; self.var_counter];
+              // Get type of the variable from one of its original defs.
+              let var_type = {
+                let func = &self.program.funcs[func_id.clone()];
+                let origin_op_id = match self.var_to_op.get(&idx) {
+                  Some(id) => *id,
+                  None => {
+                    panic!("InsertPhi: variable has no original definition")
+                  }
+                };
 
-        // Compute defsites, origins and phis
-        let bb_ids = self.program.funcs[func_id.clone()].cfg.collect();
-        for bb_id in bb_ids {
-            let func = &self.program.funcs[func_id.clone()];
-            let block = &func.cfg[bb_id];
-            for op_id_operand in &block.cur {
-                let op = &func.dfg[op_id_operand.clone()];
-                if op.is(OpType::Store) {
-                    let addr = match &op.data {
-                        OpData::Store { addr, .. } => addr,
-                        _ => panic!("InsertPhi: expected store op"),
-                    };
-
-                    if let Operand::Value(addr_id) = addr {
-                        let addr_op = &func.dfg[addr.clone()];
-                        if !addr_op
-                            .attrs
-                            .iter()
-                            .any(|attr| matches!(attr, Attr::Promotion))
-                        {
-                            // If the store address doesn't have OldIdx attribute, it might not be a relevant store for mem2reg (e.g., global or array), so we skip it.
-                            continue;
-                        }
-
-                        if let Some(&var_id) = self.op_to_var.get(addr_id) {
-                            self.defsites[var_id].push(bb_id);
-                            self.origins[bb_id].push(var_id);
-                        }
-                    }
-                    // If it's not in op_to_var, it might not be a relevant store for mem2reg (e.g., global or array), so we skip it.
+                // This is an alloca
+                let origin_op = &func.dfg[origin_op_id];
+                match &origin_op.typ {
+                  Type::Pointer { base } => *base.clone(),
+                  _ => {
+                    panic!("InsertPhi: original definition is not a pointer")
+                  }
                 }
+              };
+
+              guard.create_at_head(
+                self.program,
+                current_function,
+                Op::new(
+                  // We don't know the inst's result type yet
+                  var_type,
+                  vec![Attr::OldIdx(Operand::Value(self.var_to_op[&idx]))],
+                  OpData::Phi {
+                    // Hold the place with dummy incoming. We will update it later.
+                    incomings: vec![PhiIncoming::None; preds_num],
+                  },
+                ),
+              );
+            };
+
+            // Record the phi's OpId.
+            self.phis[idx].push(frontier);
+            if !self.origins[frontier].contains(&idx) {
+              // If it is a new definition in the frontier block, we add the block to the var's worklist.
+              self.defsites[idx].push(frontier);
             }
+          }
         }
+      }
     }
+  }
 
-    pub fn insert(&mut self) {
-        let defsites_len = self.defsites.len();
-        let func_id = self.builder.current_function.clone().unwrap();
-        let func_idx = func_id.get_func_id();
-        for idx in 0..defsites_len {
-            while let Some(bb_id) = self.defsites[idx].pop() {
-                let frontiers = self.frontiers[func_idx][bb_id].clone();
-                for frontier in frontiers {
-                    // If the phi already exists, we don't need to insert it again, but we still need to update the origins.
-                    if !self.phis[idx].contains(&frontier) {
-                        // Get number of preds of the frontier block
-                        let preds_num = {
-                            let func = &self.program.funcs[func_id.clone()];
-                            let block = &func.cfg[frontier];
-                            block.preds.len()
-                        };
-                        // Insert phi
-                        // Use guard to save the old context
-                        {
-                            let mut guard = BuilderGuard::new(&mut self.builder);
-                            let current_function = guard.current_function.clone();
-
-                            guard.set_current_block(Operand::BB(frontier));
-
-                            // Get type of the variable from one of its original defs.
-                            let var_type = {
-                                let func = &self.program.funcs[func_id.clone()];
-                                let origin_op_id = match self.var_to_op.get(&idx) {
-                                    Some(id) => *id,
-                                    None => {
-                                        panic!("InsertPhi: variable has no original definition")
-                                    }
-                                };
-
-                                // This is an alloca
-                                let origin_op = &func.dfg[origin_op_id];
-                                match &origin_op.typ {
-                                    Type::Pointer { base } => *base.clone(),
-                                    _ => {
-                                        panic!("InsertPhi: original definition is not a pointer")
-                                    }
-                                }
-                            };
-
-                            guard.create_at_head(
-                                self.program,
-                                current_function,
-                                Op::new(
-                                    // We don't know the inst's result type yet
-                                    var_type,
-                                    vec![Attr::OldIdx(Operand::Value(self.var_to_op[&idx]))],
-                                    OpData::Phi {
-                                        // Hold the place with dummy incoming. We will update it later.
-                                        incomings: vec![PhiIncoming::None; preds_num],
-                                    },
-                                ),
-                            );
-                        };
-
-                        // Record the phi's OpId.
-                        self.phis[idx].push(frontier);
-                        if !self.origins[frontier].contains(&idx) {
-                            // If it is a new definition in the frontier block, we add the block to the var's worklist.
-                            self.defsites[idx].push(frontier);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn run(&mut self) {
-        self.program
-            .funcs
-            .collect_internal()
-            .into_iter()
-            .for_each(|idx| {
-                self.init(Operand::Func(idx));
-                self.insert();
-            });
-    }
+  pub fn run(&mut self) {
+    self
+      .program
+      .funcs
+      .collect_internal()
+      .into_iter()
+      .for_each(|idx| {
+        self.init(Operand::Func(idx));
+        self.insert();
+      });
+  }
 }
 
 /// Two-Phase State Machine for renaming, avoiding deep recursion in dominator tree.
 enum RenamingPhase {
-    // BBId
-    Enter(usize),
-    // VarId -> Record of version stack
-    Leave(Vec<usize>),
+  // BBId
+  Enter(usize),
+  // VarId -> Record of version stack
+  Leave(Vec<usize>),
 }
 
 struct Renaming<'a> {
-    program: Option<&'a mut IR>,
-    builder: Builder,
-    dom_trees: Vec<DomTree>,
-    // version stack
-    versions: Vec<Vec<Operand>>,
+  program: Option<&'a mut IR>,
+  builder: Builder,
+  dom_trees: Vec<DomTree>,
+  // version stack
+  versions: Vec<Vec<Operand>>,
 
-    // Temporary map from VarId to OpId to avoid sparse indexing of the above structures
-    op_to_var: HashMap<usize, usize>,
-    var_to_op: HashMap<usize, usize>,
-    var_counter: usize,
+  // Temporary map from VarId to OpId to avoid sparse indexing of the above structures
+  op_to_var: HashMap<usize, usize>,
+  var_to_op: HashMap<usize, usize>,
+  var_counter: usize,
 
-    // The old load/store that need to be removed
-    // Vec<(OpId, BBId)>
-    removed: Vec<(Operand, Operand)>,
+  // The old load/store that need to be removed
+  // Vec<(OpId, BBId)>
+  removed: Vec<(Operand, Operand)>,
 
-    // Vec<BBId>
-    stack: Vec<RenamingPhase>,
+  // Vec<BBId>
+  stack: Vec<RenamingPhase>,
 }
 
 impl<'a> Renaming<'a> {
-    pub fn new(program: &'a mut IR, dom_trees: Vec<DomTree>) -> Self {
-        Self {
-            program: Some(program),
-            builder: Builder::new(),
-            dom_trees,
-            versions: vec![],
-            op_to_var: HashMap::new(),
-            var_to_op: HashMap::new(),
-            var_counter: 0,
-            removed: vec![],
-            stack: vec![],
-        }
+  pub fn new(program: &'a mut IR, dom_trees: Vec<DomTree>) -> Self {
+    Self {
+      program: Some(program),
+      builder: Builder::new(),
+      dom_trees,
+      versions: vec![],
+      op_to_var: HashMap::new(),
+      var_to_op: HashMap::new(),
+      var_counter: 0,
+      removed: vec![],
+      stack: vec![],
     }
+  }
 
-    fn init(&mut self) {
-        self.op_to_var.clear();
-        self.var_to_op.clear();
-        self.var_counter = 0;
+  fn init(&mut self) {
+    self.op_to_var.clear();
+    self.var_to_op.clear();
+    self.var_counter = 0;
 
-        let (entry, bbs) = {
-            let func = &self.program.as_ref().unwrap().funcs
-                [self.builder.current_function.clone().unwrap()];
-            let entry = match func.cfg.entry {
-                Some(id) => id,
-                None => panic!("Renaming: function has no entry block"),
-            };
-            let bbs = func.cfg.collect();
-            (entry, bbs)
+    let (entry, bbs) = {
+      let func =
+        &self.program.as_ref().unwrap().funcs[self.builder.current_function.clone().unwrap()];
+      let entry = match func.cfg.entry {
+        Some(id) => id,
+        None => panic!("Renaming: function has no entry block"),
+      };
+      let bbs = func.cfg.collect();
+      (entry, bbs)
+    };
+
+    self.builder.set_current_block(Operand::BB(entry));
+    let func_id = self.builder.current_function.clone().unwrap();
+    // For each block, we check if it contains an alloca. If it does, we move the alloca to the entry block.
+    for bb_id in bbs {
+      let allocas = {
+        self.program.as_deref_mut().unwrap().get_all_ops_in_block(
+          self.builder.current_function.clone(),
+          Operand::BB(bb_id),
+          OpType::Alloca,
+        )
+      };
+
+      // Raise all the allocas to the entry block.
+      for alloca in &allocas {
+        // raise alloca to the entry block if it's not already in the entry block
+        if bb_id != entry {
+          self.program.as_deref_mut().unwrap().move_op_to_bb_at(
+            self.builder.current_function.clone(),
+            alloca.clone(),
+            Operand::BB(bb_id),
+            Operand::BB(entry),
+            // Entry block has at least one jump.
+            Some(Operand::Value(0)),
+          );
+        }
+      }
+
+      // Filter allocas that are not promoted (e.g., those without the Promotion attribute). We won't promote them, so we can just ignore them in renaming.
+      let promoted_allocas: Vec<Operand> = allocas
+        .into_iter()
+        .filter(|alloca| {
+          let func = &self.program.as_ref().unwrap().funcs[func_id.clone()];
+          let alloca_op = &func.dfg[alloca.clone()];
+          alloca_op
+            .attrs
+            .iter()
+            .any(|attr| matches!(attr, Attr::Promotion))
+        })
+        .collect();
+
+      // Initialize the map between OpId and VarId
+      for alloca in promoted_allocas {
+        let op_id = match alloca {
+          Operand::Value(id) => id,
+          _ => panic!("Renaming: allocas contains non-op"),
         };
 
-        self.builder.set_current_block(Operand::BB(entry));
-        let func_id = self.builder.current_function.clone().unwrap();
-        // For each block, we check if it contains an alloca. If it does, we move the alloca to the entry block.
-        for bb_id in bbs {
-            let allocas = {
-                self.program.as_deref_mut().unwrap().get_all_ops_in_block(
-                    self.builder.current_function.clone(),
-                    Operand::BB(bb_id),
-                    OpType::Alloca,
-                )
-            };
+        let var_id = self.var_counter;
+        self.var_counter += 1;
 
-            // Raise all the allocas to the entry block.
-            for alloca in &allocas {
-                // raise alloca to the entry block if it's not already in the entry block
-                if bb_id != entry {
-                    self.program.as_deref_mut().unwrap().move_op_to_bb_at(
-                        self.builder.current_function.clone(),
-                        alloca.clone(),
-                        Operand::BB(bb_id),
-                        Operand::BB(entry),
-                        // Entry block has at least one jump.
-                        Some(Operand::Value(0)),
-                    );
-                }
-            }
-
-            // Filter allocas that are not promoted (e.g., those without the Promotion attribute). We won't promote them, so we can just ignore them in renaming.
-            let promoted_allocas: Vec<Operand> = allocas
-                .into_iter()
-                .filter(|alloca| {
-                    let func = &self.program.as_ref().unwrap().funcs[func_id.clone()];
-                    let alloca_op = &func.dfg[alloca.clone()];
-                    alloca_op
-                        .attrs
-                        .iter()
-                        .any(|attr| matches!(attr, Attr::Promotion))
-                })
-                .collect();
-
-            // Initialize the map between OpId and VarId
-            for alloca in promoted_allocas {
-                let op_id = match alloca {
-                    Operand::Value(id) => id,
-                    _ => panic!("Renaming: allocas contains non-op"),
-                };
-
-                let var_id = self.var_counter;
-                self.var_counter += 1;
-
-                self.op_to_var.insert(op_id, var_id);
-                self.var_to_op.insert(var_id, op_id);
-            }
-        }
-
-        // In some situations (e.g., when the alloca is created in a loop), the alloca might have been moved to the entry block in a previous iteration.
-        // In SSA form, we can treat it as undef, so we can just simply give all vars a Operand::Undefined.
-        // This is a common practice in SSA construction to handle uninitialized variables.
-        self.versions = vec![vec![Operand::Undefined]; self.var_counter];
-
-        // Set the stack with the entry block to start renaming.
-        self.stack.clear();
-        self.stack.push(RenamingPhase::Enter(entry));
+        self.op_to_var.insert(op_id, var_id);
+        self.var_to_op.insert(var_id, op_id);
+      }
     }
 
-    fn rename(&mut self) {
-        while let Some(phase) = self.stack.pop() {
-            match phase {
-                RenamingPhase::Enter(bb_id) => {
-                    // Record current "frame pointer"
-                    let mut records = vec![];
-                    for var in 0..self.versions.len() {
-                        records.push(self.versions[var].len());
+    // In some situations (e.g., when the alloca is created in a loop), the alloca might have been moved to the entry block in a previous iteration.
+    // In SSA form, we can treat it as undef, so we can just simply give all vars a Operand::Undefined.
+    // This is a common practice in SSA construction to handle uninitialized variables.
+    self.versions = vec![vec![Operand::Undefined]; self.var_counter];
+
+    // Set the stack with the entry block to start renaming.
+    self.stack.clear();
+    self.stack.push(RenamingPhase::Enter(entry));
+  }
+
+  fn rename(&mut self) {
+    while let Some(phase) = self.stack.pop() {
+      match phase {
+        RenamingPhase::Enter(bb_id) => {
+          // Record current "frame pointer"
+          let mut records = vec![];
+          for var in 0..self.versions.len() {
+            records.push(self.versions[var].len());
+          }
+
+          // Gather information first to avoid holding borrow of self.program.funcs
+          let (insts, succs) = {
+            let func =
+              &self.program.as_ref().unwrap().funcs[self.builder.current_function.clone().unwrap()];
+            let bb = &func.cfg[bb_id];
+            let insts = bb.cur.clone();
+            let succs = bb.succs.clone();
+            (insts, succs)
+          };
+
+          // 1. Process instructions in current block
+          for inst in insts {
+            // We need to access op data.
+            // We can't hold `op` borrow across replace_all_uses (which takes &mut ctx).
+            // So we clone the necessary data or just check type first.
+            let (op_data, op_attrs) = {
+              let func = &self.program.as_ref().unwrap().funcs
+                [self.builder.current_function.clone().unwrap()];
+              let op = &func.dfg[inst.clone()];
+              (op.data.clone(), op.attrs.clone())
+            };
+
+            match op_data {
+              OpData::Store { addr, value } => {
+                match addr {
+                  // Local variables, including parameter and local vars defined.
+                  Operand::Value(_) | Operand::Param { .. } => {}
+                  // We won't promote global variables.
+                  Operand::Global(_) => continue,
+                  _ => panic!("Renaming: store address is not a value or global"),
+                };
+
+                if let Some(&var_id) = self.op_to_var.get(&addr.get_op_id()) {
+                  // Push the OpId which produces the new value.
+                  self.versions[var_id].push(value);
+                  self.removed.push((inst, Operand::BB(bb_id)));
+                }
+              }
+              OpData::Load { addr } => {
+                match addr {
+                  Operand::Value(_) => {}
+                  // We won't promote global variables.
+                  Operand::Global(_) => continue,
+                  _ => panic!("Renaming: store address is not a value or global"),
+                };
+
+                if let Some(&var_id) = self.op_to_var.get(&addr.get_op_id()) {
+                  if let Some(version) = self.versions[var_id].last() {
+                    // Replace the load with the current version
+                    let new_val = version.clone();
+                    self.program.as_deref_mut().unwrap().replace_all_uses(
+                      self.builder.current_function.clone(),
+                      inst.clone(),
+                      new_val,
+                    );
+                    self.removed.push((inst, Operand::BB(bb_id)));
+                  } else {
+                    panic!("Renaming: load from variable {} before any store", var_id);
+                  }
+                }
+              }
+              OpData::Phi { .. } => {
+                let var_op = op_attrs.iter().find_map(|attr| {
+                  if let Attr::OldIdx(Operand::Value(id)) = attr {
+                    Some(*id)
+                  } else {
+                    None
+                  }
+                });
+                if let Some(var_op_id) = var_op {
+                  if let Some(&var_id) = self.op_to_var.get(&var_op_id) {
+                    self.versions[var_id].push(inst.clone());
+                  }
+                }
+              }
+              _ => { /*do nothing*/ }
+            }
+          }
+
+          // 2. Process successors
+          for (succ, _) in succs {
+            // Calculate k (predecessor index)
+            let k = {
+              let func = &self.program.as_ref().unwrap().funcs
+                [self.builder.current_function.clone().unwrap()];
+              let succ_block = &func.cfg[succ.clone()];
+              succ_block
+                .preds
+                .iter()
+                .position(|pred| match pred {
+                  (Operand::BB(id), _) => *id == bb_id,
+                  _ => false,
+                })
+                .unwrap_or_else(|| panic!("Renaming: predecessor not found in successor's preds"))
+            };
+
+            // Get all phis in successor
+            let phis = {
+              self.program.as_deref_mut().unwrap().get_all_ops_in_block(
+                self.builder.current_function.clone(),
+                succ.clone(),
+                OpType::Phi,
+              )
+            };
+
+            for phi in phis {
+              // Check if this phi is one we track (has a var_id)
+              // Update phi incoming
+              let op_id = {
+                let func = &self.program.as_ref().unwrap().funcs
+                  [self.builder.current_function.clone().unwrap()];
+                let phi_op = &func.dfg[phi.clone()];
+                let op_id = phi_op
+                  .attrs
+                  .iter()
+                  .find_map(|attr| {
+                    if let Attr::OldIdx(Operand::Value(id)) = attr {
+                      Some(*id)
+                    } else {
+                      None
                     }
+                  })
+                  .unwrap_or_else(|| panic!("Renaming: phi op missing OldIdx attribute"));
+                op_id
+              };
 
-                    // Gather information first to avoid holding borrow of self.program.funcs
-                    let (insts, succs) = {
-                        let func = &self.program.as_ref().unwrap().funcs
-                            [self.builder.current_function.clone().unwrap()];
-                        let bb = &func.cfg[bb_id];
-                        let insts = bb.cur.clone();
-                        let succs = bb.succs.clone();
-                        (insts, succs)
-                    };
-
-                    // 1. Process instructions in current block
-                    for inst in insts {
-                        // We need to access op data.
-                        // We can't hold `op` borrow across replace_all_uses (which takes &mut ctx).
-                        // So we clone the necessary data or just check type first.
-                        let (op_data, op_attrs) = {
-                            let func = &self.program.as_ref().unwrap().funcs
-                                [self.builder.current_function.clone().unwrap()];
-                            let op = &func.dfg[inst.clone()];
-                            (op.data.clone(), op.attrs.clone())
-                        };
-
-                        match op_data {
-                            OpData::Store { addr, value } => {
-                                match addr {
-                                    // Local variables, including parameter and local vars defined.
-                                    Operand::Value(_) | Operand::Param { .. } => {}
-                                    // We won't promote global variables.
-                                    Operand::Global(_) => continue,
-                                    _ => panic!("Renaming: store address is not a value or global"),
-                                };
-
-                                if let Some(&var_id) = self.op_to_var.get(&addr.get_op_id()) {
-                                    // Push the OpId which produces the new value.
-                                    self.versions[var_id].push(value);
-                                    self.removed.push((inst, Operand::BB(bb_id)));
-                                }
-                            }
-                            OpData::Load { addr } => {
-                                match addr {
-                                    Operand::Value(_) => {}
-                                    // We won't promote global variables.
-                                    Operand::Global(_) => continue,
-                                    _ => panic!("Renaming: store address is not a value or global"),
-                                };
-
-                                if let Some(&var_id) = self.op_to_var.get(&addr.get_op_id()) {
-                                    if let Some(version) = self.versions[var_id].last() {
-                                        // Replace the load with the current version
-                                        let new_val = version.clone();
-                                        self.program.as_deref_mut().unwrap().replace_all_uses(
-                                            self.builder.current_function.clone(),
-                                            inst.clone(),
-                                            new_val,
-                                        );
-                                        self.removed.push((inst, Operand::BB(bb_id)));
-                                    } else {
-                                        panic!(
-                                            "Renaming: load from variable {} before any store",
-                                            var_id
-                                        );
-                                    }
-                                }
-                            }
-                            OpData::Phi { .. } => {
-                                let var_op = op_attrs.iter().find_map(|attr| {
-                                    if let Attr::OldIdx(Operand::Value(id)) = attr {
-                                        Some(*id)
-                                    } else {
-                                        None
-                                    }
-                                });
-                                if let Some(var_op_id) = var_op {
-                                    if let Some(&var_id) = self.op_to_var.get(&var_op_id) {
-                                        self.versions[var_id].push(inst.clone());
-                                    }
-                                }
-                            }
-                            _ => { /*do nothing*/ }
-                        }
-                    }
-
-                    // 2. Process successors
-                    for (succ, _) in succs {
-                        // Calculate k (predecessor index)
-                        let k = {
-                            let func = &self.program.as_ref().unwrap().funcs
-                                [self.builder.current_function.clone().unwrap()];
-                            let succ_block = &func.cfg[succ.clone()];
-                            succ_block
-                                .preds
-                                .iter()
-                                .position(|pred| match pred {
-                                    (Operand::BB(id), _) => *id == bb_id,
-                                    _ => false,
-                                })
-                                .unwrap_or_else(|| {
-                                    panic!("Renaming: predecessor not found in successor's preds")
-                                })
-                        };
-
-                        // Get all phis in successor
-                        let phis = {
-                            self.program.as_deref_mut().unwrap().get_all_ops_in_block(
-                                self.builder.current_function.clone(),
-                                succ.clone(),
-                                OpType::Phi,
-                            )
-                        };
-
-                        for phi in phis {
-                            // Check if this phi is one we track (has a var_id)
-                            // Update phi incoming
-                            let op_id = {
-                                let func = &self.program.as_ref().unwrap().funcs
-                                    [self.builder.current_function.clone().unwrap()];
-                                let phi_op = &func.dfg[phi.clone()];
-                                let op_id = phi_op
-                                    .attrs
-                                    .iter()
-                                    .find_map(|attr| {
-                                        if let Attr::OldIdx(Operand::Value(id)) = attr {
-                                            Some(*id)
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .unwrap_or_else(|| {
-                                        panic!("Renaming: phi op missing OldIdx attribute")
-                                    });
-                                op_id
-                            };
-
-                            if let Some(&var_id) = self.op_to_var.get(&op_id) {
-                                if let Some(version) = self.versions[var_id].last().cloned() {
-                                    // Update phi incoming
-                                    self.program.as_deref_mut().unwrap().add_phi_incoming(
-                                        self.builder.current_function.clone(),
-                                        phi.clone(),
-                                        k,
-                                        version,
-                                        Operand::BB(bb_id),
-                                    );
-                                } else {
-                                    panic!(
+              if let Some(&var_id) = self.op_to_var.get(&op_id) {
+                if let Some(version) = self.versions[var_id].last().cloned() {
+                  // Update phi incoming
+                  self.program.as_deref_mut().unwrap().add_phi_incoming(
+                    self.builder.current_function.clone(),
+                    phi.clone(),
+                    k,
+                    version,
+                    Operand::BB(bb_id),
+                  );
+                } else {
+                  panic!(
                                     "Renaming: no version available for variable {}, which means it is used before any store",
                                     var_id
                                 );
-                                }
-                            } else {
-                                panic!(
-                                    "Renaming: phi's variable not found in map, op_id: {}, op_map: {:?}",
-                                    op_id, self.op_to_var
-                                );
-                            }
-                        }
-                    }
-
-                    // 3. Push Leave phase for current block
-                    self.stack.push(RenamingPhase::Leave(records));
-
-                    // 4. Process children in domtree
-                    // Clone children list to avoid borrow
-                    let children = self.dom_trees
-                        [self.builder.current_function.clone().unwrap().get_func_id()][bb_id]
-                        .iter()
-                        .map(|bb_id| RenamingPhase::Enter(*bb_id))
-                        .collect::<Vec<RenamingPhase>>();
-                    // We push children in reverse order so that we can process them in original order (like recursion).
-                    self.stack.extend(children);
                 }
-                RenamingPhase::Leave(versions) => {
-                    // Restore the "frame pointer"
-                    for (var_id, record) in versions.iter().enumerate() {
-                        self.versions[var_id].truncate(*record);
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn run(&mut self) {
-        // remove load/store is done in rename
-
-        let func_ids = self.program.as_ref().unwrap().funcs.collect_internal();
-        for idx in func_ids {
-            self.builder.set_current_func(Some(Operand::Func(idx)));
-            self.init();
-            let head = {
-                let func = &self.program.as_ref().unwrap().funcs[idx];
-                match func.cfg.entry {
-                    Some(id) => id,
-                    None => continue,
-                }
-            };
-            self.rename();
-
-            // Clean up removed ops for this function
-            for (op, bb) in &self.removed {
-                self.program.as_deref_mut().unwrap().remove_op(
-                    self.builder.current_function.clone(),
-                    op.clone(),
-                    Some(bb.clone()),
+              } else {
+                panic!(
+                  "Renaming: phi's variable not found in map, op_id: {}, op_map: {:?}",
+                  op_id, self.op_to_var
                 );
+              }
             }
-            self.removed.clear();
+          }
 
-            // Remove all the promoted allocas in entry block. You should do this after load/store removal, since some allocas might be used by dead load/store.
-            let promoted_allocas = {
-                self.program
-                    .as_deref_mut()
-                    .unwrap()
-                    .get_all_ops_in_block(
-                        self.builder.current_function.clone(),
-                        Operand::BB(head),
-                        OpType::Alloca,
-                    )
-                    .into_iter()
-                    .filter(|alloca| {
-                        let func = &self.program.as_ref().unwrap().funcs[idx];
-                        let alloca_op = &func.dfg[alloca.clone()];
-                        alloca_op
-                            .attrs
-                            .iter()
-                            .any(|attr| matches!(attr, Attr::Promotion))
-                    })
-                    .collect::<Vec<Operand>>()
-            };
-            for alloca in promoted_allocas {
-                self.program.as_deref_mut().unwrap().remove_op(
-                    self.builder.current_function.clone(),
-                    alloca.clone(),
-                    Some(Operand::BB(head)),
-                );
-            }
+          // 3. Push Leave phase for current block
+          self.stack.push(RenamingPhase::Leave(records));
+
+          // 4. Process children in domtree
+          // Clone children list to avoid borrow
+          let children = self.dom_trees
+            [self.builder.current_function.clone().unwrap().get_func_id()][bb_id]
+            .iter()
+            .map(|bb_id| RenamingPhase::Enter(*bb_id))
+            .collect::<Vec<RenamingPhase>>();
+          // We push children in reverse order so that we can process them in original order (like recursion).
+          self.stack.extend(children);
         }
+        RenamingPhase::Leave(versions) => {
+          // Restore the "frame pointer"
+          for (var_id, record) in versions.iter().enumerate() {
+            self.versions[var_id].truncate(*record);
+          }
+        }
+      }
     }
+  }
+
+  pub fn run(&mut self) {
+    // remove load/store is done in rename
+
+    let func_ids = self.program.as_ref().unwrap().funcs.collect_internal();
+    for idx in func_ids {
+      self.builder.set_current_func(Some(Operand::Func(idx)));
+      self.init();
+      let head = {
+        let func = &self.program.as_ref().unwrap().funcs[idx];
+        match func.cfg.entry {
+          Some(id) => id,
+          None => continue,
+        }
+      };
+      self.rename();
+
+      // Clean up removed ops for this function
+      for (op, bb) in &self.removed {
+        self.program.as_deref_mut().unwrap().remove_op(
+          self.builder.current_function.clone(),
+          op.clone(),
+          Some(bb.clone()),
+        );
+      }
+      self.removed.clear();
+
+      // Remove all the promoted allocas in entry block. You should do this after load/store removal, since some allocas might be used by dead load/store.
+      let promoted_allocas = {
+        self
+          .program
+          .as_deref_mut()
+          .unwrap()
+          .get_all_ops_in_block(
+            self.builder.current_function.clone(),
+            Operand::BB(head),
+            OpType::Alloca,
+          )
+          .into_iter()
+          .filter(|alloca| {
+            let func = &self.program.as_ref().unwrap().funcs[idx];
+            let alloca_op = &func.dfg[alloca.clone()];
+            alloca_op
+              .attrs
+              .iter()
+              .any(|attr| matches!(attr, Attr::Promotion))
+          })
+          .collect::<Vec<Operand>>()
+      };
+      for alloca in promoted_allocas {
+        self.program.as_deref_mut().unwrap().remove_op(
+          self.builder.current_function.clone(),
+          alloca.clone(),
+          Some(Operand::BB(head)),
+        );
+      }
+    }
+  }
 }
 
 #[derive(Default)]
 pub struct Mem2Reg<'a> {
-    program: Option<&'a mut IR>,
+  program: Option<&'a mut IR>,
 }
 
 impl<'a> Pass<'a> for Mem2Reg<'a> {
-    fn name(&self) -> &str {
-        "Mem2Reg"
-    }
-    fn mount(&mut self, program: &'a mut IR) {
-        self.program = Some(program);
-    }
-    fn run(&mut self) {
-        let program = self.program.as_mut().unwrap();
-        let (dom_trees, frontiers) = analyze::<DomAnalysis>(program);
+  fn name(&self) -> &str {
+    "Mem2Reg"
+  }
+  fn mount(&mut self, program: &'a mut IR) {
+    self.program = Some(program);
+  }
+  fn run(&mut self) {
+    let program = self.program.as_mut().unwrap();
+    let (dom_trees, frontiers) = analyze::<DomAnalysis>(program);
 
-        // 3. Insert Phi nodes
-        info!("Start inserting phi nodes.");
-        InsertPhi::new(program, frontiers).run();
-        info!("Phi nodes inserted.");
+    // 3. Insert Phi nodes
+    info!("Start inserting phi nodes.");
+    InsertPhi::new(program, frontiers).run();
+    info!("Phi nodes inserted.");
 
-        // 4. Rename variables
-        info!("Start renaming variables.");
-        let mut renamer = Renaming::new(program, dom_trees);
-        renamer.run();
-        info!("Variables renamed.");
-    }
+    // 4. Rename variables
+    info!("Start renaming variables.");
+    let mut renamer = Renaming::new(program, dom_trees);
+    renamer.run();
+    info!("Variables renamed.");
+  }
 }
