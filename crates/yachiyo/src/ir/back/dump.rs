@@ -152,6 +152,9 @@ impl BackIR {
 
     for func_id in func_ids {
       let func = &self.funcs[func_id];
+      if func.is_external {
+        continue;
+      }
       let format_ctx = AsmFormatCtx {
         data_name_map,
         rodata_name_map,
