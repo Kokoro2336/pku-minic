@@ -1221,6 +1221,10 @@ impl RegAlloc<'_> {
 
     for saved in 0..self.slot_map.len() {
       let slot_id = self.slot_map[saved];
+      // Ignore those registers that are not used and thus not saved.
+      if slot_id == BOperand::Undef {
+        continue;
+      }
       let reg = Reg::from(saved as u8);
       let offset = self.legalize_offset(self.get_offset(slot_id));
       let value = BOperand::Reg(reg);
@@ -1250,6 +1254,9 @@ impl RegAlloc<'_> {
     let func_id = self.builder.current_function.unwrap();
     for saved in 0..self.slot_map.len() {
       let slot_id = self.slot_map[saved];
+      if slot_id == BOperand::Undef {
+        continue;
+      }
       let reg = Reg::from(saved as u8);
       let offset = self.legalize_offset(self.get_offset(slot_id));
       let rd = BOperand::Reg(reg);
