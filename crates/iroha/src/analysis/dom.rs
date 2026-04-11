@@ -8,360 +8,360 @@ use yachiyo::utils::set::BitSet;
 
 pub type DomTree = Vec<Vec<usize>>;
 struct BuildDomTree<'a> {
-    program: &'a IR,
-    // Vertex number -> DFS number
-    dfn: Vec<usize>,
-    dfn_cnt: usize,
-    // DFS number -> Vertex number
-    rev: Vec<usize>,
-    // Vertex number -> Semi-dominator DFS number
-    sdom: Vec<usize>,
-    // Vertex number -> vertices that this vertex semi-dominates
-    bucket: Vec<Vec<usize>>,
-    // Parent in DSU Forest
-    parent: Vec<usize>,
-    // Parent in the DFS Tree
-    father: Vec<usize>,
-    // Recording the vertex with the minimum semi-dominator on path sdom[u] -> u
-    min: Vec<usize>,
-    // Immediate dominator
-    idom: Vec<usize>,
+  program: &'a IR,
+  // Vertex number -> DFS number
+  dfn: Vec<usize>,
+  dfn_cnt: usize,
+  // DFS number -> Vertex number
+  rev: Vec<usize>,
+  // Vertex number -> Semi-dominator DFS number
+  sdom: Vec<usize>,
+  // Vertex number -> vertices that this vertex semi-dominates
+  bucket: Vec<Vec<usize>>,
+  // Parent in DSU Forest
+  parent: Vec<usize>,
+  // Parent in the DFS Tree
+  father: Vec<usize>,
+  // Recording the vertex with the minimum semi-dominator on path sdom[u] -> u
+  min: Vec<usize>,
+  // Immediate dominator
+  idom: Vec<usize>,
 
-    // temp structure
-    // Vertex number -> whether visited in DFS
-    visited: BitSet,
+  // temp structure
+  // Vertex number -> whether visited in DFS
+  visited: BitSet,
 
-    // state structure
-    current_function: Option<Operand>,
+  // state structure
+  current_function: Option<Operand>,
 
-    // result
-    dom_trees: Vec<DomTree>,
+  // result
+  dom_trees: Vec<DomTree>,
 }
 
 impl<'a> BuildDomTree<'a> {
-    pub fn new(program: &'a IR) -> Self {
-        let current_function = program.funcs.entry.map(Operand::Func);
-        Self {
-            program,
-            dfn: vec![],
-            dfn_cnt: 0,
-            rev: vec![],
-            sdom: vec![],
-            bucket: vec![],
-            parent: vec![],
-            father: vec![],
-            min: vec![],
-            idom: vec![],
-            visited: BitSet::new(),
-            current_function,
-            dom_trees: vec![],
+  pub fn new(program: &'a IR) -> Self {
+    let current_function = program.funcs.entry.map(Operand::Func);
+    Self {
+      program,
+      dfn: vec![],
+      dfn_cnt: 0,
+      rev: vec![],
+      sdom: vec![],
+      bucket: vec![],
+      parent: vec![],
+      father: vec![],
+      min: vec![],
+      idom: vec![],
+      visited: BitSet::new(),
+      current_function,
+      dom_trees: vec![],
+    }
+  }
+
+  fn init(&mut self, func_id: Operand) {
+    self.current_function = Some(func_id.clone());
+    let func = &self.program.funcs[func_id];
+
+    let n = func.cfg.storage.len();
+    self.dfn = vec![0; n];
+    self.dfn_cnt = 0;
+
+    self.rev = vec![0; n];
+
+    self.bucket = vec![vec![]; n];
+    self.father = vec![0; n];
+
+    self.parent = (0..n).collect();
+    self.sdom = (0..n).collect();
+    self.idom = (0..n).collect();
+    self.min = (0..n).collect();
+
+    self.visited = BitSet::new();
+  }
+
+  fn dfs(&mut self, src: usize) {
+    self.visited.insert(src);
+    let dfs_num = self.dfn_cnt;
+    self.dfn[src] = dfs_num;
+    self.rev[dfs_num] = src;
+    self.dfn_cnt += 1;
+
+    let func_id = self.current_function.clone().unwrap();
+
+    let succs_len = {
+      let func = &self.program.funcs[func_id.clone()];
+      let block = &func.cfg[src];
+      block.succs.len()
+    };
+
+    (0..succs_len).for_each(|i| {
+      let succ = {
+        let func = &self.program.funcs[func_id.clone()];
+        let block = &func.cfg[src];
+        match &block.succs[i] {
+          (Operand::BB(id), _) => *id,
+          _ => panic!("BuildDomTree: successor is not a basic block"),
         }
+      };
+      if !self.visited.contains(succ) {
+        self.father[succ] = src;
+        self.dfs(succ);
+      }
+    })
+  }
+
+  fn find(&mut self, u: usize) -> usize {
+    if self.parent[u] == u {
+      return u;
     }
-
-    fn init(&mut self, func_id: Operand) {
-        self.current_function = Some(func_id.clone());
-        let func = &self.program.funcs[func_id];
-
-        let n = func.cfg.storage.len();
-        self.dfn = vec![0; n];
-        self.dfn_cnt = 0;
-
-        self.rev = vec![0; n];
-
-        self.bucket = vec![vec![]; n];
-        self.father = vec![0; n];
-
-        self.parent = (0..n).collect();
-        self.sdom = (0..n).collect();
-        self.idom = (0..n).collect();
-        self.min = (0..n).collect();
-
-        self.visited = BitSet::new();
+    let v = self.find(self.parent[u]);
+    if self.dfn[self.sdom[self.min[u]]] > self.dfn[self.sdom[self.min[self.parent[u]]]] {
+      self.min[u] = self.min[self.parent[u]];
     }
+    self.parent[u] = v;
+    self.parent[u]
+  }
 
-    fn dfs(&mut self, src: usize) {
-        self.visited.insert(src);
-        let dfs_num = self.dfn_cnt;
-        self.dfn[src] = dfs_num;
-        self.rev[dfs_num] = src;
-        self.dfn_cnt += 1;
+  fn query(&mut self, u: usize) -> usize {
+    self.find(u);
+    self.min[u]
+  }
 
-        let func_id = self.current_function.clone().unwrap();
+  fn dfn_min(&mut self, u: usize, v: usize) -> usize {
+    if self.dfn[u] < self.dfn[v] {
+      u
+    } else {
+      v
+    }
+  }
 
-        let succs_len = {
-            let func = &self.program.funcs[func_id.clone()];
-            let block = &func.cfg[src];
-            block.succs.len()
+  pub fn build(&mut self) -> Vec<DomTree> {
+    // Init dom trees first
+    self.dom_trees = vec![vec![]; self.program.funcs.storage.len()];
+
+    for idx in self.program.funcs.collect_internal() {
+      let func = &self.program.funcs[idx];
+      let head = match func.cfg.entry {
+        Some(id) => id,
+        None => continue,
+      };
+
+      self.init(Operand::Func(idx));
+      info!("Start DFS traversal.");
+      self.dfs(head);
+
+      info!("DFS traversal completed. Start computing dominators.");
+      let num_visited = self.dfn_cnt;
+      for i in (1..num_visited).rev() {
+        let u = self.rev[i];
+
+        let preds_num = {
+          let func = &self.program.funcs[self.current_function.clone().unwrap()];
+          let block = &func.cfg[u];
+          block.preds.len()
         };
 
-        (0..succs_len).for_each(|i| {
-            let succ = {
-                let func = &self.program.funcs[func_id.clone()];
-                let block = &func.cfg[src];
-                match &block.succs[i] {
-                    (Operand::BB(id), _) => *id,
-                    _ => panic!("BuildDomTree: successor is not a basic block"),
-                }
-            };
-            if !self.visited.contains(succ) {
-                self.father[succ] = src;
-                self.dfs(succ);
+        // find sdom[u]
+        for idx in 0..preds_num {
+          let pred = {
+            let func = &self.program.funcs[self.current_function.clone().unwrap()];
+            let block = &func.cfg[u];
+            match &block.preds[idx] {
+              (Operand::BB(id), _) => *id,
+              _ => continue,
             }
-        })
-    }
+          };
 
-    fn find(&mut self, u: usize) -> usize {
-        if self.parent[u] == u {
-            return u;
+          if !self.visited.contains(pred) {
+            continue;
+          }
+
+          if self.dfn[pred] < self.dfn[u] {
+            self.sdom[u] = self.dfn_min(self.sdom[u], pred);
+          } else {
+            let v = self.query(pred);
+            self.sdom[u] = self.dfn_min(self.sdom[u], self.sdom[v]);
+          }
         }
-        let v = self.find(self.parent[u]);
-        if self.dfn[self.sdom[self.min[u]]] > self.dfn[self.sdom[self.min[self.parent[u]]]] {
-            self.min[u] = self.min[self.parent[u]];
+
+        // push u to bucket of sdom[u]
+        self.bucket[self.sdom[u]].push(u);
+
+        // hang u to father[u] in DSU Forest
+        self.parent[u] = self.father[u];
+
+        // evaluate idom of vertices in bucket of father[u]
+        // Emm... I have to use a clone due to the bothering borrow checker.
+        let father = self.father[u];
+        let bucket_len = self.bucket[father].len();
+        for i in 0..bucket_len {
+          let v = self.bucket[father][i];
+          self.idom[v] = self.query(v);
         }
-        self.parent[u] = v;
-        self.parent[u]
-    }
+        self.bucket[father].clear();
+      }
 
-    fn query(&mut self, u: usize) -> usize {
-        self.find(u);
-        self.min[u]
-    }
-
-    fn dfn_min(&mut self, u: usize, v: usize) -> usize {
-        if self.dfn[u] < self.dfn[v] {
-            u
+      // Refine idom
+      info!("Dominator tree computed. Start refining immediate dominators.");
+      for i in 0..self.rev.len() {
+        let v = self.rev[i];
+        let u = self.idom[v];
+        // If sdom[u] != sdom[v], then there's a vertex with lower dfn that dominates v, which is idom[u],
+        // so we set idom[v] to idom[u].
+        // Otherwise, sdom[u] is the immediate dominator of v.
+        if self.sdom[u] != self.sdom[v] {
+          self.idom[v] = self.idom[u];
         } else {
-            v
+          self.idom[v] = self.sdom[u];
         }
+      }
+
+      // export dom tree
+      self.dom_trees[idx] = self.export();
     }
+    std::mem::take(&mut self.dom_trees)
+  }
 
-    pub fn build(&mut self) -> Vec<DomTree> {
-        // Init dom trees first
-        self.dom_trees = vec![vec![]; self.program.funcs.storage.len()];
-
-        for idx in self.program.funcs.collect_internal() {
-            let func = &self.program.funcs[idx];
-            let head = match func.cfg.entry {
-                Some(id) => id,
-                None => continue,
-            };
-
-            self.init(Operand::Func(idx));
-            info!("Start DFS traversal.");
-            self.dfs(head);
-
-            info!("DFS traversal completed. Start computing dominators.");
-            let num_visited = self.dfn_cnt;
-            for i in (1..num_visited).rev() {
-                let u = self.rev[i];
-
-                let preds_num = {
-                    let func = &self.program.funcs[self.current_function.clone().unwrap()];
-                    let block = &func.cfg[u];
-                    block.preds.len()
-                };
-
-                // find sdom[u]
-                for idx in 0..preds_num {
-                    let pred = {
-                        let func = &self.program.funcs[self.current_function.clone().unwrap()];
-                        let block = &func.cfg[u];
-                        match &block.preds[idx] {
-                            (Operand::BB(id), _) => *id,
-                            _ => continue,
-                        }
-                    };
-
-                    if !self.visited.contains(pred) {
-                        continue;
-                    }
-
-                    if self.dfn[pred] < self.dfn[u] {
-                        self.sdom[u] = self.dfn_min(self.sdom[u], pred);
-                    } else {
-                        let v = self.query(pred);
-                        self.sdom[u] = self.dfn_min(self.sdom[u], self.sdom[v]);
-                    }
-                }
-
-                // push u to bucket of sdom[u]
-                self.bucket[self.sdom[u]].push(u);
-
-                // hang u to father[u] in DSU Forest
-                self.parent[u] = self.father[u];
-
-                // evaluate idom of vertices in bucket of father[u]
-                // Emm... I have to use a clone due to the bothering borrow checker.
-                let father = self.father[u];
-                let bucket_len = self.bucket[father].len();
-                for i in 0..bucket_len {
-                    let v = self.bucket[father][i];
-                    self.idom[v] = self.query(v);
-                }
-                self.bucket[father].clear();
-            }
-
-            // Refine idom
-            info!("Dominator tree computed. Start refining immediate dominators.");
-            for i in 0..self.rev.len() {
-                let v = self.rev[i];
-                let u = self.idom[v];
-                // If sdom[u] != sdom[v], then there's a vertex with lower dfn that dominates v, which is idom[u],
-                // so we set idom[v] to idom[u].
-                // Otherwise, sdom[u] is the immediate dominator of v.
-                if self.sdom[u] != self.sdom[v] {
-                    self.idom[v] = self.idom[u];
-                } else {
-                    self.idom[v] = self.sdom[u];
-                }
-            }
-
-            // export dom tree
-            self.dom_trees[idx] = self.export();
-        }
-        std::mem::take(&mut self.dom_trees)
+  // FuncId -> DomTree
+  pub fn export(&mut self) -> DomTree {
+    let mut dom_tree = vec![vec![]; self.idom.len()];
+    for idx in 0..self.idom.len() {
+      let idom = self.idom[idx];
+      if idom != idx {
+        dom_tree[idom].push(idx);
+      }
     }
-
-    // FuncId -> DomTree
-    pub fn export(&mut self) -> DomTree {
-        let mut dom_tree = vec![vec![]; self.idom.len()];
-        for idx in 0..self.idom.len() {
-            let idom = self.idom[idx];
-            if idom != idx {
-                dom_tree[idom].push(idx);
-            }
-        }
-        dom_tree
-    }
+    dom_tree
+  }
 }
 
 pub type DomFrontier = Vec<Vec<usize>>;
 
 struct BuildDomFrontier<'a> {
-    program: &'a IR,
-    dom_trees: &'a Vec<DomTree>,
-    // FuncId -> BlockId -> Frontier
-    frontiers: Vec<DomFrontier>,
-    // State field
-    current_function: Option<Operand>,
+  program: &'a IR,
+  dom_trees: &'a Vec<DomTree>,
+  // FuncId -> BlockId -> Frontier
+  frontiers: Vec<DomFrontier>,
+  // State field
+  current_function: Option<Operand>,
 }
 
 impl<'a> BuildDomFrontier<'a> {
-    pub fn new(program: &'a IR, dom_trees: &'a Vec<DomTree>) -> Self {
-        Self {
-            program,
-            dom_trees,
-            frontiers: vec![],
-            current_function: None,
-        }
+  pub fn new(program: &'a IR, dom_trees: &'a Vec<DomTree>) -> Self {
+    Self {
+      program,
+      dom_trees,
+      frontiers: vec![],
+      current_function: None,
     }
+  }
 
-    pub fn init(&mut self, func_id: Operand) {
-        let func_idx = func_id.get_func_id();
-        let func = &self.program.funcs[func_id.clone()];
-        self.current_function = Some(func_id);
-        self.frontiers[func_idx] = vec![vec![]; func.cfg.storage.len()];
-    }
+  pub fn init(&mut self, func_id: Operand) {
+    let func_idx = func_id.get_func_id();
+    let func = &self.program.funcs[func_id.clone()];
+    self.current_function = Some(func_id);
+    self.frontiers[func_idx] = vec![vec![]; func.cfg.storage.len()];
+  }
 
-    pub fn is_dom(&self, dominator: usize, dominatee: usize) -> bool {
-        let func_id = self.current_function.clone().unwrap().get_func_id();
+  pub fn is_dom(&self, dominator: usize, dominatee: usize) -> bool {
+    let func_id = self.current_function.clone().unwrap().get_func_id();
 
-        let dom_num = {
-            let dom_tree = &self.dom_trees[func_id];
-            dom_tree[dominator].len()
+    let dom_num = {
+      let dom_tree = &self.dom_trees[func_id];
+      dom_tree[dominator].len()
+    };
+    if self.dom_trees[func_id][dominator].contains(&dominatee) {
+      true
+    } else {
+      // If not direct child, check recursively
+      (0..dom_num).any(|child| {
+        let child = {
+          let dom_tree = &self.dom_trees[func_id];
+          dom_tree[dominator][child]
         };
-        if self.dom_trees[func_id][dominator].contains(&dominatee) {
-            true
-        } else {
-            // If not direct child, check recursively
-            (0..dom_num).any(|child| {
-                let child = {
-                    let dom_tree = &self.dom_trees[func_id];
-                    dom_tree[dominator][child]
-                };
-                self.is_dom(child, dominatee)
-            })
-        }
+        self.is_dom(child, dominatee)
+      })
     }
+  }
 
-    pub fn compute(&mut self, bb_id: usize) {
-        let func_id = self.current_function.clone().unwrap().get_func_id();
+  pub fn compute(&mut self, bb_id: usize) {
+    let func_id = self.current_function.clone().unwrap().get_func_id();
 
-        let succs = {
-            let func = &self.program.funcs[func_id];
-            let block = &func.cfg[bb_id];
-            let mut succs = Vec::new();
-            for op in &block.succs {
-                match op {
-                    (Operand::BB(id), _) => succs.push(*id),
-                    _ => panic!("DomFrontier: successor is not a basic block"),
-                }
-            }
-            succs
-        };
-
-        // Local frontier
-        for succ in succs {
-            if !self.is_dom(bb_id, succ) {
-                self.frontiers[func_id][bb_id].push(succ);
-            }
+    let succs = {
+      let func = &self.program.funcs[func_id];
+      let block = &func.cfg[bb_id];
+      let mut succs = Vec::new();
+      for op in &block.succs {
+        match op {
+          (Operand::BB(id), _) => succs.push(*id),
+          _ => panic!("DomFrontier: successor is not a basic block"),
         }
-        // Upward frontier
-        let children_num = self.dom_trees[func_id][bb_id].len();
-        for child_idx in 0..children_num {
-            let child = self.dom_trees[func_id][bb_id][child_idx];
-            self.compute(child);
-            let child_frontier_len = self.frontiers[func_id][child].len();
-            for i in 0..child_frontier_len {
-                let w = self.frontiers[func_id][child][i];
-                if !self.is_dom(bb_id, w) {
-                    self.frontiers[func_id][bb_id].push(w);
-                }
-            }
-        }
+      }
+      succs
+    };
+
+    // Local frontier
+    for succ in succs {
+      if !self.is_dom(bb_id, succ) {
+        self.frontiers[func_id][bb_id].push(succ);
+      }
     }
-
-    pub fn build(&mut self) -> Vec<DomFrontier> {
-        // Init frontiers first
-        self.frontiers = vec![vec![]; self.program.funcs.storage.len()];
-
-        for idx in self.program.funcs.collect_internal() {
-            let func = &self.program.funcs[idx];
-            let head = match func.cfg.entry {
-                Some(id) => id,
-                None => continue,
-            };
-            self.init(Operand::Func(idx));
-            self.compute(head);
+    // Upward frontier
+    let children_num = self.dom_trees[func_id][bb_id].len();
+    for child_idx in 0..children_num {
+      let child = self.dom_trees[func_id][bb_id][child_idx];
+      self.compute(child);
+      let child_frontier_len = self.frontiers[func_id][child].len();
+      for i in 0..child_frontier_len {
+        let w = self.frontiers[func_id][child][i];
+        if !self.is_dom(bb_id, w) {
+          self.frontiers[func_id][bb_id].push(w);
         }
-        std::mem::take(&mut self.frontiers)
+      }
     }
+  }
+
+  pub fn build(&mut self) -> Vec<DomFrontier> {
+    // Init frontiers first
+    self.frontiers = vec![vec![]; self.program.funcs.storage.len()];
+
+    for idx in self.program.funcs.collect_internal() {
+      let func = &self.program.funcs[idx];
+      let head = match func.cfg.entry {
+        Some(id) => id,
+        None => continue,
+      };
+      self.init(Operand::Func(idx));
+      self.compute(head);
+    }
+    std::mem::take(&mut self.frontiers)
+  }
 }
 
 #[derive(Default)]
 pub struct DomAnalysis<'a> {
-    program: Option<&'a IR>,
+  program: Option<&'a IR>,
 }
 
 impl<'a> Analysis<'a> for DomAnalysis<'a> {
-    type Input = IR;
-    type Output = (Vec<DomTree>, Vec<DomFrontier>);
+  type Input = IR;
+  type Output = (Vec<DomTree>, Vec<DomFrontier>);
 
-    fn name(&self) -> &str {
-        "Dominance Analysis"
-    }
+  fn name(&self) -> &str {
+    "Dominance Analysis"
+  }
 
-    fn mount(&mut self, ir: &'a Self::Input) {
-        self.program = Some(ir);
-    }
+  fn mount(&mut self, ir: &'a Self::Input) {
+    self.program = Some(ir);
+  }
 
-    fn run(&mut self) -> Self::Output {
-        let program = self.program.as_ref().unwrap();
-        let mut dom_tree_builder = BuildDomTree::new(program);
-        let dom_trees = dom_tree_builder.build();
+  fn run(&mut self) -> Self::Output {
+    let program = self.program.as_ref().unwrap();
+    let mut dom_tree_builder = BuildDomTree::new(program);
+    let dom_trees = dom_tree_builder.build();
 
-        let mut dom_frontier_builder = BuildDomFrontier::new(program, &dom_trees);
-        let dom_frontiers = dom_frontier_builder.build();
-        (dom_trees, dom_frontiers)
-    }
+    let mut dom_frontier_builder = BuildDomFrontier::new(program, &dom_trees);
+    let dom_frontiers = dom_frontier_builder.build();
+    (dom_trees, dom_frontiers)
+  }
 }

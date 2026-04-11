@@ -17,752 +17,754 @@ pub type DFG = IndexedArena<Op>;
 #[strum_discriminants(derive(Hash, Ord, PartialOrd))]
 #[allow(clippy::upper_case_acronyms)]
 pub enum OpData {
-    // customized instructions for convenience
-    // TODO: Operand should be original type.
-    GlobalAlloca(Type),
-    // getelementptr
-    GEP {
-        base: Operand,
-        // Vec<Index>
-        indices: Vec<Operand>,
-    },
-    Declare {
-        name: String,
-        typ: Type,
-    },
+  // customized instructions for convenience
+  // TODO: Operand should be original type.
+  GlobalAlloca(Type),
+  // getelementptr
+  GEP {
+    base: Operand,
+    // Vec<Index>
+    indices: Vec<Operand>,
+  },
+  Declare {
+    name: String,
+    typ: Type,
+  },
 
-    /* regular instructions */
-    /// Integer
-    AddI {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    SubI {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    MulI {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    DivI {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    ModI {
-        lhs: Operand,
-        rhs: Operand,
-    },
+  /* regular instructions */
+  /// Integer
+  AddI {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  SubI {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  MulI {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  DivI {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  ModI {
+    lhs: Operand,
+    rhs: Operand,
+  },
 
-    // The comparisons are logical.
-    Xor {
-        lhs: Operand,
-        rhs: Operand,
-    },
+  // The comparisons are logical.
+  Xor {
+    lhs: Operand,
+    rhs: Operand,
+  },
 
-    // Comparison(S: Signed. And SysY only has signed comparison)
-    SNe {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    SEq {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    SGt {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    SLt {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    SGe {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    SLe {
-        lhs: Operand,
-        rhs: Operand,
-    },
+  // Comparison(S: Signed. And SysY only has signed comparison)
+  SNe {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  SEq {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  SGt {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  SLt {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  SGe {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  SLe {
+    lhs: Operand,
+    rhs: Operand,
+  },
 
-    // Bitwise shift
-    #[allow(unused)]
-    Shl {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    #[allow(unused)]
-    Shr {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    #[allow(unused)]
-    Sar {
-        lhs: Operand,
-        rhs: Operand,
-    },
+  // Bitwise shift
+  #[allow(unused)]
+  Shl {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  #[allow(unused)]
+  Shr {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  #[allow(unused)]
+  Sar {
+    lhs: Operand,
+    rhs: Operand,
+  },
 
-    /// Float
-    AddF {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    SubF {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    MulF {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    DivF {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    // Mod is invalid for float in SysY
+  /// Float
+  AddF {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  SubF {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  MulF {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  DivF {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  // Mod is invalid for float in SysY
 
-    // On the language level, SysY doesn't support And, Or, Xor for float
+  // On the language level, SysY doesn't support And, Or, Xor for float
 
-    // Comparison. SysY doesn't support NaN, so we only have one type of comparison here.
-    ONe {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    OEq {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    OGt {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    OLt {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    OGe {
-        lhs: Operand,
-        rhs: Operand,
-    },
-    OLe {
-        lhs: Operand,
-        rhs: Operand,
-    },
+  // Comparison. SysY doesn't support NaN, so we only have one type of comparison here.
+  ONe {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  OEq {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  OGt {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  OLt {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  OGe {
+    lhs: Operand,
+    rhs: Operand,
+  },
+  OLe {
+    lhs: Operand,
+    rhs: Operand,
+  },
 
-    /// Cast operations
-    Sitofp {
-        value: Operand,
-    }, // int to float
-    Fptosi {
-        value: Operand,
-    }, // float to int
-    Uitofp {
-        value: Operand,
-    }, // bool to float
-    Zext {
-        value: Operand,
-    }, // bool to int
+  /// Cast operations
+  Sitofp {
+    value: Operand,
+  }, // int to float
+  Fptosi {
+    value: Operand,
+  }, // float to int
+  Uitofp {
+    value: Operand,
+  }, // bool to float
+  Zext {
+    value: Operand,
+  }, // bool to int
 
-    // SysY doesn't support bitwise shift for float
-    /// Memory operations
-    Store {
-        addr: Operand,
-        value: Operand,
-    },
-    Load {
-        addr: Operand,
-    },
-    Phi {
-        incomings: Vec<PhiIncoming>, // Vec<(value, bb_id)>
-    },
-    Alloca(Type),
+  // SysY doesn't support bitwise shift for float
+  /// Memory operations
+  Store {
+    addr: Operand,
+    value: Operand,
+  },
+  Load {
+    addr: Operand,
+  },
+  Phi {
+    incomings: Vec<PhiIncoming>, // Vec<(value, bb_id)>
+  },
+  Alloca(Type),
 
-    /// Control flow
-    Call {
-        func: Operand,
-        args: Vec<Operand>,
-    },
-    Br {
-        cond: Operand,
-        then_bb: Operand,
-        else_bb: Operand,
-    },
-    Jump {
-        target_bb: Operand,
-    },
-    Ret {
-        value: Option<Operand>,
-    },
+  /// Control flow
+  Call {
+    func: Operand,
+    args: Vec<Operand>,
+  },
+  Br {
+    cond: Operand,
+    then_bb: Operand,
+    else_bb: Operand,
+  },
+  Jump {
+    target_bb: Operand,
+  },
+  Ret {
+    value: Option<Operand>,
+  },
 }
 
 #[derive(Debug, Clone)]
 pub enum PhiIncoming {
-    Data { value: Operand, bb: Operand },
-    None,
+  Data { value: Operand, bb: Operand },
+  None,
 }
 
 impl OpData {
-    pub fn is(&self, op_typ: OpType) -> bool {
-        OpType::from(self) == op_typ
-    }
+  pub fn is(&self, op_typ: OpType) -> bool {
+    OpType::from(self) == op_typ
+  }
 
-    pub fn is_impure(&self) -> bool {
-        matches!(
-            self,
-            // In DCE, Load is pure.
-            OpData::Call { .. }
-                | OpData::Store { .. }
-                | OpData::Br { .. }
-                | OpData::Jump { .. }
-                | OpData::Ret { .. }
-                | OpData::Alloca(_)
-                | OpData::GlobalAlloca(_)
-                | OpData::Declare { .. }
-        )
-    }
+  pub fn is_impure(&self) -> bool {
+    matches!(
+      self,
+      // In DCE, Load is pure.
+      OpData::Call { .. }
+        | OpData::Store { .. }
+        | OpData::Br { .. }
+        | OpData::Jump { .. }
+        | OpData::Ret { .. }
+        | OpData::Alloca(_)
+        | OpData::GlobalAlloca(_)
+        | OpData::Declare { .. }
+    )
+  }
 }
 
 impl std::fmt::Display for Op {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.data {
-            OpData::GEP { base, indices } => {
-                write!(f, "gep {}, [", base)?;
-                for (i, index) in indices.iter().enumerate() {
-                    write!(f, "{}", index)?;
-                    if i != indices.len() - 1 {
-                        write!(f, ", ")?;
-                    }
-                }
-                write!(f, "]")
-            }
-            OpData::GlobalAlloca(size) => write!(f, "global_alloc {}", size),
-            OpData::Declare { name, typ } => {
-                let (ret_typ, param_typs) = match typ {
-                    Type::Function {
-                        return_type,
-                        param_types,
-                    } => (return_type, param_types),
-                    _ => unreachable!("Declare op must have function type"),
-                };
-                write!(
-                    f,
-                    "declare {} @{}({})",
-                    name,
-                    ret_typ,
-                    param_typs
-                        .iter()
-                        .map(|t| t.to_string())
-                        .collect::<Vec<String>>()
-                        .join(", ")
-                )
-            }
-
-            OpData::AddI { lhs, rhs } => write!(f, "add {}, {}", lhs, rhs),
-            OpData::SubI { lhs, rhs } => write!(f, "sub {}, {}", lhs, rhs),
-            OpData::MulI { lhs, rhs } => write!(f, "mul {}, {}", lhs, rhs),
-            OpData::DivI { lhs, rhs } => write!(f, "div {}, {}", lhs, rhs),
-            OpData::ModI { lhs, rhs } => write!(f, "mod {}, {}", lhs, rhs),
-
-            OpData::Xor { lhs, rhs } => write!(f, "xor {}, {}", lhs, rhs),
-
-            OpData::SNe { lhs, rhs } => write!(f, "sne {}, {}", lhs, rhs),
-            OpData::SEq { lhs, rhs } => write!(f, "seq {}, {}", lhs, rhs),
-            OpData::SGt { lhs, rhs } => write!(f, "sgt {}, {}", lhs, rhs),
-            OpData::SLt { lhs, rhs } => write!(f, "slt {}, {}", lhs, rhs),
-            OpData::SGe { lhs, rhs } => write!(f, "sge {}, {}", lhs, rhs),
-            OpData::SLe { lhs, rhs } => write!(f, "sle {}, {}", lhs, rhs),
-
-            OpData::Shl { lhs, rhs } => write!(f, "shl {}, {}", lhs, rhs),
-            OpData::Shr { lhs, rhs } => write!(f, "shr {}, {}", lhs, rhs),
-            OpData::Sar { lhs, rhs } => write!(f, "sar {}, {}", lhs, rhs),
-
-            OpData::AddF { lhs, rhs } => write!(f, "addf {}, {}", lhs, rhs),
-            OpData::SubF { lhs, rhs } => write!(f, "subf {}, {}", lhs, rhs),
-            OpData::MulF { lhs, rhs } => write!(f, "mulf {}, {}", lhs, rhs),
-            OpData::DivF { lhs, rhs } => write!(f, "divf {}, {}", lhs, rhs),
-
-            OpData::ONe { lhs, rhs } => write!(f, "one {}, {}", lhs, rhs),
-            OpData::OEq { lhs, rhs } => write!(f, "oeq {}, {}", lhs, rhs),
-            OpData::OGt { lhs, rhs } => write!(f, "ogt {}, {}", lhs, rhs),
-            OpData::OLt { lhs, rhs } => write!(f, "olt {}, {}", lhs, rhs),
-            OpData::OGe { lhs, rhs } => write!(f, "oge {}, {}", lhs, rhs),
-            OpData::OLe { lhs, rhs } => write!(f, "ole {}, {}", lhs, rhs),
-
-            OpData::Sitofp { value } => write!(f, "sitofp {}", value),
-            OpData::Fptosi { value } => write!(f, "fptosi {}", value),
-            OpData::Uitofp { value } => write!(f, "uitofp {}", value),
-            OpData::Zext { value } => write!(f, "zext {}", value),
-
-            OpData::Store { addr, value } => write!(f, "store {}, {}", addr, value),
-            OpData::Load { addr } => write!(f, "load {}", addr),
-            OpData::Phi { incomings } => {
-                write!(f, "phi [")?;
-                for (i, phi_incoming) in incomings.iter().enumerate() {
-                    if let PhiIncoming::Data { value, bb } = phi_incoming {
-                        write!(f, "({}, {})", value, bb)?;
-                        if i != incomings.len() - 1 {
-                            write!(f, ", ")?;
-                        }
-                    }
-                }
-                write!(f, "]")
-            }
-            OpData::Alloca(size) => write!(f, "alloc {}", size),
-            OpData::Call { func, args } => {
-                write!(f, "call {} {:?}", func, args)
-            }
-            OpData::Br {
-                cond,
-                then_bb,
-                else_bb,
-            } => write!(f, "br {}, {}, {}", cond, then_bb, else_bb),
-            OpData::Jump { target_bb } => write!(f, "jump {}", target_bb),
-            OpData::Ret { value } => write!(f, "ret {:?}", value),
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match &self.data {
+      OpData::GEP { base, indices } => {
+        write!(f, "gep {}, [", base)?;
+        for (i, index) in indices.iter().enumerate() {
+          write!(f, "{}", index)?;
+          if i != indices.len() - 1 {
+            write!(f, ", ")?;
+          }
         }
+        write!(f, "]")
+      }
+      OpData::GlobalAlloca(size) => write!(f, "global_alloc {}", size),
+      OpData::Declare { name, typ } => {
+        let (ret_typ, param_typs) = match typ {
+          Type::Function {
+            return_type,
+            param_types,
+          } => (return_type, param_types),
+          _ => unreachable!("Declare op must have function type"),
+        };
+        write!(
+          f,
+          "declare {} @{}({})",
+          name,
+          ret_typ,
+          param_typs
+            .iter()
+            .map(|t| t.to_string())
+            .collect::<Vec<String>>()
+            .join(", ")
+        )
+      }
+
+      OpData::AddI { lhs, rhs } => write!(f, "add {}, {}", lhs, rhs),
+      OpData::SubI { lhs, rhs } => write!(f, "sub {}, {}", lhs, rhs),
+      OpData::MulI { lhs, rhs } => write!(f, "mul {}, {}", lhs, rhs),
+      OpData::DivI { lhs, rhs } => write!(f, "div {}, {}", lhs, rhs),
+      OpData::ModI { lhs, rhs } => write!(f, "mod {}, {}", lhs, rhs),
+
+      OpData::Xor { lhs, rhs } => write!(f, "xor {}, {}", lhs, rhs),
+
+      OpData::SNe { lhs, rhs } => write!(f, "sne {}, {}", lhs, rhs),
+      OpData::SEq { lhs, rhs } => write!(f, "seq {}, {}", lhs, rhs),
+      OpData::SGt { lhs, rhs } => write!(f, "sgt {}, {}", lhs, rhs),
+      OpData::SLt { lhs, rhs } => write!(f, "slt {}, {}", lhs, rhs),
+      OpData::SGe { lhs, rhs } => write!(f, "sge {}, {}", lhs, rhs),
+      OpData::SLe { lhs, rhs } => write!(f, "sle {}, {}", lhs, rhs),
+
+      OpData::Shl { lhs, rhs } => write!(f, "shl {}, {}", lhs, rhs),
+      OpData::Shr { lhs, rhs } => write!(f, "shr {}, {}", lhs, rhs),
+      OpData::Sar { lhs, rhs } => write!(f, "sar {}, {}", lhs, rhs),
+
+      OpData::AddF { lhs, rhs } => write!(f, "addf {}, {}", lhs, rhs),
+      OpData::SubF { lhs, rhs } => write!(f, "subf {}, {}", lhs, rhs),
+      OpData::MulF { lhs, rhs } => write!(f, "mulf {}, {}", lhs, rhs),
+      OpData::DivF { lhs, rhs } => write!(f, "divf {}, {}", lhs, rhs),
+
+      OpData::ONe { lhs, rhs } => write!(f, "one {}, {}", lhs, rhs),
+      OpData::OEq { lhs, rhs } => write!(f, "oeq {}, {}", lhs, rhs),
+      OpData::OGt { lhs, rhs } => write!(f, "ogt {}, {}", lhs, rhs),
+      OpData::OLt { lhs, rhs } => write!(f, "olt {}, {}", lhs, rhs),
+      OpData::OGe { lhs, rhs } => write!(f, "oge {}, {}", lhs, rhs),
+      OpData::OLe { lhs, rhs } => write!(f, "ole {}, {}", lhs, rhs),
+
+      OpData::Sitofp { value } => write!(f, "sitofp {}", value),
+      OpData::Fptosi { value } => write!(f, "fptosi {}", value),
+      OpData::Uitofp { value } => write!(f, "uitofp {}", value),
+      OpData::Zext { value } => write!(f, "zext {}", value),
+
+      OpData::Store { addr, value } => write!(f, "store {}, {}", addr, value),
+      OpData::Load { addr } => write!(f, "load {}", addr),
+      OpData::Phi { incomings } => {
+        write!(f, "phi [")?;
+        for (i, phi_incoming) in incomings.iter().enumerate() {
+          if let PhiIncoming::Data { value, bb } = phi_incoming {
+            write!(f, "({}, {})", value, bb)?;
+            if i != incomings.len() - 1 {
+              write!(f, ", ")?;
+            }
+          }
+        }
+        write!(f, "]")
+      }
+      OpData::Alloca(size) => write!(f, "alloc {}", size),
+      OpData::Call { func, args } => {
+        write!(f, "call {} {:?}", func, args)
+      }
+      OpData::Br {
+        cond,
+        then_bb,
+        else_bb,
+      } => write!(f, "br {}, {}, {}", cond, then_bb, else_bb),
+      OpData::Jump { target_bb } => write!(f, "jump {}", target_bb),
+      OpData::Ret { value } => write!(f, "ret {:?}", value),
     }
+  }
 }
 
 impl Index<Operand> for DFG {
-    type Output = Op;
+  type Output = Op;
 
-    fn index(&self, index: Operand) -> &Self::Output {
-        match index {
-            Operand::Value(id) => self.get(id).unwrap(),
-            _ => panic!("DFG index: expected Operand::Value, got {:?}", index),
-        }
+  fn index(&self, index: Operand) -> &Self::Output {
+    match index {
+      Operand::Value(id) => self.get(id).unwrap(),
+      _ => panic!("DFG index: expected Operand::Value, got {:?}", index),
     }
+  }
 }
 
 impl IndexMut<Operand> for DFG {
-    fn index_mut(&mut self, index: Operand) -> &mut Self::Output {
-        match index {
-            Operand::Value(id) => self.get_mut(id).unwrap(),
-            _ => panic!("DFG index_mut: expected Operand::Value, got {:?}", index),
-        }
+  fn index_mut(&mut self, index: Operand) -> &mut Self::Output {
+    match index {
+      Operand::Value(id) => self.get_mut(id).unwrap(),
+      _ => panic!("DFG index_mut: expected Operand::Value, got {:?}", index),
     }
+  }
 }
 
 impl DFG {
-    pub fn get_src_tuple(&self, op_id: Operand) -> Vec<(&Operand, usize)> {
-        let op = &self[op_id];
-        let data = &op.data;
+  pub fn get_src_tuple(&self, op_id: Operand) -> Vec<(&Operand, usize)> {
+    let op = &self[op_id];
+    let data = &op.data;
 
-        match_src! {
-            target: data,
-            bin_ops: [
-                AddI, SubI, MulI, DivI, ModI,
-                SNe, SEq, SGt, SLt, SGe, SLe,
-                Xor, Shl, Shr, Sar,
-                AddF, SubF, MulF, DivF,
-                ONe, OEq, OGt, OLt, OGe, OLe
-            ],
-            bin_arm: OpData { lhs, rhs } => {
-                vec![(lhs, 0), (rhs, 1)]
-            },
-            un_ops: [Sitofp, Fptosi, Uitofp, Zext],
-            un_arm: OpData { value } => {
-                vec![(value, 0)]
-            },
-            fallback: {
-                OpData::Load { addr } => {
-                    if matches!(addr, Operand::Global(_)) {
-                        vec![]
-                    } else if matches!(addr, Operand::Value(_)) {
-                        vec![(addr, 0)]
-                    } else {
-                        panic!("DFG get_src_tuple: Load address operand is not Value or Global");
-                    }
+    match_src! {
+        target: data,
+        bin_ops: [
+            AddI, SubI, MulI, DivI, ModI,
+            SNe, SEq, SGt, SLt, SGe, SLe,
+            Xor, Shl, Shr, Sar,
+            AddF, SubF, MulF, DivF,
+            ONe, OEq, OGt, OLt, OGe, OLe
+        ],
+        bin_arm: OpData { lhs, rhs } => {
+            vec![(lhs, 0), (rhs, 1)]
+        },
+        un_ops: [Sitofp, Fptosi, Uitofp, Zext],
+        un_arm: OpData { value } => {
+            vec![(value, 0)]
+        },
+        fallback: {
+            OpData::Load { addr } => {
+                if matches!(addr, Operand::Global(_)) {
+                    vec![]
+                } else if matches!(addr, Operand::Value(_)) {
+                    vec![(addr, 0)]
+                } else {
+                    panic!("DFG get_src_tuple: Load address operand is not Value or Global");
                 }
-                OpData::Store { addr, value } => {
-                    let mut srcs = Vec::new();
-                    if matches!(addr, Operand::Global(_)) {
-                    } else if matches!(addr, Operand::Value(_)) {
-                        srcs.push((addr, 0));
-                    } else {
-                        panic!("DFG get_src_tuple: Store address operand is not Value or Global");
-                    }
-                    srcs.push((value, 1));
-                    srcs
-                }
-                OpData::Br { cond, .. } => vec![(cond, 0)],
-                OpData::Call { args, .. } => {
-                    args
-                        .iter()
-                        .enumerate()
-                        .map(|(i, arg)| (arg, i + 1))
-                        .collect()
-                }
-                OpData::Ret { value } => {
-                    if let Some(val) = value {
-                        vec![(val, 0)]
-                    } else {
-                        vec![]
-                    }
-                }
-                OpData::Phi { incomings } => {
-                    let mut srcs = Vec::new();
-                    for (i, phi_incoming) in incomings.iter().enumerate() {
-                        if let PhiIncoming::Data { value, .. } = phi_incoming {
-                            srcs.push((value, i));
-                        }
-                    }
-                    srcs
-                }
-                OpData::GEP { base, indices } => {
-                    let mut srcs = Vec::new();
-                    if matches!(base, Operand::Global(_)) {
-                    } else if matches!(base, Operand::Value(_)) {
-                        srcs.push((base, 0));
-                    } else {
-                        panic!("DFG get_src_tuple: GEP base operand is not Value or Global");
-                    }
-                    for (i, index) in indices.iter().enumerate() {
-                        srcs.push((index, i + 1));
-                    }
-                    srcs
-                }
-                OpData::GlobalAlloca(_)
-                | OpData::Alloca(_)
-                | OpData::Jump { .. }
-                | OpData::Declare { .. } => vec![],
             }
+            OpData::Store { addr, value } => {
+                let mut srcs = Vec::new();
+                if matches!(addr, Operand::Global(_)) {
+                } else if matches!(addr, Operand::Value(_)) {
+                    srcs.push((addr, 0));
+                } else {
+                    panic!("DFG get_src_tuple: Store address operand is not Value or Global");
+                }
+                srcs.push((value, 1));
+                srcs
+            }
+            OpData::Br { cond, .. } => vec![(cond, 0)],
+            OpData::Call { args, .. } => {
+                args
+                    .iter()
+                    .enumerate()
+                    .map(|(i, arg)| (arg, i + 1))
+                    .collect()
+            }
+            OpData::Ret { value } => {
+                if let Some(val) = value {
+                    vec![(val, 0)]
+                } else {
+                    vec![]
+                }
+            }
+            OpData::Phi { incomings } => {
+                let mut srcs = Vec::new();
+                for (i, phi_incoming) in incomings.iter().enumerate() {
+                    if let PhiIncoming::Data { value, .. } = phi_incoming {
+                        srcs.push((value, i));
+                    }
+                }
+                srcs
+            }
+            OpData::GEP { base, indices } => {
+                let mut srcs = Vec::new();
+                if matches!(base, Operand::Global(_)) {
+                } else if matches!(base, Operand::Value(_)) {
+                    srcs.push((base, 0));
+                } else {
+                    panic!("DFG get_src_tuple: GEP base operand is not Value or Global");
+                }
+                for (i, index) in indices.iter().enumerate() {
+                    srcs.push((index, i + 1));
+                }
+                srcs
+            }
+            OpData::GlobalAlloca(_)
+            | OpData::Alloca(_)
+            | OpData::Jump { .. }
+            | OpData::Declare { .. } => vec![],
         }
     }
+  }
 
-    pub fn get_src(&self, op_id: Operand) -> Vec<&Operand> {
-        self.get_src_tuple(op_id)
-            .into_iter()
-            .map(|(src, _)| src)
-            .collect()
-    }
+  pub fn get_src(&self, op_id: Operand) -> Vec<&Operand> {
+    self
+      .get_src_tuple(op_id)
+      .into_iter()
+      .map(|(src, _)| src)
+      .collect()
+  }
 
-    pub fn get_src_tuple_mut(&mut self, op_id: Operand) -> Vec<(&mut Operand, usize)> {
-        let op = &mut self[op_id];
-        let data = &mut op.data;
+  pub fn get_src_tuple_mut(&mut self, op_id: Operand) -> Vec<(&mut Operand, usize)> {
+    let op = &mut self[op_id];
+    let data = &mut op.data;
 
-        match_src! {
-            target: data,
-            bin_ops: [
-                AddI, SubI, MulI, DivI, ModI,
-                SNe, SEq, SGt, SLt, SGe, SLe,
-                Xor, Shl, Shr, Sar,
-                AddF, SubF, MulF, DivF,
-                ONe, OEq, OGt, OLt, OGe, OLe
-            ],
-            bin_arm: OpData { lhs, rhs } => {
-                vec![(lhs, 0), (rhs, 1)]
-            },
-            un_ops: [Sitofp, Fptosi, Uitofp, Zext],
-            un_arm: OpData { value } => {
-                vec![(value, 0)]
-            },
-            fallback: {
-                OpData::Load { addr } => {
-                    if matches!(addr, Operand::Global(_)) {
-                        vec![]
-                    } else if matches!(addr, Operand::Value(_)) {
-                        vec![(addr, 0)]
-                    } else {
-                        panic!("DFG get_src_tuple_mut: Load address operand is not Value or Global");
-                    }
+    match_src! {
+        target: data,
+        bin_ops: [
+            AddI, SubI, MulI, DivI, ModI,
+            SNe, SEq, SGt, SLt, SGe, SLe,
+            Xor, Shl, Shr, Sar,
+            AddF, SubF, MulF, DivF,
+            ONe, OEq, OGt, OLt, OGe, OLe
+        ],
+        bin_arm: OpData { lhs, rhs } => {
+            vec![(lhs, 0), (rhs, 1)]
+        },
+        un_ops: [Sitofp, Fptosi, Uitofp, Zext],
+        un_arm: OpData { value } => {
+            vec![(value, 0)]
+        },
+        fallback: {
+            OpData::Load { addr } => {
+                if matches!(addr, Operand::Global(_)) {
+                    vec![]
+                } else if matches!(addr, Operand::Value(_)) {
+                    vec![(addr, 0)]
+                } else {
+                    panic!("DFG get_src_tuple_mut: Load address operand is not Value or Global");
                 }
-                OpData::Store { addr, value } => {
-                    let mut srcs = Vec::new();
-                    if matches!(addr, Operand::Global(_)) {
-                    } else if matches!(addr, Operand::Value(_)) {
-                        srcs.push((addr, 0));
-                    } else {
-                        panic!("DFG get_src_tuple_mut: Store address operand is not Value or Global");
-                    }
-                    srcs.push((value, 1));
-                    srcs
-                }
-                OpData::Br { cond, .. } => vec![(cond, 0)],
-                OpData::Call { args, .. } => {
-                    let mut srcs = Vec::new();
-                    for (i, arg) in args.iter_mut().enumerate() {
-                        srcs.push((arg, i + 1));
-                    }
-                    srcs
-                }
-                OpData::Ret { value } => {
-                    if let Some(val) = value.as_mut() {
-                        vec![(val, 0)]
-                    } else {
-                        vec![]
-                    }
-                }
-                OpData::Phi { incomings } => {
-                    let mut srcs = Vec::new();
-                    for (i, phi_incoming) in incomings.iter_mut().enumerate() {
-                        if let PhiIncoming::Data { value, .. } = phi_incoming {
-                            srcs.push((value, i));
-                        }
-                    }
-                    srcs
-                }
-                OpData::GEP { base, indices } => {
-                    let mut srcs = Vec::new();
-                    if matches!(base, Operand::Global(_)) {
-                    } else if matches!(base, Operand::Value(_)) {
-                        srcs.push((base, 0));
-                    } else {
-                        panic!("DFG get_src_tuple_mut: GEP base operand is not Value or Global");
-                    }
-                    for (i, index) in indices.iter_mut().enumerate() {
-                        srcs.push((index, i + 1));
-                    }
-                    srcs
-                }
-                OpData::GlobalAlloca(_)
-                | OpData::Alloca(_)
-                | OpData::Jump { .. }
-                | OpData::Declare { .. } => vec![],
             }
+            OpData::Store { addr, value } => {
+                let mut srcs = Vec::new();
+                if matches!(addr, Operand::Global(_)) {
+                } else if matches!(addr, Operand::Value(_)) {
+                    srcs.push((addr, 0));
+                } else {
+                    panic!("DFG get_src_tuple_mut: Store address operand is not Value or Global");
+                }
+                srcs.push((value, 1));
+                srcs
+            }
+            OpData::Br { cond, .. } => vec![(cond, 0)],
+            OpData::Call { args, .. } => {
+                let mut srcs = Vec::new();
+                for (i, arg) in args.iter_mut().enumerate() {
+                    srcs.push((arg, i + 1));
+                }
+                srcs
+            }
+            OpData::Ret { value } => {
+                if let Some(val) = value.as_mut() {
+                    vec![(val, 0)]
+                } else {
+                    vec![]
+                }
+            }
+            OpData::Phi { incomings } => {
+                let mut srcs = Vec::new();
+                for (i, phi_incoming) in incomings.iter_mut().enumerate() {
+                    if let PhiIncoming::Data { value, .. } = phi_incoming {
+                        srcs.push((value, i));
+                    }
+                }
+                srcs
+            }
+            OpData::GEP { base, indices } => {
+                let mut srcs = Vec::new();
+                if matches!(base, Operand::Global(_)) {
+                } else if matches!(base, Operand::Value(_)) {
+                    srcs.push((base, 0));
+                } else {
+                    panic!("DFG get_src_tuple_mut: GEP base operand is not Value or Global");
+                }
+                for (i, index) in indices.iter_mut().enumerate() {
+                    srcs.push((index, i + 1));
+                }
+                srcs
+            }
+            OpData::GlobalAlloca(_)
+            | OpData::Alloca(_)
+            | OpData::Jump { .. }
+            | OpData::Declare { .. } => vec![],
         }
     }
+  }
 
-    pub fn get_src_mut(&mut self, op_id: Operand) -> Vec<&mut Operand> {
-        self.get_src_tuple_mut(op_id)
-            .into_iter()
-            .map(|(src, _)| src)
-            .collect()
-    }
+  pub fn get_src_mut(&mut self, op_id: Operand) -> Vec<&mut Operand> {
+    self
+      .get_src_tuple_mut(op_id)
+      .into_iter()
+      .map(|(src, _)| src)
+      .collect()
+  }
 }
 
 #[derive(Debug, Clone)]
 pub struct Op {
-    pub typ: Type,
-    pub attrs: Vec<Attr>,
-    pub data: OpData,
-    /// (OpId of user, operand idx in user)
-    pub users: Vec<(Operand, usize)>,
+  pub typ: Type,
+  pub attrs: Vec<Attr>,
+  pub data: OpData,
+  /// (OpId of user, operand idx in user)
+  pub users: Vec<(Operand, usize)>,
 }
 
 impl Op {
-    pub fn new(typ: Type, attrs: Vec<Attr>, data: OpData) -> Self {
-        Self {
-            typ,
-            attrs,
-            data,
-            users: vec![],
-        }
+  pub fn new(typ: Type, attrs: Vec<Attr>, data: OpData) -> Self {
+    Self {
+      typ,
+      attrs,
+      data,
+      users: vec![],
     }
+  }
 
-    pub fn is(&self, op_typ: OpType) -> bool {
-        self.data.is(op_typ)
-    }
+  pub fn is(&self, op_typ: OpType) -> bool {
+    self.data.is(op_typ)
+  }
 
-    pub fn is_impure(&self) -> bool {
-        self.data.is_impure()
-    }
+  pub fn is_impure(&self) -> bool {
+    self.data.is_impure()
+  }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Operand {
-    // Ids
-    Value(usize),
-    BB(usize),
-    Func(usize),
-    Global(usize),
+  // Ids
+  Value(usize),
+  BB(usize),
+  Func(usize),
+  Global(usize),
 
-    // Literals
-    Int(i32),
-    Float(u32),
-    Bool(bool),
+  // Literals
+  Int(i32),
+  Float(u32),
+  Bool(bool),
 
-    // Param
-    Param { idx: usize, name: String, typ: Type },
-    // for phi
-    Undefined,
+  // Param
+  Param { idx: usize, name: String, typ: Type },
+  // for phi
+  Undefined,
 }
 
 impl From<Operand> for usize {
-    fn from(operand: Operand) -> Self {
-        match operand {
-            Operand::Value(id) => id,
-            Operand::Global(id) => id,
-            Operand::BB(id) => id,
-            Operand::Func(id) => id,
-            _ => panic!("Operand cannot be converted to usize: {:?}", operand),
-        }
+  fn from(operand: Operand) -> Self {
+    match operand {
+      Operand::Value(id) => id,
+      Operand::Global(id) => id,
+      Operand::BB(id) => id,
+      Operand::Func(id) => id,
+      _ => panic!("Operand cannot be converted to usize: {:?}", operand),
     }
+  }
 }
 
 #[allow(unused)]
 impl Operand {
-    pub fn get_op_id(&self) -> usize {
-        match self {
-            Operand::Value(op_id) => *op_id,
-            _ => panic!("Operand is not a Value operand: {:?}", self),
-        }
+  pub fn get_op_id(&self) -> usize {
+    match self {
+      Operand::Value(op_id) => *op_id,
+      _ => panic!("Operand is not a Value operand: {:?}", self),
     }
-    pub fn get_bb_id(&self) -> usize {
-        match self {
-            Operand::BB(bb_id) => *bb_id,
-            _ => panic!("Operand is not a BBId: {:?}", self),
-        }
+  }
+  pub fn get_bb_id(&self) -> usize {
+    match self {
+      Operand::BB(bb_id) => *bb_id,
+      _ => panic!("Operand is not a BBId: {:?}", self),
     }
-    pub fn get_global_id(&self) -> usize {
-        match self {
-            Operand::Global(global_id) => *global_id,
-            _ => panic!("Operand is not a GlobalId: {:?}", self),
-        }
+  }
+  pub fn get_global_id(&self) -> usize {
+    match self {
+      Operand::Global(global_id) => *global_id,
+      _ => panic!("Operand is not a GlobalId: {:?}", self),
     }
-    pub fn get_int(&self) -> i32 {
-        match self {
-            Operand::Int(value) => *value,
-            _ => panic!("Operand is not an Int: {:?}", self),
-        }
+  }
+  pub fn get_int(&self) -> i32 {
+    match self {
+      Operand::Int(value) => *value,
+      _ => panic!("Operand is not an Int: {:?}", self),
     }
-    pub fn get_float(&self) -> f32 {
-        match self {
-            Operand::Float(value) => f32::from_bits(*value),
-            _ => panic!("Operand is not a Float: {:?}", self),
-        }
+  }
+  pub fn get_float(&self) -> f32 {
+    match self {
+      Operand::Float(value) => f32::from_bits(*value),
+      _ => panic!("Operand is not a Float: {:?}", self),
     }
-    pub fn get_func_id(&self) -> usize {
-        match self {
-            Operand::Func(func_id) => *func_id,
-            _ => panic!("Operand is not a FuncId: {:?}", self),
-        }
+  }
+  pub fn get_func_id(&self) -> usize {
+    match self {
+      Operand::Func(func_id) => *func_id,
+      _ => panic!("Operand is not a FuncId: {:?}", self),
     }
-    pub fn is_literal(&self) -> bool {
-        matches!(self, Operand::Int(_) | Operand::Float(_) | Operand::Bool(_))
-    }
+  }
+  pub fn is_literal(&self) -> bool {
+    matches!(self, Operand::Int(_) | Operand::Float(_) | Operand::Bool(_))
+  }
 }
 
 impl std::fmt::Display for Operand {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Operand::Value(op_id) => write!(f, "%val_{}", op_id),
-            Operand::BB(bb_id) => write!(f, "%{}", bb_id),
-            Operand::Global(global_id) => write!(f, "@{}", global_id),
-            Operand::Int(value) => write!(f, "{}", value),
-            Operand::Float(value) => write!(f, "{}", value),
-            Operand::Bool(value) => write!(f, "{}", value),
-            Operand::Param { idx, .. } => write!(f, "%arg{}", idx),
-            Operand::Func(func_id) => write!(f, "@{}", func_id),
-            Operand::Undefined => write!(f, "undefined"),
-        }
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Operand::Value(op_id) => write!(f, "%val_{}", op_id),
+      Operand::BB(bb_id) => write!(f, "%{}", bb_id),
+      Operand::Global(global_id) => write!(f, "@{}", global_id),
+      Operand::Int(value) => write!(f, "{}", value),
+      Operand::Float(value) => write!(f, "{}", value),
+      Operand::Bool(value) => write!(f, "{}", value),
+      Operand::Param { idx, .. } => write!(f, "%arg{}", idx),
+      Operand::Func(func_id) => write!(f, "@{}", func_id),
+      Operand::Undefined => write!(f, "undefined"),
     }
+  }
 }
 
 // attributes of instructions
 #[derive(Clone, Debug)]
 pub enum Attr {
-    // for global var
-    GlobalArray {
-        // if mutable -> .data; else .rodata
-        name: String,
-        mutable: bool,
-        typ: Type,
-        // None: zeroinitializer; Some: initializer list
-        values: Option<Vec<Literal>>,
-    },
-    Promotion,
-    // Name
-    Name(String),
-    // Old OpId for Phi
-    OldIdx(Operand),
-    FuncName(String),
+  // for global var
+  GlobalArray {
+    // if mutable -> .data; else .rodata
+    name: String,
+    mutable: bool,
+    typ: Type,
+    // None: zeroinitializer; Some: initializer list
+    values: Option<Vec<Literal>>,
+  },
+  Promotion,
+  // Name
+  Name(String),
+  // Old OpId for Phi
+  OldIdx(Operand),
+  FuncName(String),
 }
 
 impl std::fmt::Display for Attr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Attr::GlobalArray {
-                name,
-                mutable: _,
-                typ: _,
-                values: _,
-            } => write!(f, "<global array: {}>", name),
-            Attr::Name(name) => write!(f, "{}", name),
-            Attr::Promotion => write!(f, "<promotion>"),
-            Attr::OldIdx(op) => write!(f, "<old idx: {}>", op),
-            Attr::FuncName(name) => write!(f, "<func name: {}>", name),
-        }
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Attr::GlobalArray {
+        name,
+        mutable: _,
+        typ: _,
+        values: _,
+      } => write!(f, "<global array: {}>", name),
+      Attr::Name(name) => write!(f, "{}", name),
+      Attr::Promotion => write!(f, "<promotion>"),
+      Attr::OldIdx(op) => write!(f, "<old idx: {}>", op),
+      Attr::FuncName(name) => write!(f, "<func name: {}>", name),
     }
+  }
 }
 
 // impl dfg
 impl Arena<Op> for IndexedArena<Op> {
-    fn remove(&mut self, idx: usize) -> Op {
-        // mark this slot as deleted
-        if let ArenaItem::Data(data) = std::mem::replace(&mut self.storage[idx], ArenaItem::None) {
-            // if the slot is occupied by data, mark it as deleted and return the data
-            data
-        } else {
-            panic!("DFG remove: index {} is not occupied by data", idx);
-        }
+  fn remove(&mut self, idx: usize) -> Op {
+    // mark this slot as deleted
+    if let ArenaItem::Data(data) = std::mem::replace(&mut self.storage[idx], ArenaItem::None) {
+      // if the slot is occupied by data, mark it as deleted and return the data
+      data
+    } else {
+      panic!("DFG remove: index {} is not occupied by data", idx);
     }
+  }
 
-    fn gc(&mut self) -> Vec<ArenaItem<Op>> {
-        let new_arena: Vec<ArenaItem<Op>> = vec![];
-        let mut old_arena = std::mem::replace(&mut self.storage, new_arena);
+  fn gc(&mut self) -> Vec<ArenaItem<Op>> {
+    let new_arena: Vec<ArenaItem<Op>> = vec![];
+    let mut old_arena = std::mem::replace(&mut self.storage, new_arena);
 
-        // Transport
-        old_arena.iter_mut().for_each(|item| {
-            if matches!(item, ArenaItem::Data(_)) {
-                let new_idx = self.storage.len();
-                let data = item.replace(new_idx);
-                self.storage.push(data);
-            }
-        });
+    // Transport
+    old_arena.iter_mut().for_each(|item| {
+      if matches!(item, ArenaItem::Data(_)) {
+        let new_idx = self.storage.len();
+        let data = item.replace(new_idx);
+        self.storage.push(data);
+      }
+    });
 
-        info!(
-            "DFG GC: {} ops collected, recycle rate: {:.2}%",
-            old_arena.len() - self.storage.len(),
-            (old_arena.len() - self.storage.len()) as f64 / old_arena.len() as f64 * 100.0
-        );
+    info!(
+      "DFG GC: {} ops collected, recycle rate: {:.2}%",
+      old_arena.len() - self.storage.len(),
+      (old_arena.len() - self.storage.len()) as f64 / old_arena.len() as f64 * 100.0
+    );
 
-        #[allow(unused)]
-        let remap_idx = |idx: &mut usize, old_arena: &Vec<ArenaItem<Op>>| {
-            *idx = match old_arena.get(*idx) {
-                Some(ArenaItem::NewIndex(new_idx)) => *new_idx,
-                _ => panic!(
-                    "DFG gc: index {} is not a valid NewIndex: {:?}",
-                    *idx,
-                    old_arena.get(*idx)
-                ),
-            };
-        };
+    #[allow(unused)]
+    let remap_idx = |idx: &mut usize, old_arena: &Vec<ArenaItem<Op>>| {
+      *idx = match old_arena.get(*idx) {
+        Some(ArenaItem::NewIndex(new_idx)) => *new_idx,
+        _ => panic!(
+          "DFG gc: index {} is not a valid NewIndex: {:?}",
+          *idx,
+          old_arena.get(*idx)
+        ),
+      };
+    };
 
-        // TODO: Remap Index when using Invaded List.
-        // if let Some(entry) = self.entry.as_mut() {
-        //     remap_idx(entry, &old_arena);
-        // }
+    // TODO: Remap Index when using Invaded List.
+    // if let Some(entry) = self.entry.as_mut() {
+    //     remap_idx(entry, &old_arena);
+    // }
 
-        // for idx in self.map.values_mut() {
-        //     remap_idx(idx, &old_arena);
-        // }
+    // for idx in self.map.values_mut() {
+    //     remap_idx(idx, &old_arena);
+    // }
 
-        let remap_value = |operand: &mut Operand, old_arena: &Vec<ArenaItem<Op>>| {
-            if !matches!(operand, Operand::Value(_)) {
-                return;
-            }
-            let old_idx = operand.get_op_id();
-            *operand = match old_arena.get(old_idx) {
-                Some(ArenaItem::NewIndex(new_idx)) => Operand::Value(*new_idx),
-                _ => panic!(
-                    "DFG gc: index {} not found for operand {:?}",
-                    old_idx, operand
-                ),
-            };
-        };
+    let remap_value = |operand: &mut Operand, old_arena: &Vec<ArenaItem<Op>>| {
+      if !matches!(operand, Operand::Value(_)) {
+        return;
+      }
+      let old_idx = operand.get_op_id();
+      *operand = match old_arena.get(old_idx) {
+        Some(ArenaItem::NewIndex(new_idx)) => Operand::Value(*new_idx),
+        _ => panic!(
+          "DFG gc: index {} not found for operand {:?}",
+          old_idx, operand
+        ),
+      };
+    };
 
-        // rewrite idx
-        for item in self.storage.iter_mut() {
-            // item can't be any other variant than Data here
-            if let ArenaItem::Data(node) = item {
-                // rewrite uses
-                for (op_id, _) in node.users.iter_mut() {
-                    remap_value(op_id, &old_arena);
-                }
+    // rewrite idx
+    for item in self.storage.iter_mut() {
+      // item can't be any other variant than Data here
+      if let ArenaItem::Data(node) = item {
+        // rewrite uses
+        for (op_id, _) in node.users.iter_mut() {
+          remap_value(op_id, &old_arena);
+        }
 
-                // rewrite Attr
-                node.attrs.iter_mut().for_each(|attr| {
+        // rewrite Attr
+        node.attrs.iter_mut().for_each(|attr| {
                     match attr {
                         Attr::OldIdx(op) => remap_value(op, &old_arena),
                         Attr::GlobalArray { .. }
@@ -772,148 +774,148 @@ impl Arena<Op> for IndexedArena<Op> {
                     }
                 });
 
-                // rewrite operands excluding BBId
-                match_src! {
-                    target: &mut node.data,
-                    bin_ops: [
-                        AddI, SubI, MulI, DivI, ModI,
-                        SNe, SEq, SGt, SLt, SGe, SLe,
-                        Xor, Shl, Shr, Sar,
-                        AddF, SubF, MulF, DivF,
-                        ONe, OEq, OGt, OLt, OGe, OLe
-                    ],
-                    bin_arm: OpData { lhs, rhs } => {
-                        remap_value(lhs, &old_arena);
-                        remap_value(rhs, &old_arena);
-                    },
-                    un_ops: [Sitofp, Fptosi, Uitofp, Zext],
-                    un_arm: OpData { value } => {
-                        remap_value(value, &old_arena);
-                    },
-                    fallback: {
-                        OpData::Store { addr, value } => {
-                            remap_value(addr, &old_arena);
-                            remap_value(value, &old_arena);
-                        }
-                        OpData::Load { addr } => {
-                            remap_value(addr, &old_arena);
-                        }
-                        OpData::Call { args, .. } => {
-                            for arg in args.iter_mut() {
-                                remap_value(arg, &old_arena);
-                            }
-                        }
-                        OpData::Br { cond, .. } => {
-                            remap_value(cond, &old_arena);
-                        }
-                        OpData::Ret { value } => {
-                            if let Some(val) = value {
-                                remap_value(val, &old_arena);
-                            }
-                        }
-
-                        OpData::GEP { base, indices } => {
-                            remap_value(base, &old_arena);
-                            for index in indices.iter_mut() {
-                                remap_value(index, &old_arena);
-                            }
-                        }
-
-                        OpData::Phi { incomings } => {
-                            for phi_incoming in incomings.iter_mut() {
-                                if let PhiIncoming::Data { value, .. } = phi_incoming {
-                                    remap_value(value, &old_arena);
-                                }
-                            }
-                        }
-
-                        OpData::GlobalAlloca(_)
-                        | OpData::Alloca(_)
-                        | OpData::Jump { .. }
-                        | OpData::Declare { .. } => { /* no operands to rewrite */ }
+        // rewrite operands excluding BBId
+        match_src! {
+            target: &mut node.data,
+            bin_ops: [
+                AddI, SubI, MulI, DivI, ModI,
+                SNe, SEq, SGt, SLt, SGe, SLe,
+                Xor, Shl, Shr, Sar,
+                AddF, SubF, MulF, DivF,
+                ONe, OEq, OGt, OLt, OGe, OLe
+            ],
+            bin_arm: OpData { lhs, rhs } => {
+                remap_value(lhs, &old_arena);
+                remap_value(rhs, &old_arena);
+            },
+            un_ops: [Sitofp, Fptosi, Uitofp, Zext],
+            un_arm: OpData { value } => {
+                remap_value(value, &old_arena);
+            },
+            fallback: {
+                OpData::Store { addr, value } => {
+                    remap_value(addr, &old_arena);
+                    remap_value(value, &old_arena);
+                }
+                OpData::Load { addr } => {
+                    remap_value(addr, &old_arena);
+                }
+                OpData::Call { args, .. } => {
+                    for arg in args.iter_mut() {
+                        remap_value(arg, &old_arena);
                     }
                 }
+                OpData::Br { cond, .. } => {
+                    remap_value(cond, &old_arena);
+                }
+                OpData::Ret { value } => {
+                    if let Some(val) = value {
+                        remap_value(val, &old_arena);
+                    }
+                }
+
+                OpData::GEP { base, indices } => {
+                    remap_value(base, &old_arena);
+                    for index in indices.iter_mut() {
+                        remap_value(index, &old_arena);
+                    }
+                }
+
+                OpData::Phi { incomings } => {
+                    for phi_incoming in incomings.iter_mut() {
+                        if let PhiIncoming::Data { value, .. } = phi_incoming {
+                            remap_value(value, &old_arena);
+                        }
+                    }
+                }
+
+                OpData::GlobalAlloca(_)
+                | OpData::Alloca(_)
+                | OpData::Jump { .. }
+                | OpData::Declare { .. } => { /* no operands to rewrite */ }
             }
         }
-
-        // replace old storage
-        old_arena
+      }
     }
+
+    // replace old storage
+    old_arena
+  }
 }
 
 impl IndexedArena<Op> {
-    pub fn add_use(&mut self, op_id: Operand, user_tuple: (Operand, usize)) {
-        let op_id = match_some! {
-            target: op_id,
-            enu: Operand,
-            minor_arms: {
-                Operand::Value(op_id) => op_id,
-                Operand::Global(global_id) => global_id,
-            },
-            // literals don't have uses in the DFG
-            // For global variables, we don't maintain uses in the DFG, so just return.
-            uni_ops: [Int, Float, Bool, Undefined, Param, Func, BB],
-            uni_arm: return
-        };
-        let node = &mut self[op_id];
-        // Check whether the use already exists to avoid duplicates
-        node.users.push(user_tuple);
-    }
+  pub fn add_use(&mut self, op_id: Operand, user_tuple: (Operand, usize)) {
+    let op_id = match_some! {
+        target: op_id,
+        enu: Operand,
+        minor_arms: {
+            Operand::Value(op_id) => op_id,
+            Operand::Global(global_id) => global_id,
+        },
+        // literals don't have uses in the DFG
+        // For global variables, we don't maintain uses in the DFG, so just return.
+        uni_ops: [Int, Float, Bool, Undefined, Param, Func, BB],
+        uni_arm: return
+    };
+    let node = &mut self[op_id];
+    // Check whether the use already exists to avoid duplicates
+    node.users.push(user_tuple);
+  }
 
-    // Remove use_idx from the users of op_idx.
-    pub fn remove_use(&mut self, op_id: Operand, user_tuple: (Operand, usize)) {
-        let op_id = match_some! {
-            target: op_id,
-            enu: Operand,
-            minor_arms: {
-                Operand::Value(op_id) => op_id,
-                Operand::Global(global_id) => global_id,
-            },
-            // literals don't have uses in the DFG
-            // For global variables, we don't maintain uses in the DFG, so just return.
-            uni_ops: [Int, Float, Bool, Undefined, Param, Func, BB],
-            uni_arm: return
-        };
-        let node = &mut self[op_id];
-        if let Some(pos) = node.users.iter().position(|x| *x == user_tuple) {
-            node.users.swap_remove(pos);
-        } else {
-            panic!(
-                "Use {}: {:?} not found in users of op {}: {:?}",
-                user_tuple.0.clone(),
-                self[user_tuple.0],
-                op_id.clone(),
-                self[op_id]
-            );
-        }
+  // Remove use_idx from the users of op_idx.
+  pub fn remove_use(&mut self, op_id: Operand, user_tuple: (Operand, usize)) {
+    let op_id = match_some! {
+        target: op_id,
+        enu: Operand,
+        minor_arms: {
+            Operand::Value(op_id) => op_id,
+            Operand::Global(global_id) => global_id,
+        },
+        // literals don't have uses in the DFG
+        // For global variables, we don't maintain uses in the DFG, so just return.
+        uni_ops: [Int, Float, Bool, Undefined, Param, Func, BB],
+        uni_arm: return
+    };
+    let node = &mut self[op_id];
+    if let Some(pos) = node.users.iter().position(|x| *x == user_tuple) {
+      node.users.swap_remove(pos);
+    } else {
+      panic!(
+        "Use {}: {:?} not found in users of op {}: {:?}",
+        user_tuple.0.clone(),
+        self[user_tuple.0],
+        op_id.clone(),
+        self[op_id]
+      );
     }
+  }
 
-    // @param op_tuple: the op whose uses we want to replace with new operand. e.g. "add %1, %2"
-    // @param old: the old use we want to replace with e.g. %1 in "add %1, %2"
-    // @param new: the new use we want to replace with e.g. %3 in "add %3, %2"
-    pub fn replace_use(&mut self, op_tuple: (Operand, usize), old: Operand, new: Operand) {
-        let op_id = op_tuple.0.clone();
-        let op_id = match_some! {
-            target: op_id,
-            enu: Operand,
-            minor_arms: {
-                Operand::Value(op_id) => op_id,
-                Operand::Global(global_id) => global_id,
-            },
-            // literals don't have uses in the DFG
-            // For global variables, we don't maintain uses in the DFG, so just return.
-            uni_ops: [Int, Float, Bool, Undefined, Param, BB, Func],
-            uni_arm: return
-        };
-        let src_tuples = self.get_src_tuple_mut(Operand::Value(op_id));
-        for (src, _) in src_tuples {
-            if *src == old {
-                *src = new.clone();
-            }
-        }
-        // Delete old user
-        self.remove_use(old, op_tuple.clone());
-        // Add new user
-        self.add_use(new, op_tuple);
+  // @param op_tuple: the op whose uses we want to replace with new operand. e.g. "add %1, %2"
+  // @param old: the old use we want to replace with e.g. %1 in "add %1, %2"
+  // @param new: the new use we want to replace with e.g. %3 in "add %3, %2"
+  pub fn replace_use(&mut self, op_tuple: (Operand, usize), old: Operand, new: Operand) {
+    let op_id = op_tuple.0.clone();
+    let op_id = match_some! {
+        target: op_id,
+        enu: Operand,
+        minor_arms: {
+            Operand::Value(op_id) => op_id,
+            Operand::Global(global_id) => global_id,
+        },
+        // literals don't have uses in the DFG
+        // For global variables, we don't maintain uses in the DFG, so just return.
+        uni_ops: [Int, Float, Bool, Undefined, Param, BB, Func],
+        uni_arm: return
+    };
+    let src_tuples = self.get_src_tuple_mut(Operand::Value(op_id));
+    for (src, _) in src_tuples {
+      if *src == old {
+        *src = new.clone();
+      }
     }
+    // Delete old user
+    self.remove_use(old, op_tuple.clone());
+    // Add new user
+    self.add_use(new, op_tuple);
+  }
 }
