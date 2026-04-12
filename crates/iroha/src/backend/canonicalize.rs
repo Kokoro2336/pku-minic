@@ -13,7 +13,7 @@ use yachiyo::utils::r#match::{match_some, match_src};
 enum LegalizeOption {
   ForceImmLoad, // Force loading the operand into a register.
   NoLoad,       // Do not load mem.
-  None,
+  Default,
 }
 
 #[derive(Default)]
@@ -45,24 +45,18 @@ impl Canonicalize<'_> {
   }
 
   #[inline(always)]
-  fn get_src_mut(&mut self, bop_id: BOperand) -> Vec<&mut BOperand> {
-    let func_id = self.builder.current_function.expect("No current function");
-    self.ir.as_mut().unwrap().get_src_mut(Some(func_id), bop_id)
-  }
-
-  #[inline(always)]
   fn get_operand_type(&self, operand: BOperand) -> BType {
     let func_id = self.builder.current_function.unwrap();
 
     match operand {
       BOperand::Inst(id) => {
         let op = &self.get_func(func_id).dfg[id];
-        op.typ.clone()
+        op.typ
       }
       BOperand::Reg(reg) => match reg {
         Reg::X(_) => BType::I32,
         Reg::F(_) => BType::F32,
-        Reg::Virt(_) => self.get_func(func_id).vregs[operand].typ.clone(),
+        Reg::Virt(_) => self.get_func(func_id).vregs[operand].typ,
       },
       BOperand::IntImm(_) => BType::I32,
       BOperand::FloatImm(_) => BType::F32,
@@ -72,7 +66,7 @@ impl Canonicalize<'_> {
         Slot::CalleeSaved { typ, .. }
         | Slot::Local { typ, .. }
         | Slot::Param { typ, .. }
-        | Slot::Arg { typ, .. } => typ.clone(),
+        | Slot::Arg { typ, .. } => *typ,
       },
       BOperand::Data(_) => self.ir.as_ref().unwrap().data_info[operand].typ,
       BOperand::RoData(_) => self.ir.as_ref().unwrap().rodata_info[operand].typ,
@@ -114,7 +108,7 @@ impl Canonicalize<'_> {
     )
   }
 
-  pub fn legalize(&mut self, boperand: BOperand, option: LegalizeOption) -> BOperand {
+  fn legalize(&mut self, boperand: BOperand, option: LegalizeOption) -> BOperand {
     match_some! {
       target: boperand,
       enu: BOperand,
@@ -182,7 +176,7 @@ impl Canonicalize<'_> {
             }
             let typ = self.get_operand_type(boperand);
             let lop_id = self.create(BOp::new(
-                typ.into(),
+                typ,
                 vec![],
                 LOpData::Load {
                     rd: BOperand::Undef,
@@ -198,9 +192,9 @@ impl Canonicalize<'_> {
             if option == LegalizeOption::NoLoad {
               return boperand;
             }
-            let typ = self.get_operand_type(boperand.clone());
+            let typ = self.get_operand_type(boperand);
             let lop_id = self.create(BOp::new(
-                typ.into(),
+                typ,
                 vec![],
                 LOpData::Load {
                     rd: BOperand::Undef,
@@ -302,12 +296,12 @@ impl Canonicalize<'_> {
       let inst_ids = self.get_func(func_id).cfg[bb_id].cur.clone();
       for inst_id in inst_ids {
         self.builder.set_before_inst(
-          &mut self.ir.as_mut().unwrap(),
+          self.ir.as_mut().unwrap(),
           self.builder.current_function,
           Some(inst_id),
         );
         let op = &self.get_func(func_id).dfg[inst_id];
-        let (lop_data, typ) = (op.data.clone().into(), op.typ.clone());
+        let (lop_data, typ) = (op.data.clone().into(), op.typ);
 
         match_src! {
           target: lop_data,
@@ -510,9 +504,10 @@ impl Canonicalize<'_> {
             },
             LOpData::Call {..}
             | LOpData::Jump {..} => {/*do nothing*/},
-            LOpData::LoadAddress
-            | LOpData::LoadIntImm
-            | LOpData::LoadFloatImm => unreachable!(),
+            LOpData::LoadAddress {..}
+            | LOpData::LoadIntImm {..}
+            | LOpData::LoadFloatImm {..}
+            | LOpData::Ret => unreachable!(),
           }
         }
       }

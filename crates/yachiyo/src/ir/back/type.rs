@@ -1,7 +1,7 @@
 use crate::base::Type;
 use crate::config::RISCV_BITS;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum BType {
   Void,
   I32,
@@ -11,6 +11,7 @@ pub enum BType {
 }
 
 impl BType {
+  #[inline(always)]
   pub fn size(&self) -> u32 {
     match self {
       BType::Void => 1, // align to 1 byte for void type
@@ -19,6 +20,7 @@ impl BType {
       BType::U64 => RISCV_BITS / 8,
     }
   }
+  #[inline(always)]
   pub fn align(&self) -> u32 {
     match self {
       BType::Void => 1,

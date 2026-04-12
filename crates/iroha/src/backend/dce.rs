@@ -230,13 +230,14 @@ impl<'a> BPass<'a> for BDCE<'a> {
                   LOpData::Jump { .. }
                   | LOpData::Ret
                   | LOpData::LoadIntImm { .. }
-                  | LOpData::LoadFloatImm { .. } => {}
+                  | LOpData::LoadFloatImm { .. }
+                  | LOpData::LoadAddress { .. } => {}
               }
           },
           BOpData::M(mop_data) => match_src! {
               target: mop_data,
               bin_ops: [
-                  Addw, Subw, Mulw, Divw, Remw,
+                Add, Addw, Subw, Mulw, Divw, Remw,
                   Sllw, Srlw, Sraw,
                   Slt, Sltu, Xor,
                   FaddS, FsubS, FmulS, FdivS,
@@ -251,13 +252,10 @@ impl<'a> BPass<'a> for BDCE<'a> {
                   check(self, rs);
               },
               fallback: {
-                  MOpData::Slti { rs1, imm, .. }
+                  MOpData::Addi { rs1, imm, .. }
+                  | MOpData::Slti { rs1, imm, .. }
                   | MOpData::Sltiu { rs1, imm, .. }
                   | MOpData::Addiw { rs1, imm, .. }
-                  | MOpData::Subiw { rs1, imm, .. }
-                  | MOpData::Muliw { rs1, imm, .. }
-                  | MOpData::Diviw { rs1, imm, .. }
-                  | MOpData::Remiw { rs1, imm, .. }
                   | MOpData::Slliw { rs1, imm, .. }
                   | MOpData::Srliw { rs1, imm, .. }
                   | MOpData::Sraiw { rs1, imm, .. }

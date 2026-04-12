@@ -104,6 +104,7 @@ fn main() -> Result<()> {
 
   // Run Backend Passes.
   BPassManager::new(&cli)
+    .register(Box::new(Canonicalize::default()))
     .register(Box::new(ISel::default()))
     .register(Box::new(BDCE::default()))
     .register(Box::new(BCompaction::default()))

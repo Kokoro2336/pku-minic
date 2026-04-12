@@ -409,14 +409,15 @@ impl Arena<BFunction> for BCG {
                                         }
                                         LOpData::Ret
                                         | LOpData::LoadIntImm {..}
-                                        | LOpData::LoadFloatImm {..} => {}
+                                        | LOpData::LoadFloatImm {..}
+                                        | LOpData::LoadAddress {..} => {}
                                     }
                                 }
                             }
                             BOpData::M(mop_data) => {
                                 match_full_ops! {
                                     target: mop_data,
-                                    bin_ops: [Addw, Subw, Mulw, Divw, Remw, Sllw, Srlw, Sraw, Slt, Sltu, Xor, FaddS, FsubS, FmulS, FdivS, FeqS, FneS, FltS, FgeS, FleS, FgtS],
+                                bin_ops: [Add, Addw, Subw, Mulw, Divw, Remw, Sllw, Srlw, Sraw, Slt, Sltu, Xor, FaddS, FsubS, FmulS, FdivS, FeqS, FneS, FltS, FgeS, FleS, FgtS],
                                     bin_arm: MOpData { rd, rs1, rs2 } => {
                                         if rd.is_virt() {
                                             remap_with_vregs(rd, &old_arena_vregs);
@@ -449,11 +450,8 @@ impl Arena<BFunction> for BCG {
                                             }
                                             // TODO: What about the label?
                                         }
-                                        MOpData::Addiw { rd, rs1, .. }
-                                        | MOpData::Subiw { rd, rs1, .. }
-                                        | MOpData::Muliw { rd, rs1, .. }
-                                        | MOpData::Diviw { rd, rs1, .. }
-                                        | MOpData::Remiw { rd, rs1, .. }
+                                        MOpData::Addi { rd, rs1, .. }
+                                        | MOpData::Addiw { rd, rs1, .. }
                                         | MOpData::Slliw { rd, rs1, .. }
                                         | MOpData::Srliw { rd, rs1, .. }
                                         | MOpData::Sraiw { rd, rs1, .. }

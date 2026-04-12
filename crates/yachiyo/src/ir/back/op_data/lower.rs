@@ -187,6 +187,12 @@ pub enum LOpData {
     imm: f32,
   },
 
+  /// La for Bss/RoData/Data
+  LoadAddress {
+    rd: BOperand,
+    addr: BOperand,
+  },
+
   /// Control flow
   /// Call has no return value in Lower IR.
   Call {
@@ -269,6 +275,7 @@ impl std::fmt::Display for LOpData {
       LOpData::Move { rd, src } => write!(f, "move {rd}, {src}"),
       LOpData::LoadIntImm { rd, imm } => write!(f, "loadIntImm {rd}, {imm}"),
       LOpData::LoadFloatImm { rd, imm } => write!(f, "loadFloatImm {rd}, {imm}"),
+      LOpData::LoadAddress { rd, addr } => write!(f, "loadAddress {rd}, {addr}"),
       LOpData::Call { func } => write!(f, "call {func}"),
       LOpData::Br {
         cond,

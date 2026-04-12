@@ -4,7 +4,7 @@
 use yachiyo::base::Type;
 use yachiyo::ir::back::*;
 use yachiyo::pass::BPass;
-use yachiyo::utils::r#match::{match_full_ops, match_some, match_src};
+use yachiyo::utils::r#match::{match_full_ops, match_some};
 
 #[derive(Default)]
 pub struct ISel<'a> {
@@ -15,69 +15,6 @@ pub struct ISel<'a> {
 impl ISel<'_> {
   pub fn init(&mut self, func_id: usize) {
     self.builder.set_current_func(BOperand::Func(func_id));
-  }
-
-  fn fold(lop_data: LOpData) -> BOperand {
-    match_src! {
-        target: &lop_data,
-        bin_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe],
-        bin_arm: LOpData { lhs, rhs } => {
-            if let (BOperand::IntImm(l), BOperand::IntImm(r)) = (*lhs, *rhs) {
-                match lop_data {
-                    LOpData::AddI { .. } => BOperand::IntImm(l + r),
-                    LOpData::SubI { .. } => BOperand::IntImm(l - r),
-                    LOpData::MulI { .. } => BOperand::IntImm(l * r),
-                    LOpData::DivI { .. } => BOperand::IntImm(l / r),
-                    LOpData::ModI { .. } => BOperand::IntImm(l % r),
-                    LOpData::SNe { .. } => BOperand::IntImm((l != r) as i32),
-                    LOpData::SEq { .. } => BOperand::IntImm((l == r) as i32),
-                    LOpData::SGt { .. } => BOperand::IntImm((l > r) as i32),
-                    LOpData::SLt { .. } => BOperand::IntImm((l < r) as i32),
-                    LOpData::SGe { .. } => BOperand::IntImm((l >= r) as i32),
-                    LOpData::SLe { .. } => BOperand::IntImm((l <= r) as i32),
-                    LOpData::Xor { .. } => BOperand::IntImm(l ^ r),
-                    LOpData::Shl { .. } => BOperand::IntImm(l << r),
-                    LOpData::Shr { .. } => BOperand::IntImm(l >> r),
-                    LOpData::Sar { .. } => BOperand::IntImm(l >> r),
-                    _ => unreachable!("{:?} doesn't support int immediate folding", lop_data),
-                }
-            } else if let (BOperand::FloatImm(l), BOperand::FloatImm(r)) = (*lhs, *rhs) {
-                let (l, r) = (f32::from_bits(l), f32::from_bits(r));
-                match lop_data {
-                    LOpData::AddF { .. } => BOperand::FloatImm((l + r).to_bits()),
-                    LOpData::SubF { .. } => BOperand::FloatImm((l - r).to_bits()),
-                    LOpData::MulF { .. } => BOperand::FloatImm((l * r).to_bits()),
-                    LOpData::DivF { .. } => BOperand::FloatImm((l / r).to_bits()),
-                    LOpData::ONe { .. } => BOperand::IntImm((l != r) as i32),
-                    LOpData::OEq { .. } => BOperand::IntImm((l == r) as i32),
-                    LOpData::OGt { .. } => BOperand::IntImm((l > r) as i32),
-                    LOpData::OLt { .. } => BOperand::IntImm((l < r) as i32),
-                    LOpData::OGe { .. } => BOperand::IntImm((l >= r) as i32),
-                    LOpData::OLe { .. } => BOperand::IntImm((l <= r) as i32),
-                    _ => unreachable!("{:?} doesn't support float immediate folding", lop_data),
-                }
-            } else {
-                unreachable!("Constant folding for non-literal operands should have been prevented by the caller")
-            }
-        },
-        un_ops: [Sitofp, Fptosi],
-        un_arm: LOpData { value } => {
-            unreachable!("Constant folding for unary ops is not allowed here")
-        },
-        fallback: {
-            LOpData::Store { .. } |
-            LOpData::Load { .. } |
-            LOpData::Call { .. } |
-            LOpData::Br { .. } |
-            LOpData::Jump { .. } |
-            LOpData::Move { .. } |
-            LOpData::LoadFloatImm { .. } |
-            LOpData::LoadIntImm { .. } |
-            LOpData::Ret => {
-                unreachable!("Constant folding for non-binary/unary ops is not allowed here")
-            }
-        }
-    }
   }
 
   // ======== Atomic Operations ========
@@ -153,7 +90,7 @@ impl ISel<'_> {
     let (lop_data, is_phi_move, typ) = (
       bop.data.clone().into(),
       bop.attrs.contains(&BAttr::PhiMove),
-      bop.typ.clone(),
+      bop.typ,
     );
 
     // Set before current inst.
@@ -165,59 +102,45 @@ impl ISel<'_> {
         bin_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe],
         bin_arm: LOpData { lhs, rhs, rd } => {
             match (lhs.is_literal(), rhs.is_literal()) {
-                // If both operands are literals, we can fold the operation at compile time.
-                (true, true) => {
-                    let folded = Self::fold(lop_data);
-                    // RAUW
-                    self.ir.as_mut().unwrap().replace_all_uses(Some(func_id), lop_id, folded)
-                }
-                // If one of 'em is literal, we use XxxI operation and canonicalize the operands.
-                (true, false) | (false, true) => {
-                    // Canonicalize and obscure the original lop_data.
-                    let (lop_data, rs1, imm) = if let (true, false) = (lhs.is_literal(), rhs.is_literal()) {
-                        if !lop_data.is_rel() {
-                            // If lhs is literal and rhs is not, we swap them to maintain the canonical form.
-                            (lop_data.clone(), *rhs, *lhs)
-                        } else {
-                            // For relational operations, we reverse the operation while swapping the operands
-                            // since the order of operands matters for the semantics of the operation.
-                            let lop_data = match lop_data {
-                                LOpData::SGt { .. } => LOpData::SLt { rd: *rd, lhs: *rhs, rhs: *lhs },
-                                LOpData::SGe { .. } => LOpData::SLe { rd: *rd, lhs: *rhs, rhs: *lhs },
-                                LOpData::SLt { .. } => LOpData::SGt { rd: *rd, lhs: *rhs, rhs: *lhs },
-                                LOpData::SLe { .. } => LOpData::SGe { rd: *rd, lhs: *rhs, rhs: *lhs },
-                                LOpData::OGt { .. } => LOpData::OLt { rd: *rd, lhs: *rhs, rhs: *lhs },
-                                LOpData::OGe { .. } => LOpData::OLe { rd: *rd, lhs: *rhs, rhs: *lhs },
-                                LOpData::OLt { .. } => LOpData::OGt { rd: *rd, lhs: *rhs, rhs: *lhs },
-                                LOpData::OLe { .. } => LOpData::OGe { rd: *rd, lhs: *rhs, rhs: *lhs },
-                                _ => lop_data.clone(),
-                            };
-                            (lop_data, *rhs, *lhs)
-                        }
-                    } else {
-                        (lop_data.clone(), *lhs, *rhs)
-                    };
-
+                // We've canonicalized our operations.
+                (true, true)
+                | (true, false) => unreachable!("Unexpected pettern: lhs: {:?}, rhs: {:?}.", lhs, rhs),
+                (false, true) => {
+                    let (rs1, imm) = (*lhs, *rhs);
                     let mop_data = match_some! {
                         target: lop_data,
                         enu: LOpData,
                         minor_arms: {
                             // Xxxw operations extend the operand automatically.
                             LOpData::AddI { .. } => MOpData::Addiw { rd: BOperand::Undef, rs1, imm },
-                            LOpData::SubI { .. } => MOpData::Subiw { rd: BOperand::Undef, rs1, imm },
-                            LOpData::MulI { .. } => MOpData::Muliw { rd: BOperand::Undef, rs1, imm },
-                            LOpData::DivI { .. } => MOpData::Diviw { rd: BOperand::Undef, rs1, imm },
-                            LOpData::ModI { .. } => MOpData::Remiw { rd: BOperand::Undef, rs1, imm },
+                            LOpData::SubI { .. } => MOpData::Addiw { rd: BOperand::Undef, rs1, imm: imm.negate_literal() },
 
                             LOpData::Shl { .. } => MOpData::Slliw { rd: BOperand::Undef, rs1, imm },
                             LOpData::Shr { .. } => MOpData::Srliw { rd: BOperand::Undef, rs1, imm },
                             LOpData::Sar { .. } => MOpData::Sraiw { rd: BOperand::Undef, rs1, imm },
 
+                            LOpData::MulI { .. } => {
+                                // Create li
+                                let li_op_id = self.create(
+                                    BOp::new(
+                                        typ,
+                                        vec![],
+                                        MOpData::Li { rd: BOperand::Undef, imm: imm.get_int_imm() }.into(),
+                                    )
+                                );
+                                let li_vreg_id = self.get_vreg_id(li_op_id);
+                                // Create mulw
+                                MOpData::Mulw { rd: BOperand::Undef, rs1, rs2: li_vreg_id }
+                            }
+
+                            LOpData::DivI { .. }
+                            | LOpData::ModI { .. } => unreachable!("{:?} should have been legalized in canonicalization", lop_data),
+
                             LOpData::Xor { .. } => {
                                 // RISC-V doesn't have Xoriw, but we can still use Xori and let the upper bits be folded by the next instruction.
                                 let xori_mop_id = self.create(
                                     BOp::new(
-                                        typ.clone(),
+                                        typ,
                                         vec![],
                                         MOpData::Xori { rd: BOperand::Undef, rs1, imm }.into(),
                                     )
@@ -229,30 +152,30 @@ impl ISel<'_> {
                             },
 
                             LOpData::SNe { .. } => {
-                                // Create sub
-                                let subiw_mop_id = self.create(
+                                // Create add
+                                let addiw_mop_id = self.create(
                                     BOp::new(
-                                        typ.clone(),
+                                        typ,
                                         vec![],
-                                        MOpData::Subiw { rd: BOperand::Undef, rs1, imm }.into(),
+                                        MOpData::Addiw { rd: BOperand::Undef, rs1, imm: imm.negate_literal() }.into(),
                                     )
                                 );
-                                let subiw_vreg_id = self.get_vreg_id(subiw_mop_id);
+                                let addiw_vreg_id = self.get_vreg_id(addiw_mop_id);
                                 // Create sltiu with imm = 1, which is equivalent to checking whether the result of sub is non-zero.
-                                MOpData::Sltu { rd: BOperand::Undef, rs1: BOperand::Reg(Reg::X(XReg::Zero)), rs2: subiw_vreg_id }
+                                MOpData::Sltu { rd: BOperand::Undef, rs1: BOperand::Reg(Reg::X(XReg::Zero)), rs2: addiw_vreg_id }
                             },
                             LOpData::SEq { .. } => {
-                                // Create sub
-                                let subiw_mop_id = self.create(
+                                // Create add
+                                let addiw_mop_id = self.create(
                                     BOp::new(
-                                        typ.clone(),
+                                        typ,
                                         vec![],
-                                        MOpData::Subiw { rd: BOperand::Undef, rs1, imm }.into(),
+                                        MOpData::Addiw { rd: BOperand::Undef, rs1, imm: imm.negate_literal() }.into(),
                                     )
                                 );
-                                let subiw_vreg_id = self.get_vreg_id(subiw_mop_id);
-                                // Create sltiu with imm = 1, which is equivalent to checking whether the result of sub is negative.
-                                MOpData::Sltiu { rd: BOperand::Undef, rs1: subiw_vreg_id, imm: BOperand::IntImm(1) }
+                                let addiw_vreg_id = self.get_vreg_id(addiw_mop_id);
+                                // Create sltiu with imm = 1, which is equivalent to checking whether the result of add is negative.
+                                MOpData::Sltiu { rd: BOperand::Undef, rs1: addiw_vreg_id, imm: BOperand::IntImm(1) }
                             }
                             LOpData::SGt { .. } => {
                                 // x > 10 == x >= 11 == !(x < 11)
@@ -272,7 +195,7 @@ impl ISel<'_> {
                                 // Create slti
                                 let slti_mop_id = self.create(
                                     BOp::new(
-                                        typ.clone(),
+                                        typ,
                                         vec![],
                                         MOpData::Slti { rd: BOperand::Undef, rs1, imm }.into(),
                                     )
@@ -289,7 +212,7 @@ impl ISel<'_> {
                                 // Reuse slti
                                 let slti_mop_id = self.create(
                                     BOp::new(
-                                        typ.clone(),
+                                        typ,
                                         vec![],
                                         MOpData::Slti { rd: BOperand::Undef, rs1, imm }.into(),
                                     )
@@ -311,20 +234,20 @@ impl ISel<'_> {
                                     | BOperand::Data(_)
                                     | BOperand::RoData(_)
                                     | BOperand::Bss(_)
-                                    | BOperand::Undef => panic!("Expected an integer immediate for SLe, but got {:?}", imm),
+                                    | BOperand::Undef => unreachable!("Unexpected operand: {:?}", imm),
                                 };
                                 // Create slti
                                 MOpData::Slti { rd: BOperand::Undef, rs1, imm }
                             }
                         },
                         // Since we've legalized float immediates in lowering, lhs and rhs can't be literals.
-                        uni_ops: [Sitofp, Fptosi, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, Ret, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe],
+                        uni_ops: [Sitofp, Fptosi, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, LoadAddress, Ret, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe],
                         uni_arm: {
                             unreachable!("{:?} should have been legalized in legalization", lop_data)
                         }
                     };
 
-                    self.replace_op_rauw(lop_id, BOp::new(typ.clone(), vec![], mop_data.into()));
+                    self.replace_op_rauw(lop_id, BOp::new(typ, vec![], mop_data.into()));
                 },
                 (false, false) => {
                     let (rs1, rs2) = (*lhs, *rhs);
@@ -352,7 +275,7 @@ impl ISel<'_> {
                                 // Create sub
                                 let subw_mop_id = self.create(
                                     BOp::new(
-                                        typ.clone(),
+                                        typ,
                                         vec![],
                                         MOpData::Subw { rd: BOperand::Undef, rs1, rs2 }.into(),
                                     )
@@ -365,7 +288,7 @@ impl ISel<'_> {
                                 // Create sub
                                 let subw_mop_id = self.create(
                                     BOp::new(
-                                        typ.clone(),
+                                        typ,
                                         vec![],
                                         MOpData::Subw { rd: BOperand::Undef, rs1, rs2 }.into(),
                                     )
@@ -380,7 +303,7 @@ impl ISel<'_> {
                                 let imm = BOperand::IntImm(1);
                                 let addiw_mop_id = self.create(
                                     BOp::new(
-                                        typ.clone(),
+                                        typ,
                                         vec![],
                                         MOpData::Addiw { rd: BOperand::Undef, rs1: rs2, imm }.into(),
                                     )
@@ -389,7 +312,7 @@ impl ISel<'_> {
                                 // Create slt
                                 let slt_mop_id = self.create(
                                     BOp::new(
-                                        typ.clone(),
+                                        typ,
                                         vec![],
                                         MOpData::Slt { rd: BOperand::Undef, rs1, rs2: addiw_vreg_id }.into(),
                                     )
@@ -406,7 +329,7 @@ impl ISel<'_> {
                                 // Reuse slt
                                 let slt_mop_id = self.create(
                                     BOp::new(
-                                        typ.clone(),
+                                        typ,
                                         vec![],
                                         MOpData::Slt { rd: BOperand::Undef, rs1: rs2, rs2: rs1 }.into(),
                                     )
@@ -421,7 +344,7 @@ impl ISel<'_> {
                                 let imm = BOperand::IntImm(1);
                                 let addiw_mop_id = self.create(
                                     BOp::new(
-                                        typ.clone(),
+                                        typ,
                                         vec![],
                                         MOpData::Addiw { rd: BOperand::Undef, rs1: rs2, imm }.into(),
                                     )
@@ -434,7 +357,7 @@ impl ISel<'_> {
                             LOpData::Xor { .. } => {
                                 let xor_mop_id = self.create(
                                     BOp::new(
-                                        typ.clone(),
+                                        typ,
                                         vec![],
                                         MOpData::Xor { rd: BOperand::Undef, rs1, rs2 }.into(),
                                     )
@@ -451,13 +374,13 @@ impl ISel<'_> {
                             LOpData::OGe { .. } => MOpData::FgeS { rd: BOperand::Undef, rs1, rs2 },
                             LOpData::OLe { .. } => MOpData::FleS { rd: BOperand::Undef, rs1, rs2 },
                         },
-                        uni_ops: [Sitofp, Fptosi, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, Ret],
+                        uni_ops: [Sitofp, Fptosi, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, LoadAddress, Ret],
                         uni_arm: {
                             unreachable!("{:?} should have been legalized in legalization", lop_data)
                         }
                     };
 
-                    self.replace_op_rauw(lop_id, BOp::new(typ.clone(), vec![], mop_data.into()));
+                    self.replace_op_rauw(lop_id, BOp::new(typ, vec![], mop_data.into()));
                 }
             }
         },
@@ -470,13 +393,13 @@ impl ISel<'_> {
                     LOpData::Sitofp { .. } => MOpData::FcvtSW { rd: BOperand::Undef, rs: *value },
                     LOpData::Fptosi { .. } => MOpData::FcvtWS { rd: BOperand::Undef, rs: *value },
                 },
-                uni_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, Ret, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe],
+                uni_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, Ret, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, LoadAddress],
                 uni_arm: {
                     unreachable!("{:?} should have been legalized in legalization", lop_data)
                 }
             };
 
-            self.replace_op_rauw(lop_id, BOp::new(typ.clone(), vec![], mop_data.into()));
+            self.replace_op_rauw(lop_id, BOp::new(typ, vec![], mop_data.into()));
         },
         fallback: {
             LOpData::Store {..}
@@ -486,7 +409,7 @@ impl ISel<'_> {
                 self.replace_op_rauw(
                     lop_id,
                     BOp::new(
-                        typ.clone(),
+                        typ,
                         vec![],
                         MOpData::Call { target: *func }.into(),
                     ),
@@ -496,7 +419,7 @@ impl ISel<'_> {
             LOpData::Br { cond, then_bb, else_bb } => {
                 self.create(
                     BOp::new(
-                        typ.clone(),
+                        typ,
                         vec![],
                         MOpData::Bnez { rs: *cond, target: *then_bb }.into(),
                     )
@@ -504,7 +427,7 @@ impl ISel<'_> {
                 self.replace_op_rauw(
                     lop_id,
                     BOp::new(
-                        typ.clone(),
+                        typ,
                         vec![],
                         MOpData::J { target: *else_bb }.into(),
                     ),
@@ -515,7 +438,7 @@ impl ISel<'_> {
                 self.replace_op_rauw(
                     lop_id,
                     BOp::new(
-                        typ.clone(),
+                        typ,
                         vec![],
                         MOpData::J { target: *target_bb }.into()
                     ),
@@ -537,7 +460,7 @@ impl ISel<'_> {
                         self.replace_op_no_rauw(
                             lop_id,
                             BOp::new(
-                                typ.clone(),
+                                typ,
                                 vec![],
                                 // For Move, we still use the original rd.
                                 mop_data.into(),
@@ -557,7 +480,7 @@ impl ISel<'_> {
                             self.replace_op_no_rauw(
                                 lop_id,
                                 BOp::new(
-                                    typ.clone(),
+                                    typ,
                                     vec![],
                                     mop_data.into(),
                                 ),
@@ -566,7 +489,7 @@ impl ISel<'_> {
                             self.replace_op_rauw(
                                 lop_id,
                                 BOp::new(
-                                    typ.clone(),
+                                    typ,
                                     vec![],
                                     mop_data.into(),
                                 ),
@@ -598,9 +521,20 @@ impl ISel<'_> {
                 self.replace_op_rauw(
                     lop_id,
                     BOp::new(
-                        typ.clone(),
+                        typ,
                         vec![],
                         MOpData::Li { rd: BOperand::Undef, imm: *imm }.into(),
+                    )
+                );
+            }
+
+            LOpData::LoadAddress { addr, .. } => {
+                self.replace_op_rauw(
+                    lop_id,
+                    BOp::new(
+                        typ,
+                        vec![],
+                        MOpData::La { rd: BOperand::Undef, target: *addr }.into(),
                     )
                 );
             }

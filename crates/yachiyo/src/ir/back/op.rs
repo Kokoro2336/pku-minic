@@ -122,6 +122,28 @@ impl BOperand {
     matches!(self, BOperand::IntImm(_) | BOperand::FloatImm(_))
   }
   #[inline(always)]
+  pub fn negate_literal(&self) -> Self {
+    match self {
+      BOperand::IntImm(imm) => BOperand::IntImm(-imm),
+      BOperand::FloatImm(imm) => BOperand::FloatImm((-f32::from_bits(*imm)).to_bits()),
+      _ => panic!("Not a literal operand: {:?}", self),
+    }
+  }
+  #[inline(always)]
+  pub fn get_int_imm(&self) -> i32 {
+    match self {
+      BOperand::IntImm(imm) => *imm,
+      _ => panic!("Not an int immediate operand: {:?}", self),
+    }
+  }
+  #[inline(always)]
+  pub fn get_float_imm(&self) -> f32 {
+    match self {
+      BOperand::FloatImm(imm) => f32::from_bits(*imm),
+      _ => panic!("Not a float immediate operand: {:?}", self),
+    }
+  }
+  #[inline(always)]
   pub fn is_phys(&self) -> bool {
     matches!(self, BOperand::Reg(Reg::X(_)) | BOperand::Reg(Reg::F(_)))
   }
@@ -216,7 +238,7 @@ impl BDFG {
     match &bop.data {
       BOpData::L(lop_data) => match_rd! {
           target: lop_data,
-          op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, Move],
+          op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, LoadAddress, Move],
           rd_arm: LOpData(rd) => {
               Some((rd, 0))
           },
@@ -233,11 +255,11 @@ impl BDFG {
           target: mop_data,
           op_with_rds: [
               Li, La, Mv, FmvS,
-              Addw, Subw, Mulw, Divw, Remw,
+            Add, Addi, Addw, Subw, Mulw, Divw, Remw,
               Slliw, Srliw, Sraiw,
               Sllw, Srlw, Sraw,
               Slt, Slti, Sltu, Sltiu,
-              Addiw, Subiw, Muliw, Diviw, Remiw,
+              Addiw,
               Xor, Xori,
               FaddS, FsubS, FmulS, FdivS,
               FeqS, FltS, FleS, FneS, FgtS, FgeS,
@@ -277,7 +299,7 @@ impl BDFG {
     match &mut bop.data {
       BOpData::L(lop_data) => match_rd! {
           target: lop_data,
-          op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, Move],
+          op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, LoadAddress, Move],
           rd_arm: LOpData(rd) => {
               Some((rd, 0))
           },
@@ -294,11 +316,11 @@ impl BDFG {
           target: mop_data,
           op_with_rds: [
               Li, La, Mv, FmvS,
-              Addw, Subw, Mulw, Divw, Remw,
+            Add, Addi, Addw, Subw, Mulw, Divw, Remw,
               Slliw, Srliw, Sraiw,
               Sllw, Srlw, Sraw,
               Slt, Slti, Sltu, Sltiu,
-              Addiw, Subiw, Muliw, Diviw, Remiw,
+              Addiw,
               Xor, Xori,
               FaddS, FsubS, FmulS, FdivS,
               FeqS, FltS, FleS, FneS, FgtS, FgeS,
@@ -361,13 +383,14 @@ impl BDFG {
               | LOpData::Jump { .. }
               | LOpData::Ret
               | LOpData::LoadIntImm { .. }
-              | LOpData::LoadFloatImm { .. } => vec![],
+              | LOpData::LoadFloatImm { .. }
+              | LOpData::LoadAddress { .. } => vec![],
           }
       },
       BOpData::M(mop_data) => match_src! {
           target: mop_data,
           bin_ops: [
-              Addw, Subw, Mulw, Divw, Remw,
+            Add, Addw, Subw, Mulw, Divw, Remw,
               Sllw, Srlw, Sraw,
               Slt, Sltu, Xor,
               FaddS, FsubS, FmulS, FdivS,
@@ -381,13 +404,10 @@ impl BDFG {
               vec![(rs, 1)]
           },
           fallback: {
-              MOpData::Slti { rs1, imm, .. }
+              MOpData::Addi { rs1, imm, .. }
+              | MOpData::Slti { rs1, imm, .. }
               | MOpData::Sltiu { rs1, imm, .. }
               | MOpData::Addiw { rs1, imm, .. }
-              | MOpData::Subiw { rs1, imm, .. }
-              | MOpData::Muliw { rs1, imm, .. }
-              | MOpData::Diviw { rs1, imm, .. }
-              | MOpData::Remiw { rs1, imm, .. }
               | MOpData::Slliw { rs1, imm, .. }
               | MOpData::Srliw { rs1, imm, .. }
               | MOpData::Sraiw { rs1, imm, .. }
@@ -458,13 +478,14 @@ impl BDFG {
               | LOpData::Jump { .. }
               | LOpData::Ret
               | LOpData::LoadIntImm { .. }
-              | LOpData::LoadFloatImm { .. } => vec![],
+              | LOpData::LoadFloatImm { .. }
+              | LOpData::LoadAddress { .. } => vec![],
           }
       },
       BOpData::M(mop_data) => match_src! {
           target: mop_data,
           bin_ops: [
-              Addw, Subw, Mulw, Divw, Remw,
+            Add, Addw, Subw, Mulw, Divw, Remw,
               Sllw, Srlw, Sraw,
               Slt, Sltu, Xor,
               FaddS, FsubS, FmulS, FdivS,
@@ -478,13 +499,10 @@ impl BDFG {
               vec![(rs, 1)]
           },
           fallback: {
-              MOpData::Slti { rs1, imm, .. }
+              MOpData::Addi { rs1, imm, .. }
+              | MOpData::Slti { rs1, imm, .. }
               | MOpData::Sltiu { rs1, imm, .. }
               | MOpData::Addiw { rs1, imm, .. }
-              | MOpData::Subiw { rs1, imm, .. }
-              | MOpData::Muliw { rs1, imm, .. }
-              | MOpData::Diviw { rs1, imm, .. }
-              | MOpData::Remiw { rs1, imm, .. }
               | MOpData::Slliw { rs1, imm, .. }
               | MOpData::Srliw { rs1, imm, .. }
               | MOpData::Sraiw { rs1, imm, .. }

@@ -397,9 +397,7 @@ pub struct Bss {
 
 impl Bss {
   pub fn new(typ: Type) -> Self {
-    Bss {
-      typ: typ.into(),
-    }
+    Bss { typ: typ.into() }
   }
 
   pub fn size(&self) -> u32 {

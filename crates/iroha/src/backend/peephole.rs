@@ -56,7 +56,7 @@ impl Peephole<'_> {
                       }
                   }
               },
-              uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Store, Xor, Shl, Sar, Shr, AddF, SubF, MulF, DivF, Sitofp, Fptosi, Load, LoadIntImm, LoadFloatImm, Call, Br, Jump, Ret],
+              uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Store, Xor, Shl, Sar, Shr, AddF, SubF, MulF, DivF, Sitofp, Fptosi, Load, LoadIntImm, LoadFloatImm, LoadAddress, Call, Br, Jump, Ret],
               uni_arm: {}
           },
           BOpData::M(mop_data) => match_some! {
@@ -74,7 +74,7 @@ impl Peephole<'_> {
                       }
                   }
               },
-              uni_ops: [Li, La, Addw, Subw, Mulw, Divw, Remw, Sllw, Sraw, Srlw, Slt, Slti, Sltu, Sltiu, Addiw, Slliw, Srliw, Sraiw, Subiw, Muliw, Xor, FmvS, FaddS, FsubS, FmulS, FdivS, FeqS, Diviw, Remiw, Xori, FltS, FleS, FneS, FgtS, FgeS, FcvtSW, FcvtWS, FmvWX, FmvXW, Lw, Sw, Flw, Ld, Sd, Fsw, J, Bnez, Ret, Bne, Beq, Blt, Bge, Bltu, Bgeu, Call],
+              uni_ops: [Li, La, Add, Addi, Addw, Subw, Mulw, Divw, Remw, Sllw, Sraw, Srlw, Slt, Slti, Sltu, Sltiu, Addiw, Slliw, Srliw, Sraiw, Xor, FmvS, FaddS, FsubS, FmulS, FdivS, FeqS, Xori, FltS, FleS, FneS, FgtS, FgeS, FcvtSW, FcvtWS, FmvWX, FmvXW, Lw, Sw, Flw, Ld, Sd, Fsw, J, Bnez, Ret, Bne, Beq, Blt, Bge, Bltu, Bgeu, Call],
               uni_arm: {}
           },
         }
