@@ -316,7 +316,7 @@ impl BDFG {
           target: mop_data,
           op_with_rds: [
               Li, La, Mv, FmvS,
-            Add, Addi, Addw, Subw, Mulw, Divw, Remw,
+              Add, Addi, Addw, Subw, Mulw, Divw, Remw,
               Slliw, Srliw, Sraiw,
               Sllw, Srlw, Sraw,
               Slt, Slti, Sltu, Sltiu,

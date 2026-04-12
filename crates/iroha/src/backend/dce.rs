@@ -2,6 +2,8 @@
 //! By the way, It's just a trivial DCE that has nothing to do with ADCE!!!
 
 use yachiyo::ir::back::{BBuilder, BFunction, BOpData, BOperand, BackIR, LOpData, MOpData, Reg};
+use yachiyo::utils::worklist::{Worklist, WorklistTrait};
+use yachiyo::utils::set::BitSet;
 use yachiyo::pass::BPass;
 use yachiyo::utils::arena::ArenaItem;
 use yachiyo::utils::r#match::{match_some, match_src};
@@ -12,7 +14,7 @@ pub struct BDCE<'a> {
   ir: Option<&'a mut BackIR>,
   builder: BBuilder,
   // Worklist of inst
-  worklist: Vec<(BOperand, BOperand)>,
+  worklist: Worklist<BOperand, BitSet>,
   // Mapping from op_id to bb_id
   op_to_bb: Vec<BOperand>,
 }
@@ -77,9 +79,7 @@ impl<'a> BDCE<'a> {
 
     // map OpId to BBId
     self.op_to_bb.clear();
-    self
-      .op_to_bb
-      .resize(func.dfg.storage.len(), BOperand::Undef);
+    self.op_to_bb.resize(func.dfg.len(), BOperand::Undef);
     func
       .cfg
       .storage
@@ -102,7 +102,7 @@ impl<'a> BDCE<'a> {
           inst.data.is_impure()
         };
         if self.is_dead(*inst_id) && !is_impure {
-          self.worklist.push((*inst_id, BOperand::BB(block_id)));
+          self.worklist.push_back(*inst_id);
         }
       }
     }
@@ -128,43 +128,33 @@ impl<'a> BPass<'a> for BDCE<'a> {
           enu: BOperand,
           minor_arms: {
               BOperand::Inst(op_id) => {
-                  let op = BOperand::Inst(op_id);
-                  let bb_id = match this.op_to_bb.get(op_id).copied() {
-                      Some(BOperand::BB(bb)) => BOperand::BB(bb),
-                      _ => unreachable!(),
-                  };
+                let op = BOperand::Inst(op_id);
 
-                  let should_push = {
-                      let func = this.get_func(this.current_func());
-                      !func.dfg[op].data.is_impure()
-                  };
+                let should_push = {
+                    let func = this.get_func(this.current_func());
+                    !func.dfg[op].data.is_impure()
+                };
 
-                  if should_push {
-                      this.worklist.push((op, bb_id));
-                  }
+                if should_push {
+                    this.worklist.push_back(op);
+                }
               }
               BOperand::Reg(Reg::Virt(_)) => {
-                  let defs = {
-                      let func = this.get_func(this.current_func());
-                      func.vregs[operand].defs.clone()
-                  };
+                let defs = {
+                    let func = this.get_func(this.current_func());
+                    func.vregs[operand].defs.clone()
+                };
 
-                  for def in defs {
-                      let def_id = def.get_inst_id();
-                      let bb_id = match this.op_to_bb.get(def_id).copied() {
-                          Some(BOperand::BB(bb)) => BOperand::BB(bb),
-                          _ => continue,
-                      };
+                for def in defs {
+                    let should_push = {
+                        let func = this.get_func(this.current_func());
+                        !func.dfg[def].data.is_impure()
+                    };
 
-                      let should_push = {
-                          let func = this.get_func(this.current_func());
-                          !func.dfg[def].data.is_impure()
-                      };
-
-                      if should_push {
-                          this.worklist.push((def, bb_id));
-                      }
-                  }
+                    if should_push {
+                        this.worklist.push_back(def);
+                    }
+                }
               }
           },
           uni_ops: [Reg, Undef, BB, IntImm, FloatImm, Func, Data, RoData, Bss, Slot],
@@ -181,7 +171,8 @@ impl<'a> BPass<'a> for BDCE<'a> {
 
     for func_id in func_ids {
       self.init(BOperand::Func(func_id));
-      while let Some((op_id, bb_id)) = self.worklist.pop() {
+      while let Some(op_id) = self.worklist.pop_back() {
+        let bb_id = self.op_to_bb[op_id.get_inst_id()];
         self.builder.set_current_block(bb_id);
 
         let removed_op = self

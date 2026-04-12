@@ -325,215 +325,217 @@ impl Arena<BFunction> for BCG {
     };
 
     self.storage.iter_mut().for_each(|func| {
-            if let ArenaItem::Data(func) = func {
-                let old_arena_cfg = func.cfg.gc();
-                let old_arena_dfg = func.dfg.gc();
-                let old_arena_vregs = func.vregs.gc();
+        if let ArenaItem::Data(func) = func {
+            let old_arena_cfg = func.cfg.gc();
+            let old_arena_dfg = func.dfg.gc();
+            let old_arena_vregs = func.vregs.gc();
 
-                // Rewrite BOp refs in BBasicBlocks
-                func.cfg.storage.iter_mut().for_each(|item| {
-                    if let ArenaItem::Data(bb) = item {
-                        for op_idx in bb.cur.iter_mut() {
-                            remap_with_dfg(op_idx, &old_arena_dfg);
-                        }
+            // Rewrite BOp refs in BBasicBlocks
+            func.cfg.storage.iter_mut().for_each(|item| {
+                if let ArenaItem::Data(bb) = item {
+                    for op_idx in bb.cur.iter_mut() {
+                        remap_with_dfg(op_idx, &old_arena_dfg);
                     }
-                });
+                }
+            });
 
-                // Rewrite BB refs and VReg refs in BOps
-                func.dfg.storage.iter_mut().for_each(|item| {
-                    if let ArenaItem::Data(op) = item {
-                        match &mut op.data {
-                            BOpData::L(lop_data) => {
-                                match_full_ops! {
-                                    target: lop_data,
-                                    bin_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, Xor, SNe, SEq, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Shl, Shr, Sar],
-                                    bin_arm: LOpData { rd, lhs, rhs } => {
-                                        if rd.is_virt() {
-                                            remap_with_vregs(rd, &old_arena_vregs);
-                                        }
-                                        if lhs.is_virt() {
-                                            remap_with_vregs(lhs, &old_arena_vregs);
-                                        }
-                                        if rhs.is_virt() {
-                                            remap_with_vregs(rhs, &old_arena_vregs);
-                                        }
-                                    },
-                                    un_ops: [Sitofp, Fptosi],
-                                    un_arm: LOpData { rd, value } => {
-                                        if rd.is_virt() {
-                                            remap_with_vregs(rd, &old_arena_vregs);
+            // Rewrite BB refs and VReg refs in BOps
+            func.dfg.storage.iter_mut().for_each(|item| {
+                if let ArenaItem::Data(op) = item {
+                    match &mut op.data {
+                        BOpData::L(lop_data) => {
+                            match_full_ops! {
+                                target: lop_data,
+                                bin_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, Xor, SNe, SEq, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Shl, Shr, Sar],
+                                bin_arm: LOpData { rd, lhs, rhs } => {
+                                    if rd.is_virt() {
+                                        remap_with_vregs(rd, &old_arena_vregs);
+                                    }
+                                    if lhs.is_virt() {
+                                        remap_with_vregs(lhs, &old_arena_vregs);
+                                    }
+                                    if rhs.is_virt() {
+                                        remap_with_vregs(rhs, &old_arena_vregs);
+                                    }
+                                },
+                                un_ops: [Sitofp, Fptosi],
+                                un_arm: LOpData { rd, value } => {
+                                    if rd.is_virt() {
+                                        remap_with_vregs(rd, &old_arena_vregs);
+                                    }
+                                    if value.is_virt() {
+                                        remap_with_vregs(value, &old_arena_vregs);
+                                    }
+                                },
+                                fallback: {
+                                    LOpData::Store { addr, value } => {
+                                        if addr.is_virt() {
+                                            remap_with_vregs(addr, &old_arena_vregs);
                                         }
                                         if value.is_virt() {
                                             remap_with_vregs(value, &old_arena_vregs);
                                         }
                                     },
-                                    fallback: {
-                                        LOpData::Store { addr, value } => {
-                                            if addr.is_virt() {
-                                                remap_with_vregs(addr, &old_arena_vregs);
-                                            }
-                                            if value.is_virt() {
-                                                remap_with_vregs(value, &old_arena_vregs);
-                                            }
-                                        },
-                                        LOpData::Load { rd, addr } => {
-                                            if rd.is_virt() {
-                                                remap_with_vregs(rd, &old_arena_vregs);
-                                            }
-                                            if addr.is_virt() {
-                                                remap_with_vregs(addr, &old_arena_vregs);
-                                            }
+                                    LOpData::Load { rd, addr } => {
+                                        if rd.is_virt() {
+                                            remap_with_vregs(rd, &old_arena_vregs);
                                         }
-                                        LOpData::Br { cond, then_bb, else_bb } => {
-                                            if cond.is_virt() {
-                                                remap_with_vregs(cond, &old_arena_vregs);
-                                            }
-                                            remap_with_cfg(then_bb, &old_arena_cfg);
-                                            remap_with_cfg(else_bb, &old_arena_cfg);
+                                        if addr.is_virt() {
+                                            remap_with_vregs(addr, &old_arena_vregs);
                                         }
-                                        LOpData::Move { rd, src } => {
-                                            if rd.is_virt() {
-                                                remap_with_vregs(rd, &old_arena_vregs);
-                                            }
-                                            if src.is_virt() {
-                                                remap_with_vregs(src, &old_arena_vregs);
-                                            }
-                                        },
-                                        LOpData::Jump { target_bb } => {
-                                            remap_with_cfg(target_bb, &old_arena_cfg);
-                                        }
-                                        LOpData::Call { func } => {
-                                            if let BOperand::Func(func_id) = func {
-                                                remap_idx(func_id, &old_arena);
-                                            }
-                                        }
-                                        LOpData::Ret
-                                        | LOpData::LoadIntImm {..}
-                                        | LOpData::LoadFloatImm {..}
-                                        | LOpData::LoadAddress {..} => {}
                                     }
+                                    LOpData::Br { cond, then_bb, else_bb } => {
+                                        if cond.is_virt() {
+                                            remap_with_vregs(cond, &old_arena_vregs);
+                                        }
+                                        remap_with_cfg(then_bb, &old_arena_cfg);
+                                        remap_with_cfg(else_bb, &old_arena_cfg);
+                                    }
+                                    LOpData::Move { rd, src } => {
+                                        if rd.is_virt() {
+                                            remap_with_vregs(rd, &old_arena_vregs);
+                                        }
+                                        if src.is_virt() {
+                                            remap_with_vregs(src, &old_arena_vregs);
+                                        }
+                                    },
+                                    LOpData::Jump { target_bb } => {
+                                        remap_with_cfg(target_bb, &old_arena_cfg);
+                                    }
+                                    LOpData::Call { func } => {
+                                        if let BOperand::Func(func_id) = func {
+                                            remap_idx(func_id, &old_arena);
+                                        }
+                                    }
+                                    LOpData::Ret
+                                    | LOpData::LoadIntImm {..}
+                                    | LOpData::LoadFloatImm {..}
+                                    | LOpData::LoadAddress {..} => {}
                                 }
                             }
-                            BOpData::M(mop_data) => {
-                                match_full_ops! {
-                                    target: mop_data,
-                                bin_ops: [Add, Addw, Subw, Mulw, Divw, Remw, Sllw, Srlw, Sraw, Slt, Sltu, Xor, FaddS, FsubS, FmulS, FdivS, FeqS, FneS, FltS, FgeS, FleS, FgtS],
-                                    bin_arm: MOpData { rd, rs1, rs2 } => {
+                        }
+                        BOpData::M(mop_data) => {
+                            match_full_ops! {
+                                target: mop_data,
+                            bin_ops: [Add, Addw, Subw, Mulw, Divw, Remw, Sllw, Srlw, Sraw, Slt, Sltu, Xor, FaddS, FsubS, FmulS, FdivS, FeqS, FneS, FltS, FgeS, FleS, FgtS],
+                                bin_arm: MOpData { rd, rs1, rs2 } => {
+                                    if rd.is_virt() {
+                                        remap_with_vregs(rd, &old_arena_vregs);
+                                    }
+                                    if rs1.is_virt() {
+                                        remap_with_vregs(rs1, &old_arena_vregs);
+                                    }
+                                    if rs2.is_virt() {
+                                        remap_with_vregs(rs2, &old_arena_vregs);
+                                    }
+                                },
+                                un_ops: [FcvtWS, FcvtSW, FmvWX, FmvXW, Mv, FmvS],
+                                un_arm: MOpData { rd, rs } => {
+                                    if rd.is_virt() {
+                                        remap_with_vregs(rd, &old_arena_vregs);
+                                    }
+                                    if rs.is_virt() {
+                                        remap_with_vregs(rs, &old_arena_vregs);
+                                    }
+                                },
+                                fallback: {
+                                    MOpData::Li { rd, .. } => {
+                                        if rd.is_virt() {
+                                            remap_with_vregs(rd, &old_arena_vregs);
+                                        }
+                                    }
+                                    MOpData::La { rd, .. } => {
+                                        if rd.is_virt() {
+                                            remap_with_vregs(rd, &old_arena_vregs);
+                                        }
+                                        // TODO: What about the label?
+                                    }
+                                    MOpData::Addi { rd, rs1, .. }
+                                    | MOpData::Addiw { rd, rs1, .. }
+                                    | MOpData::Slliw { rd, rs1, .. }
+                                    | MOpData::Srliw { rd, rs1, .. }
+                                    | MOpData::Sraiw { rd, rs1, .. }
+                                    | MOpData::Slti { rd, rs1, .. }
+                                    | MOpData::Sltiu { rd, rs1, .. }
+                                    | MOpData::Xori { rd, rs1, .. } => {
                                         if rd.is_virt() {
                                             remap_with_vregs(rd, &old_arena_vregs);
                                         }
                                         if rs1.is_virt() {
                                             remap_with_vregs(rs1, &old_arena_vregs);
                                         }
-                                        if rs2.is_virt() {
-                                            remap_with_vregs(rs2, &old_arena_vregs);
-                                        }
                                     },
-                                    un_ops: [FcvtWS, FcvtSW, FmvWX, FmvXW, Mv, FmvS],
-                                    un_arm: MOpData { rd, rs } => {
+                                    MOpData::Lw { rd, base, .. }
+                                    | MOpData::Ld { rd, base, .. }
+                                    | MOpData::Flw { rd, base, .. } => {
                                         if rd.is_virt() {
                                             remap_with_vregs(rd, &old_arena_vregs);
                                         }
+                                        if base.is_virt() {
+                                            remap_with_vregs(base, &old_arena_vregs);
+                                        }
+                                    },
+                                    MOpData::Sw { rs, base, .. }
+                                    | MOpData::Sd { rs, base, .. }
+                                    | MOpData::Fsw { rs, base, .. } => {
                                         if rs.is_virt() {
                                             remap_with_vregs(rs, &old_arena_vregs);
                                         }
+                                        if base.is_virt() {
+                                            remap_with_vregs(base, &old_arena_vregs);
+                                        }
                                     },
-                                    fallback: {
-                                        MOpData::Li { rd, .. } => {
-                                            if rd.is_virt() {
-                                                remap_with_vregs(rd, &old_arena_vregs);
-                                            }
-                                        }
-                                        MOpData::La { rd, .. } => {
-                                            if rd.is_virt() {
-                                                remap_with_vregs(rd, &old_arena_vregs);
-                                            }
-                                            // TODO: What about the label?
-                                        }
-                                        MOpData::Addi { rd, rs1, .. }
-                                        | MOpData::Addiw { rd, rs1, .. }
-                                        | MOpData::Slliw { rd, rs1, .. }
-                                        | MOpData::Srliw { rd, rs1, .. }
-                                        | MOpData::Sraiw { rd, rs1, .. }
-                                        | MOpData::Slti { rd, rs1, .. }
-                                        | MOpData::Sltiu { rd, rs1, .. }
-                                        | MOpData::Xori { rd, rs1, .. } => {
-                                            if rd.is_virt() {
-                                                remap_with_vregs(rd, &old_arena_vregs);
-                                            }
-                                            if rs1.is_virt() {
-                                                remap_with_vregs(rs1, &old_arena_vregs);
-                                            }
-                                        },
-                                        MOpData::Lw { rd, base, .. }
-                                        | MOpData::Ld { rd, base, .. }
-                                        | MOpData::Flw { rd, base, .. } => {
-                                            if rd.is_virt() {
-                                                remap_with_vregs(rd, &old_arena_vregs);
-                                            }
-                                            if base.is_virt() {
-                                                remap_with_vregs(base, &old_arena_vregs);
-                                            }
-                                        },
-                                        MOpData::Sw { rs, base, .. }
-                                        | MOpData::Sd { rs, base, .. }
-                                        | MOpData::Fsw { rs, base, .. } => {
-                                            if rs.is_virt() {
-                                                remap_with_vregs(rs, &old_arena_vregs);
-                                            }
-                                            if base.is_virt() {
-                                                remap_with_vregs(base, &old_arena_vregs);
-                                            }
-                                        },
-                                        MOpData::J { target } => {
-                                            remap_with_cfg(target, &old_arena_cfg);
-                                        }
-                                        MOpData::Call { target } => {
-                                            if let BOperand::Func(func_id) = target {
-                                                remap_idx(func_id, &old_arena);
-                                            }
-                                        }
-                                        MOpData::Bnez { rs, target } => {
-                                            if rs.is_virt() {
-                                                remap_with_vregs(rs, &old_arena_vregs);
-                                            }
-                                            remap_with_cfg(target, &old_arena_cfg);
-                                        }
-                                        MOpData::Beq {rs1, rs2, offset}
-                                        | MOpData::Bne { rs1, rs2, offset }
-                                        | MOpData::Bge { rs1, rs2, offset }
-                                        | MOpData::Blt { rs1, rs2, offset }
-                                        | MOpData::Bgeu { rs1, rs2, offset }
-                                        | MOpData::Bltu { rs1, rs2, offset } => {
-                                            if rs1.is_virt() {
-                                                remap_with_vregs(rs1, &old_arena_vregs);
-                                            }
-                                            if rs2.is_virt() {
-                                                remap_with_vregs(rs2, &old_arena_vregs);
-                                            }
-                                            remap_with_cfg(offset, &old_arena_cfg);
-                                        }
-                                        MOpData::Ret => {}
+                                    MOpData::J { target } => {
+                                        remap_with_cfg(target, &old_arena_cfg);
                                     }
+                                    MOpData::Call { target } => {
+                                        if let BOperand::Func(func_id) = target {
+                                            remap_idx(func_id, &old_arena);
+                                        }
+                                    }
+                                    MOpData::Bnez { rs, target } => {
+                                        if rs.is_virt() {
+                                            remap_with_vregs(rs, &old_arena_vregs);
+                                        }
+                                        remap_with_cfg(target, &old_arena_cfg);
+                                    }
+                                    MOpData::Beq {rs1, rs2, offset}
+                                    | MOpData::Bne { rs1, rs2, offset }
+                                    | MOpData::Bge { rs1, rs2, offset }
+                                    | MOpData::Blt { rs1, rs2, offset }
+                                    | MOpData::Bgeu { rs1, rs2, offset }
+                                    | MOpData::Bltu { rs1, rs2, offset } => {
+                                        if rs1.is_virt() {
+                                            remap_with_vregs(rs1, &old_arena_vregs);
+                                        }
+                                        if rs2.is_virt() {
+                                            remap_with_vregs(rs2, &old_arena_vregs);
+                                        }
+                                        if offset.is_virt() {
+                                          remap_with_vregs(offset, &old_arena_vregs);
+                                        }
+                                    }
+                                    MOpData::Ret => {}
                                 }
                             }
                         }
                     }
-                });
+                }
+            });
 
-                // Rewrite BOps refs in vregs
-                func.vregs.storage.iter_mut().for_each(|item| {
-                    if let ArenaItem::Data(vreg) = item {
-                        for use_tuple in vreg.uses.iter_mut() {
-                            remap_with_dfg(&mut use_tuple.0, &old_arena_dfg);
-                        }
-                        for def_op in vreg.defs.iter_mut() {
-                            remap_with_dfg(def_op, &old_arena_dfg);
-                        }
+            // Rewrite BOps refs in vregs
+            func.vregs.storage.iter_mut().for_each(|item| {
+                if let ArenaItem::Data(vreg) = item {
+                    for use_tuple in vreg.uses.iter_mut() {
+                        remap_with_dfg(&mut use_tuple.0, &old_arena_dfg);
                     }
-                });
-            }
-        });
+                    for def_op in vreg.defs.iter_mut() {
+                        remap_with_dfg(def_op, &old_arena_dfg);
+                    }
+                }
+            });
+        }
+    });
 
     old_arena
   }

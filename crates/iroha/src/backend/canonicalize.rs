@@ -5,7 +5,7 @@
 
 use yachiyo::base::Type;
 use yachiyo::config::{INT_IMM_MAX, INT_IMM_MIN};
-use yachiyo::ir::back::{BBuilder, BFunction, BOp, BOperand, BType, BackIR, LOpData, Reg, Slot};
+use yachiyo::ir::back::{BBuilder, BFunction, BOp, BOperand, BType, BackIR, LOpData, Reg, Slot, BAttr};
 use yachiyo::pass::BPass;
 use yachiyo::utils::r#match::{match_some, match_src};
 
@@ -301,7 +301,7 @@ impl Canonicalize<'_> {
           Some(inst_id),
         );
         let op = &self.get_func(func_id).dfg[inst_id];
-        let (lop_data, typ) = (op.data.clone().into(), op.typ.clone());
+        let (lop_data, typ, is_phi_move) = (op.data.clone().into(), op.typ.clone(), op.attrs.contains(&BAttr::PhiMove));
 
         match_src! {
           target: lop_data,
@@ -419,6 +419,7 @@ impl Canonicalize<'_> {
                     LOpData::Sar { rd, lhs, rhs: imm } =>
                       LOpData::Sar { rd, lhs, rhs: self.legalize(imm, LegalizeOption::Default) },
 
+                    // For Mul/Div/Mod, we still have to load the literal even if it's on the right side.
                     LOpData::MulI { rd, lhs, rhs: imm } =>
                       LOpData::MulI { rd, lhs, rhs: self.legalize(imm, LegalizeOption::ForceImmLoad) },
                     LOpData::MulF { rd, lhs, rhs: imm } =>
@@ -446,9 +447,9 @@ impl Canonicalize<'_> {
             // Legalize the operand if it's a literal, but don't fold it even if it's a constant, because folding might cause overflow which is undefined behavior in Rust.
             let new_lop_data = match lop_data {
               LOpData::Sitofp { rd, value } =>
-                LOpData::Sitofp { rd, value: self.legalize(value, LegalizeOption::Default) },
+                LOpData::Sitofp { rd, value: self.legalize(value, LegalizeOption::ForceImmLoad) },
               LOpData::Fptosi { rd, value } =>
-                LOpData::Fptosi { rd, value: self.legalize(value, LegalizeOption::Default) },
+                LOpData::Fptosi { rd, value: self.legalize(value, LegalizeOption::ForceImmLoad) },
               _ => unreachable!("Unexpected unary op: {:?}", lop_data),
             };
             self.replace_op_rauw(inst_id, BOp::new(
@@ -460,7 +461,7 @@ impl Canonicalize<'_> {
           fallback: {
             LOpData::Store { addr, value } => {
               // Mem operand should not be
-              let new_lop_data = LOpData::Store { addr: self.legalize(addr, LegalizeOption::NoLoad), value: self.legalize(value, LegalizeOption::Default) };
+              let new_lop_data = LOpData::Store { addr: self.legalize(addr, LegalizeOption::NoLoad), value: self.legalize(value, LegalizeOption::ForceImmLoad) };
               self.replace_op_rauw(inst_id, BOp::new(
                 typ,
                 vec![],
@@ -478,8 +479,15 @@ impl Canonicalize<'_> {
             },
             LOpData::Move { rd, src } => {
               // Move should not have literal operand, but we still legalize it just in case.
-              let new_lop_data = LOpData::Move { rd, src: self.legalize(src, LegalizeOption::Default) };
+              let new_lop_data = LOpData::Move { rd, src: self.legalize(src, LegalizeOption::ForceImmLoad) };
               if let BOperand::Reg(Reg::X(_)) | BOperand::Reg(Reg::F(_)) = rd {
+                self.replace_op_no_rauw(inst_id, BOp::new(
+                  typ,
+                  vec![],
+                  new_lop_data.into(),
+                ));
+              } else if is_phi_move {
+                // For phi move, we also don't want to RAUW because it might cause issues with phi move elimination later.
                 self.replace_op_no_rauw(inst_id, BOp::new(
                   typ,
                   vec![],
@@ -495,7 +503,7 @@ impl Canonicalize<'_> {
             }
             LOpData::Br { cond, then_bb, else_bb } => {
               let new_lop_data = LOpData::Br {
-                cond: self.legalize(cond, LegalizeOption::Default),
+                cond: self.legalize(cond, LegalizeOption::ForceImmLoad),
                 then_bb,
                 else_bb,
               };
@@ -505,12 +513,14 @@ impl Canonicalize<'_> {
                 new_lop_data.into(),
               ));
             },
-            LOpData::Call {..}
-            | LOpData::Jump {..}
-            | LOpData::Ret => {/*do nothing*/},
+
             LOpData::LoadAddress {..}
             | LOpData::LoadIntImm {..}
             | LOpData::LoadFloatImm {..} => unreachable!(),
+
+            LOpData::Call {..}
+            | LOpData::Jump {..}
+            | LOpData::Ret => {/*do nothing*/},
           }
         }
       }

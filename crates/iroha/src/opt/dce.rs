@@ -4,6 +4,8 @@ use yachiyo::ir::mid::Builder;
 use yachiyo::ir::mid::{OpData, Operand, PhiIncoming, IR};
 use yachiyo::pass::Pass;
 use yachiyo::utils::arena::ArenaItem;
+use yachiyo::utils::set::BitSet;
+use yachiyo::utils::worklist::{Worklist, WorklistTrait};
 use yachiyo::utils::r#match::match_src;
 
 #[allow(clippy::upper_case_acronyms)]
@@ -12,7 +14,7 @@ pub struct DCE<'a> {
   pub program: Option<&'a mut IR>,
   builder: Builder,
   // Worklist of inst
-  worklist: Vec<(Operand, Operand)>,
+  worklist: Worklist<Operand, BitSet>,
   // Mapping from op_id to bb_id
   op_to_bb: Vec<Operand>,
 }
@@ -68,7 +70,7 @@ impl<'a> DCE<'a> {
           inst.is_impure()
         };
         if self.is_dead(inst_id) && !is_impure {
-          self.worklist.push((inst_id.clone(), Operand::BB(block_id)));
+          self.worklist.push_back(inst_id.clone());
         }
       }
     }
@@ -95,13 +97,13 @@ impl<'a> Pass<'a> for DCE<'a> {
           if this.is_dead(operand) && !func.dfg[op_id].is_impure() {
             this
               .worklist
-              .push((operand.clone(), this.op_to_bb[op_id].clone()));
+              .push_back(operand.clone());
           }
         }
         Operand::Global(id) => {
           let global_id = *id;
           if this.is_dead(operand) && !program.globals[global_id].is_impure() {
-            this.worklist.push((operand.clone(), Operand::BB(0)));
+            this.worklist.push_back(operand.clone());
           }
         }
         Operand::Int(_) | Operand::Float(_) | Operand::Undefined | Operand::Param { .. } => { /* do nothing */
@@ -112,7 +114,9 @@ impl<'a> Pass<'a> for DCE<'a> {
     let func_ids = self.program.as_ref().unwrap().funcs.collect_internal();
     for func_id in func_ids {
       self.init(Operand::Func(func_id));
-      while let Some((op_id, bb_id)) = self.worklist.pop() {
+      while let Some(op_id) = self.worklist.pop_front() {
+        let bb_id = self.op_to_bb[op_id.get_op_id()].clone();
+
         if let Operand::Value(id) = op_id {
           let func =
             &self.program.as_ref().unwrap().funcs[self.builder.current_function.clone().unwrap()];
