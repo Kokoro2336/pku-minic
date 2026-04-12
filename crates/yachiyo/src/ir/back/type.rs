@@ -8,23 +8,32 @@ pub enum BType {
   F32,
   // For pointer
   U64,
+  // For array
+  Array {
+    base: Box<BType>,
+    num: u32,
+  },
 }
 
 impl BType {
+  #[inline(always)]
   pub fn size(&self) -> u32 {
     match self {
       BType::Void => 1, // align to 1 byte for void type
       BType::I32 => 4,
       BType::F32 => 4,
       BType::U64 => RISCV_BITS / 8,
+      BType::Array { base, num } => base.size() * num,
     }
   }
+  #[inline(always)]
   pub fn align(&self) -> u32 {
     match self {
       BType::Void => 1,
       BType::I32 => 4,
       BType::F32 => 4,
       BType::U64 => RISCV_BITS / 8,
+      BType::Array { base, .. } => base.align(),
     }
   }
 }
@@ -36,8 +45,12 @@ impl From<Type> for BType {
       Type::Float => BType::F32,
       Type::Void => BType::Void,
       Type::Bool => BType::I32, // bool is represented as i32 in machine code
-      Type::Array { .. } | Type::Function { .. } => {
-        unimplemented!("Array type is not supported in BType")
+      Type::Array { base, dims } => BType::Array {
+        base: Box::new(BType::from(*base)),
+        num: dims.iter().product::<u32>(),
+      },
+      Type::Function { .. } => {
+        unimplemented!("Function type is not supported in BType")
       }
       Type::Pointer { .. } => BType::U64,
       Type::Char => BType::I32, // char is represented as i32 in machine code

@@ -4,9 +4,7 @@ use crate::ir::back::{BOpData, BOperand};
 
 #[derive(Debug, Clone)]
 pub enum MOpData {
-  // ==========================================
-  // 1. Pseudo-instructions & Data Movement
-  // ==========================================
+  // Pseudo-instructions & Data Movement
   /// Load Immediate: Materializes a 32-bit constant.
   Li { rd: BOperand, imm: i32 },
   /// Load Address: Materializes the absolute address of a global variable or array.
@@ -17,14 +15,18 @@ pub enum MOpData {
   /// FP Move (Single): Copy between floating-point registers.
   FmvS { rd: BOperand, rs: BOperand },
 
-  // ==========================================
-  // 2. Integer Arithmetic & Logic
-  // CRITICAL for SysY: SysY 'int' is strictly 32-bit.
-  // If your target is RV64, you MUST use the 'w' (word) suffix for ALU ops
-  // to ensure proper sign-extension and prevent silent overflow bugs.
-  // ==========================================
-
+  // Integer Arithmetic & Logic
   // Register-Register ALU ops (32-bit)
+  Add {
+    rd: BOperand,
+    rs1: BOperand,
+    rs2: BOperand,
+  },
+  Addi {
+    rd: BOperand,
+    rs1: BOperand,
+    imm: BOperand,
+  },
   Addw {
     rd: BOperand,
     rs1: BOperand,
@@ -49,7 +51,7 @@ pub enum MOpData {
     rd: BOperand,
     rs1: BOperand,
     rs2: BOperand,
-  }, // SysY +, -, *, /, % (32-bit math on 64-bit arch)
+  },
   Sllw {
     rd: BOperand,
     rs1: BOperand,
@@ -64,7 +66,7 @@ pub enum MOpData {
     rd: BOperand,
     rs1: BOperand,
     rs2: BOperand,
-  }, // Shift by register
+  },
 
   /// For relational ops of integer.
   Slt {
@@ -94,26 +96,6 @@ pub enum MOpData {
     rs1: BOperand,
     imm: BOperand,
   },
-  Subiw {
-    rd: BOperand,
-    rs1: BOperand,
-    imm: BOperand,
-  },
-  Muliw {
-    rd: BOperand,
-    rs1: BOperand,
-    imm: BOperand,
-  },
-  Diviw {
-    rd: BOperand,
-    rs1: BOperand,
-    imm: BOperand,
-  },
-  Remiw {
-    rd: BOperand,
-    rs1: BOperand,
-    imm: BOperand,
-  },
   Slliw {
     rd: BOperand,
     rs1: BOperand,
@@ -128,22 +110,20 @@ pub enum MOpData {
     rd: BOperand,
     rs1: BOperand,
     imm: BOperand,
-  }, // Shift by immediate (e.g., array index scaling: i * 4)
+  },
 
   Xor {
     rd: BOperand,
     rs1: BOperand,
     rs2: BOperand,
-  }, // Bitwise/Logical operations
+  },
   Xori {
     rd: BOperand,
     rs1: BOperand,
     imm: BOperand,
   },
 
-  // ==========================================
-  // 3. Floating-Point Arithmetic (F-Extension)
-  // ==========================================
+  // Floating-Point Arithmetic (F-Extension)
   FaddS {
     rd: BOperand,
     rs1: BOperand,
@@ -163,7 +143,7 @@ pub enum MOpData {
     rd: BOperand,
     rs1: BOperand,
     rs2: BOperand,
-  }, // Single-precision math
+  },
 
   // Relational ops
   FeqS {
@@ -211,9 +191,7 @@ pub enum MOpData {
   /// Move bit-pattern from FP to Integer register.
   FmvXW { rd: BOperand, rs: BOperand },
 
-  // ==========================================
-  // 4. Memory Access
-  // ==========================================
+  // Memory Access
   Lw {
     rd: BOperand,
     base: BOperand,
@@ -223,7 +201,7 @@ pub enum MOpData {
     rs: BOperand,
     base: BOperand,
     offset: BOperand,
-  }, // Load/Store 32-bit word (SysY int variable/array element)
+  },
   Flw {
     rd: BOperand,
     base: BOperand,
@@ -233,7 +211,7 @@ pub enum MOpData {
     rs: BOperand,
     base: BOperand,
     offset: BOperand,
-  }, // Load/Store 32-bit float (SysY float variable/array element)
+  },
 
   /// Load/Store 64-bit doubleword.
   /// ONLY used for Pointers (e.g., array base addresses) or Stack Frame management in RV64.

@@ -251,6 +251,18 @@ impl AsmFormatCtx<'_> {
             self.format_operand(rs)
           )
         }
+        MOpData::Add { rd, rs1, rs2 } => format!(
+          "add {}, {}, {}",
+          self.format_operand(rd),
+          self.format_operand(rs1),
+          self.format_operand(rs2)
+        ),
+        MOpData::Addi { rd, rs1, imm } => format!(
+          "addi {}, {}, {}",
+          self.format_operand(rd),
+          self.format_operand(rs1),
+          self.format_operand(imm)
+        ),
         MOpData::Addw { rd, rs1, rs2 } => format!(
           "addw {}, {}, {}",
           self.format_operand(rd),
@@ -325,30 +337,6 @@ impl AsmFormatCtx<'_> {
         ),
         MOpData::Addiw { rd, rs1, imm } => format!(
           "addiw {}, {}, {}",
-          self.format_operand(rd),
-          self.format_operand(rs1),
-          self.format_operand(imm)
-        ),
-        MOpData::Subiw { rd, rs1, imm } => format!(
-          "subiw {}, {}, {}",
-          self.format_operand(rd),
-          self.format_operand(rs1),
-          self.format_operand(imm)
-        ),
-        MOpData::Muliw { rd, rs1, imm } => format!(
-          "muliw {}, {}, {}",
-          self.format_operand(rd),
-          self.format_operand(rs1),
-          self.format_operand(imm)
-        ),
-        MOpData::Diviw { rd, rs1, imm } => format!(
-          "diviw {}, {}, {}",
-          self.format_operand(rd),
-          self.format_operand(rs1),
-          self.format_operand(imm)
-        ),
-        MOpData::Remiw { rd, rs1, imm } => format!(
-          "remiw {}, {}, {}",
           self.format_operand(rd),
           self.format_operand(rs1),
           self.format_operand(imm)

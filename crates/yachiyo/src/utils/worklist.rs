@@ -105,9 +105,9 @@ impl<T: Eq + Hash + Clone> WorklistTrait<T> for Worklist<T, FxHashSet<T>> {
 }
 
 /// If the items can be easily converted to usize, we can use a bitset to track membership for better performance.
-impl<T: Into<usize> + Copy + PartialEq> WorklistTrait<T> for Worklist<T, BitSet> {
+impl<T: Into<usize> + PartialEq + Clone> WorklistTrait<T> for Worklist<T, BitSet> {
   fn push_back(&mut self, item: T) {
-    let index = item.into();
+    let index = item.clone().into();
     if !self.in_list.contains(index) {
       self.in_list.insert(index);
       self.list.push_back(item);
@@ -116,7 +116,7 @@ impl<T: Into<usize> + Copy + PartialEq> WorklistTrait<T> for Worklist<T, BitSet>
 
   fn pop_back(&mut self) -> Option<T> {
     if let Some(item) = self.list.pop_back() {
-      let index = item.into();
+      let index = item.clone().into();
       self.in_list.remove(index);
       Some(item)
     } else {
@@ -125,7 +125,7 @@ impl<T: Into<usize> + Copy + PartialEq> WorklistTrait<T> for Worklist<T, BitSet>
   }
 
   fn push_front(&mut self, item: T) {
-    let index = item.into();
+    let index = item.clone().into();
     if !self.in_list.contains(index) {
       self.in_list.insert(index);
       self.list.push_front(item);
@@ -134,7 +134,7 @@ impl<T: Into<usize> + Copy + PartialEq> WorklistTrait<T> for Worklist<T, BitSet>
 
   fn pop_front(&mut self) -> Option<T> {
     if let Some(item) = self.list.pop_front() {
-      let index = item.into();
+      let index = item.clone().into();
       self.in_list.remove(index);
       Some(item)
     } else {
@@ -156,12 +156,12 @@ impl<T: Into<usize> + Copy + PartialEq> WorklistTrait<T> for Worklist<T, BitSet>
   }
 
   fn contains(&self, item: &T) -> bool {
-    let index = (*item).into();
+    let index = item.clone().into();
     self.in_list.contains(index)
   }
 
   fn remove(&mut self, item: &T) -> bool {
-    if self.in_list.remove((*item).into()) {
+    if self.in_list.remove(item.clone().into()) {
       self
         .list
         .remove(self.list.iter().position(|x| x == item).unwrap());

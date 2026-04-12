@@ -28,7 +28,7 @@ const SP_BOPRD: BOperand = BOperand::Reg(Reg::X(XReg::Sp));
 /// typ: The type of rs.
 fn select_store(typ: BType, rs: BOperand, base: BOperand, offset: BOperand) -> BOp {
   match typ {
-    BType::I32 | BType::U64 => {
+    BType::I32 | BType::U64 | BType::Array { .. } => {
       BOp::new(BType::Void, vec![], MOpData::Sw { rs, base, offset }.into())
     }
     BType::F32 => BOp::new(
@@ -42,7 +42,9 @@ fn select_store(typ: BType, rs: BOperand, base: BOperand, offset: BOperand) -> B
 /// typ: The type of rd.
 fn select_load(typ: BType, rd: BOperand, base: BOperand, offset: BOperand) -> BOp {
   match typ {
-    BType::I32 | BType::U64 => BOp::new(typ, vec![], MOpData::Lw { rd, base, offset }.into()),
+    BType::I32 | BType::U64 | BType::Array { .. } => {
+      BOp::new(typ, vec![], MOpData::Lw { rd, base, offset }.into())
+    }
     BType::F32 => BOp::new(typ, vec![], MOpData::Flw { rd, base, offset }.into()),
     BType::Void => unreachable!(),
   }
@@ -208,7 +210,7 @@ impl Allocator<'_> {
             BOperand::Reg(Reg::Virt(_)) => {
                 let vreg = &self.get_func(func_id).vregs[vreg_id];
                 match &vreg.typ {
-                    BType::I32 | BType::U64 => self.typ == AllocatorType::Int,
+                  BType::I32 | BType::U64 | BType::Array { .. } => self.typ == AllocatorType::Int,
                     BType::F32 => self.typ == AllocatorType::Float,
                     BType::Void => false,
                 }
@@ -787,8 +789,7 @@ impl Allocator<'_> {
       };
       // Allocate new slot
       let slot_id = self.alloc_slot(Slot::Local {
-        size: typ.size(),
-        align: typ.align(),
+        typ: typ.clone(),
         offset: 0,
       });
 
@@ -1074,12 +1075,18 @@ impl RegAlloc<'_> {
       BOperand::IntImm(_) => BType::I32,
       BOperand::FloatImm(_) => BType::F32,
       BOperand::Undef => BType::Void,
-      BOperand::Func(_)
-      | BOperand::BB(_)
-      | BOperand::Slot(_)
-      | BOperand::Data(_)
-      | BOperand::RoData(_)
-      | BOperand::Bss(_) => unreachable!(),
+
+      BOperand::Slot(_) => match &self.get_func(func_id).frame_info[operand] {
+        Slot::CalleeSaved { typ, .. }
+        | Slot::Local { typ, .. }
+        | Slot::Param { typ, .. }
+        | Slot::Arg { typ, .. } => typ.clone(),
+      },
+      BOperand::Data(_) => self.ir.as_ref().unwrap().data_info[operand].typ.clone(),
+      BOperand::RoData(_) => self.ir.as_ref().unwrap().rodata_info[operand].typ.clone(),
+      BOperand::Bss(_) => self.ir.as_ref().unwrap().bss_info[operand].typ.clone(),
+
+      BOperand::Func(_) | BOperand::BB(_) => unreachable!(),
     }
   }
 
@@ -1210,7 +1217,7 @@ impl RegAlloc<'_> {
       self.create(BOp::new(
         BType::U64,
         vec![],
-        MOpData::Addw {
+        MOpData::Add {
           rd: SP_BOPRD,
           rs1: SP_BOPRD,
           rs2: RESERVED_REG_BOPRD,
@@ -1221,7 +1228,7 @@ impl RegAlloc<'_> {
       self.create(BOp::new(
         BType::U64,
         vec![],
-        MOpData::Addiw {
+        MOpData::Addi {
           rd: SP_BOPRD,
           rs1: SP_BOPRD,
           imm: BOperand::IntImm(sp_offset),
@@ -1243,16 +1250,16 @@ impl RegAlloc<'_> {
           target: offset,
           enu: BOperand,
           minor_arms: {
-              BOperand::IntImm(_) => {
-                  select_store(self.get_operand_type(value), value, SP_BOPRD, offset)
-              }
-              BOperand::Reg(_) => {
-                  select_store(self.get_operand_type(value), value, offset, BOperand::IntImm(0))
-              }
+            BOperand::IntImm(_) => {
+                select_store(self.get_operand_type(value), value, SP_BOPRD, offset)
+            }
+            BOperand::Reg(_) => {
+                select_store(self.get_operand_type(value), value, offset, BOperand::IntImm(0))
+            }
           },
           uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
           uni_arm: {
-              unreachable!("Expected integer immediate, found {:?}", offset);
+            unreachable!("Expected integer immediate, found {:?}", offset);
           }
       };
       self.create(store_op);
@@ -1352,7 +1359,7 @@ impl RegAlloc<'_> {
       self.create(BOp::new(
         BType::U64,
         vec![],
-        MOpData::Addw {
+        MOpData::Add {
           rd: SP_BOPRD,
           rs1: SP_BOPRD,
           rs2: RESERVED_REG_BOPRD,
@@ -1363,7 +1370,7 @@ impl RegAlloc<'_> {
       self.create(BOp::new(
         BType::U64,
         vec![],
-        MOpData::Addiw {
+        MOpData::Addi {
           rd: SP_BOPRD,
           rs1: SP_BOPRD,
           imm: BOperand::IntImm(sp_offset),
@@ -1416,8 +1423,7 @@ impl RegAlloc<'_> {
       self.alloc_and_map_slot(
         Reg::X(XReg::Ra),
         Slot::CalleeSaved {
-          size: BType::U64.size(),
-          align: BType::U64.align(),
+          typ: BType::U64,
           offset: 0,
         },
       );
@@ -1430,8 +1436,7 @@ impl RegAlloc<'_> {
       self.alloc_and_map_slot(
         reg,
         Slot::CalleeSaved {
-          size: BType::U64.size(),
-          align: BType::U64.align(),
+          typ: BType::U64,
           offset: 0,
         },
       );

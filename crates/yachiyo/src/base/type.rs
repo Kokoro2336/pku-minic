@@ -60,6 +60,7 @@ impl std::fmt::Display for Type {
 }
 
 impl Type {
+  #[inline(always)]
   pub fn size(&self) -> u32 {
     match self {
       Type::Bool => 1,
@@ -72,6 +73,7 @@ impl Type {
       Type::Char => 1,
     }
   }
+  #[inline(always)]
   pub fn align(&self) -> u32 {
     match self {
       Type::Bool => 1,
@@ -84,6 +86,7 @@ impl Type {
       Type::Char => 1,
     }
   }
+  #[inline(always)]
   pub fn is_scalar(&self) -> bool {
     matches!(self, Type::Int | Type::Float | Type::Char | Type::Bool)
   }
