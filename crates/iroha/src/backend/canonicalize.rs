@@ -172,7 +172,7 @@ impl Canonicalize<'_> {
             ));
             let la_op_rd = *self.get_rd(la_op_id).unwrap();
             if option == LegalizeOption::NoLoad {
-              return la_op_id;
+              return la_op_rd;
             }
             let typ = self.get_operand_type(boperand);
             let lop_id = self.create(BOp::new(
@@ -503,11 +503,11 @@ impl Canonicalize<'_> {
               ));
             },
             LOpData::Call {..}
-            | LOpData::Jump {..} => {/*do nothing*/},
+            | LOpData::Jump {..}
+            | LOpData::Ret => {/*do nothing*/},
             LOpData::LoadAddress {..}
             | LOpData::LoadIntImm {..}
-            | LOpData::LoadFloatImm {..}
-            | LOpData::Ret => unreachable!(),
+            | LOpData::LoadFloatImm {..} => unreachable!(),
           }
         }
       }
