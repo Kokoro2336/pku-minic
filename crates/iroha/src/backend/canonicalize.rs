@@ -312,7 +312,9 @@ impl Canonicalize<'_> {
                 (true, true) => {
                     let folded = Self::fold(lop_data);
                     // RAUW
-                    self.ir.as_mut().unwrap().replace_all_uses(Some(func_id), inst_id, folded)
+                    self.ir.as_mut().unwrap().replace_all_uses(Some(func_id), inst_id, folded);
+                    // Remove the old instruction.
+                    self.ir.as_mut().unwrap().remove_op(Some(func_id), inst_id, Some(bb_id));
                 },
                 (true, false) => {
                   // Canonicalize the operands to make the literal on the right, and adjust the operator if necessary.
