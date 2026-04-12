@@ -876,13 +876,13 @@ impl Lowering {
           [self.builder.current_function.expect("No current function")]
         .dfg[move_lop_id];
         let (move_lop_data, typ): (LOpData, BType) =
-          (move_bop.data.clone().into(), move_bop.typ);
+          (move_bop.data.clone().into(), move_bop.typ.clone());
 
         match move_lop_data {
           LOpData::Move { src, rd } => {
             // For now we don't care where it's created, we will move 'em to trampolines later.
             let src_temp_id = self.create(BOp::new(
-              typ,
+              typ.clone(),
               vec![],
               LOpData::Move {
                 rd: BOperand::Undef,

@@ -90,7 +90,7 @@ impl ISel<'_> {
     let (lop_data, is_phi_move, typ) = (
       bop.data.clone().into(),
       bop.attrs.contains(&BAttr::PhiMove),
-      bop.typ,
+      bop.typ.clone(),
     );
 
     // Set before current inst.
@@ -123,7 +123,7 @@ impl ISel<'_> {
                                 // Create li
                                 let li_op_id = self.create(
                                     BOp::new(
-                                        typ,
+                                        typ.clone(),
                                         vec![],
                                         MOpData::Li { rd: BOperand::Undef, imm: imm.get_int_imm() }.into(),
                                     )
@@ -140,7 +140,7 @@ impl ISel<'_> {
                                 // RISC-V doesn't have Xoriw, but we can still use Xori and let the upper bits be folded by the next instruction.
                                 let xori_mop_id = self.create(
                                     BOp::new(
-                                        typ,
+                                        typ.clone(),
                                         vec![],
                                         MOpData::Xori { rd: BOperand::Undef, rs1, imm }.into(),
                                     )
@@ -155,7 +155,7 @@ impl ISel<'_> {
                                 // Create add
                                 let addiw_mop_id = self.create(
                                     BOp::new(
-                                        typ,
+                                        typ.clone(),
                                         vec![],
                                         MOpData::Addiw { rd: BOperand::Undef, rs1, imm: imm.negate_literal() }.into(),
                                     )
@@ -168,7 +168,7 @@ impl ISel<'_> {
                                 // Create add
                                 let addiw_mop_id = self.create(
                                     BOp::new(
-                                        typ,
+                                        typ.clone(),
                                         vec![],
                                         MOpData::Addiw { rd: BOperand::Undef, rs1, imm: imm.negate_literal() }.into(),
                                     )
@@ -195,7 +195,7 @@ impl ISel<'_> {
                                 // Create slti
                                 let slti_mop_id = self.create(
                                     BOp::new(
-                                        typ,
+                                        typ.clone(),
                                         vec![],
                                         MOpData::Slti { rd: BOperand::Undef, rs1, imm }.into(),
                                     )
@@ -212,7 +212,7 @@ impl ISel<'_> {
                                 // Reuse slti
                                 let slti_mop_id = self.create(
                                     BOp::new(
-                                        typ,
+                                        typ.clone(),
                                         vec![],
                                         MOpData::Slti { rd: BOperand::Undef, rs1, imm }.into(),
                                     )
@@ -247,7 +247,7 @@ impl ISel<'_> {
                         }
                     };
 
-                    self.replace_op_rauw(lop_id, BOp::new(typ, vec![], mop_data.into()));
+                    self.replace_op_rauw(lop_id, BOp::new(typ.clone(), vec![], mop_data.into()));
                 },
                 (false, false) => {
                     let (rs1, rs2) = (*lhs, *rhs);
@@ -275,7 +275,7 @@ impl ISel<'_> {
                                 // Create sub
                                 let subw_mop_id = self.create(
                                     BOp::new(
-                                        typ,
+                                        typ.clone(),
                                         vec![],
                                         MOpData::Subw { rd: BOperand::Undef, rs1, rs2 }.into(),
                                     )
@@ -288,7 +288,7 @@ impl ISel<'_> {
                                 // Create sub
                                 let subw_mop_id = self.create(
                                     BOp::new(
-                                        typ,
+                                        typ.clone(),
                                         vec![],
                                         MOpData::Subw { rd: BOperand::Undef, rs1, rs2 }.into(),
                                     )
@@ -303,7 +303,7 @@ impl ISel<'_> {
                                 let imm = BOperand::IntImm(1);
                                 let addiw_mop_id = self.create(
                                     BOp::new(
-                                        typ,
+                                        typ.clone(),
                                         vec![],
                                         MOpData::Addiw { rd: BOperand::Undef, rs1: rs2, imm }.into(),
                                     )
@@ -312,7 +312,7 @@ impl ISel<'_> {
                                 // Create slt
                                 let slt_mop_id = self.create(
                                     BOp::new(
-                                        typ,
+                                        typ.clone(),
                                         vec![],
                                         MOpData::Slt { rd: BOperand::Undef, rs1, rs2: addiw_vreg_id }.into(),
                                     )
@@ -329,7 +329,7 @@ impl ISel<'_> {
                                 // Reuse slt
                                 let slt_mop_id = self.create(
                                     BOp::new(
-                                        typ,
+                                        typ.clone(),
                                         vec![],
                                         MOpData::Slt { rd: BOperand::Undef, rs1: rs2, rs2: rs1 }.into(),
                                     )
@@ -344,7 +344,7 @@ impl ISel<'_> {
                                 let imm = BOperand::IntImm(1);
                                 let addiw_mop_id = self.create(
                                     BOp::new(
-                                        typ,
+                                        typ.clone(),
                                         vec![],
                                         MOpData::Addiw { rd: BOperand::Undef, rs1: rs2, imm }.into(),
                                     )
@@ -357,7 +357,7 @@ impl ISel<'_> {
                             LOpData::Xor { .. } => {
                                 let xor_mop_id = self.create(
                                     BOp::new(
-                                        typ,
+                                        typ.clone(),
                                         vec![],
                                         MOpData::Xor { rd: BOperand::Undef, rs1, rs2 }.into(),
                                     )
@@ -380,7 +380,7 @@ impl ISel<'_> {
                         }
                     };
 
-                    self.replace_op_rauw(lop_id, BOp::new(typ, vec![], mop_data.into()));
+                    self.replace_op_rauw(lop_id, BOp::new(typ.clone(), vec![], mop_data.into()));
                 }
             }
         },
@@ -399,7 +399,7 @@ impl ISel<'_> {
                 }
             };
 
-            self.replace_op_rauw(lop_id, BOp::new(typ, vec![], mop_data.into()));
+            self.replace_op_rauw(lop_id, BOp::new(typ.clone(), vec![], mop_data.into()));
         },
         fallback: {
             LOpData::Store {..}
@@ -409,7 +409,7 @@ impl ISel<'_> {
                 self.replace_op_rauw(
                     lop_id,
                     BOp::new(
-                        typ,
+                        typ.clone(),
                         vec![],
                         MOpData::Call { target: *func }.into(),
                     ),
@@ -419,7 +419,7 @@ impl ISel<'_> {
             LOpData::Br { cond, then_bb, else_bb } => {
                 self.create(
                     BOp::new(
-                        typ,
+                        typ.clone(),
                         vec![],
                         MOpData::Bnez { rs: *cond, target: *then_bb }.into(),
                     )
@@ -427,7 +427,7 @@ impl ISel<'_> {
                 self.replace_op_rauw(
                     lop_id,
                     BOp::new(
-                        typ,
+                        typ.clone(),
                         vec![],
                         MOpData::J { target: *else_bb }.into(),
                     ),
@@ -438,7 +438,7 @@ impl ISel<'_> {
                 self.replace_op_rauw(
                     lop_id,
                     BOp::new(
-                        typ,
+                        typ.clone(),
                         vec![],
                         MOpData::J { target: *target_bb }.into()
                     ),
@@ -453,14 +453,15 @@ impl ISel<'_> {
                         // For register destination, we can directly use Mv/Fmv.
                         let mop_data = match typ {
                             BType::I32
-                            | BType::U64 => MOpData::Mv { rd: *rd, rs: *src },
+                            | BType::U64
+                            | BType::Array { .. } => MOpData::Mv { rd: *rd, rs: *src },
                             BType::F32 => MOpData::FmvS { rd: *rd, rs: *src },
                             BType::Void => unreachable!("Move with void type doesn't make sense"),
                         };
                         self.replace_op_no_rauw(
                             lop_id,
                             BOp::new(
-                                typ,
+                                typ.clone(),
                                 vec![],
                                 // For Move, we still use the original rd.
                                 mop_data.into(),
@@ -472,7 +473,8 @@ impl ISel<'_> {
                         let rd = if is_phi_move { *rd } else { BOperand::Undef };
                         let mop_data = match typ {
                             BType::I32
-                            | BType::U64 => MOpData::Mv { rd, rs: *src },
+                            | BType::U64
+                            | BType::Array { .. } => MOpData::Mv { rd, rs: *src },
                             BType::F32 => MOpData::FmvS { rd, rs: *src },
                             BType::Void => unreachable!("Move with void type doesn't make sense"),
                         };
@@ -480,7 +482,7 @@ impl ISel<'_> {
                             self.replace_op_no_rauw(
                                 lop_id,
                                 BOp::new(
-                                    typ,
+                                    typ.clone(),
                                     vec![],
                                     mop_data.into(),
                                 ),
@@ -489,7 +491,7 @@ impl ISel<'_> {
                             self.replace_op_rauw(
                                 lop_id,
                                 BOp::new(
-                                    typ,
+                                    typ.clone(),
                                     vec![],
                                     mop_data.into(),
                                 ),
@@ -521,7 +523,7 @@ impl ISel<'_> {
                 self.replace_op_rauw(
                     lop_id,
                     BOp::new(
-                        typ,
+                        typ.clone(),
                         vec![],
                         MOpData::Li { rd: BOperand::Undef, imm: *imm }.into(),
                     )
@@ -532,7 +534,7 @@ impl ISel<'_> {
                 self.replace_op_rauw(
                     lop_id,
                     BOp::new(
-                        typ,
+                        typ.clone(),
                         vec![],
                         MOpData::La { rd: BOperand::Undef, target: *addr }.into(),
                     )

@@ -454,7 +454,7 @@ impl BackIR {
   pub fn bind(&mut self, current_function: Option<BOperand>, op_id: BOperand) {
     let func = &mut self.funcs[current_function.unwrap()];
     let op = &mut func.dfg[op_id];
-    let (data, typ) = (&mut op.data, op.typ);
+    let (data, typ) = (&mut op.data, op.typ.clone());
     let vregs = &mut func.vregs;
 
     match data {

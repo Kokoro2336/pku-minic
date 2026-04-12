@@ -28,7 +28,7 @@ const SP_BOPRD: BOperand = BOperand::Reg(Reg::X(XReg::Sp));
 /// typ: The type of rs.
 fn select_store(typ: BType, rs: BOperand, base: BOperand, offset: BOperand) -> BOp {
   match typ {
-    BType::I32 | BType::U64 => {
+    BType::I32 | BType::U64 | BType::Array { .. } => {
       BOp::new(BType::Void, vec![], MOpData::Sw { rs, base, offset }.into())
     }
     BType::F32 => BOp::new(
@@ -42,7 +42,9 @@ fn select_store(typ: BType, rs: BOperand, base: BOperand, offset: BOperand) -> B
 /// typ: The type of rd.
 fn select_load(typ: BType, rd: BOperand, base: BOperand, offset: BOperand) -> BOp {
   match typ {
-    BType::I32 | BType::U64 => BOp::new(typ, vec![], MOpData::Lw { rd, base, offset }.into()),
+    BType::I32 | BType::U64 | BType::Array { .. } => {
+      BOp::new(typ, vec![], MOpData::Lw { rd, base, offset }.into())
+    }
     BType::F32 => BOp::new(typ, vec![], MOpData::Flw { rd, base, offset }.into()),
     BType::Void => unreachable!(),
   }
@@ -208,7 +210,7 @@ impl Allocator<'_> {
             BOperand::Reg(Reg::Virt(_)) => {
                 let vreg = &self.get_func(func_id).vregs[vreg_id];
                 match &vreg.typ {
-                    BType::I32 | BType::U64 => self.typ == AllocatorType::Int,
+                  BType::I32 | BType::U64 | BType::Array { .. } => self.typ == AllocatorType::Int,
                     BType::F32 => self.typ == AllocatorType::Float,
                     BType::Void => false,
                 }
@@ -783,10 +785,13 @@ impl Allocator<'_> {
       let (typ, defs, uses) = {
         let func_id = self.builder.current_function.unwrap();
         let vreg = &self.get_func(func_id).vregs[vreg_id];
-        (vreg.typ, vreg.defs.clone(), vreg.uses.clone())
+        (vreg.typ.clone(), vreg.defs.clone(), vreg.uses.clone())
       };
       // Allocate new slot
-      let slot_id = self.alloc_slot(Slot::Local { typ, offset: 0 });
+      let slot_id = self.alloc_slot(Slot::Local {
+        typ: typ.clone(),
+        offset: 0,
+      });
 
       // Insert store after each definition of the spilled node.
       for def in defs {
@@ -799,7 +804,7 @@ impl Allocator<'_> {
         );
 
         let store_op = BOp::new(
-          typ,
+          typ.clone(),
           vec![],
           LOpData::Store {
             addr: slot_id,
@@ -821,7 +826,7 @@ impl Allocator<'_> {
         );
 
         let load_op = BOp::new(
-          typ,
+          typ.clone(),
           vec![],
           LOpData::Load {
             rd: BOperand::Undef,
@@ -1060,12 +1065,12 @@ impl RegAlloc<'_> {
     match operand {
       BOperand::Inst(id) => {
         let op = &self.get_func(func_id).dfg[id];
-        op.typ
+        op.typ.clone()
       }
       BOperand::Reg(reg) => match reg {
         Reg::X(_) => BType::I32,
         Reg::F(_) => BType::F32,
-        Reg::Virt(_) => self.get_func(func_id).vregs[operand].typ,
+        Reg::Virt(_) => self.get_func(func_id).vregs[operand].typ.clone(),
       },
       BOperand::IntImm(_) => BType::I32,
       BOperand::FloatImm(_) => BType::F32,
@@ -1075,11 +1080,11 @@ impl RegAlloc<'_> {
         Slot::CalleeSaved { typ, .. }
         | Slot::Local { typ, .. }
         | Slot::Param { typ, .. }
-        | Slot::Arg { typ, .. } => *typ,
+        | Slot::Arg { typ, .. } => typ.clone(),
       },
-      BOperand::Data(_) => self.ir.as_ref().unwrap().data_info[operand].typ,
-      BOperand::RoData(_) => self.ir.as_ref().unwrap().rodata_info[operand].typ,
-      BOperand::Bss(_) => self.ir.as_ref().unwrap().bss_info[operand].typ,
+      BOperand::Data(_) => self.ir.as_ref().unwrap().data_info[operand].typ.clone(),
+      BOperand::RoData(_) => self.ir.as_ref().unwrap().rodata_info[operand].typ.clone(),
+      BOperand::Bss(_) => self.ir.as_ref().unwrap().bss_info[operand].typ.clone(),
 
       BOperand::Func(_) | BOperand::BB(_) => unreachable!(),
     }
@@ -1450,7 +1455,7 @@ impl RegAlloc<'_> {
       let inst_ids = self.get_func(func_id).cfg[bb_id].cur.clone();
       for inst_id in inst_ids {
         let op = &self.get_func(func_id).dfg[inst_id];
-        let (op_data, rd_typ) = (op.data.clone(), op.typ);
+        let (op_data, rd_typ) = (op.data.clone(), op.typ.clone());
 
         if let BOpData::L(LOpData::Store { addr, value }) = op_data {
           self.builder.set_before_inst(

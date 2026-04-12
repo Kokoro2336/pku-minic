@@ -51,12 +51,12 @@ impl Canonicalize<'_> {
     match operand {
       BOperand::Inst(id) => {
         let op = &self.get_func(func_id).dfg[id];
-        op.typ
+        op.typ.clone()
       }
       BOperand::Reg(reg) => match reg {
         Reg::X(_) => BType::I32,
         Reg::F(_) => BType::F32,
-        Reg::Virt(_) => self.get_func(func_id).vregs[operand].typ,
+        Reg::Virt(_) => self.get_func(func_id).vregs[operand].typ.clone(),
       },
       BOperand::IntImm(_) => BType::I32,
       BOperand::FloatImm(_) => BType::F32,
@@ -66,11 +66,11 @@ impl Canonicalize<'_> {
         Slot::CalleeSaved { typ, .. }
         | Slot::Local { typ, .. }
         | Slot::Param { typ, .. }
-        | Slot::Arg { typ, .. } => *typ,
+        | Slot::Arg { typ, .. } => typ.clone(),
       },
-      BOperand::Data(_) => self.ir.as_ref().unwrap().data_info[operand].typ,
-      BOperand::RoData(_) => self.ir.as_ref().unwrap().rodata_info[operand].typ,
-      BOperand::Bss(_) => self.ir.as_ref().unwrap().bss_info[operand].typ,
+      BOperand::Data(_) => self.ir.as_ref().unwrap().data_info[operand].typ.clone(),
+      BOperand::RoData(_) => self.ir.as_ref().unwrap().rodata_info[operand].typ.clone(),
+      BOperand::Bss(_) => self.ir.as_ref().unwrap().bss_info[operand].typ.clone(),
 
       BOperand::Func(_) | BOperand::BB(_) => unreachable!(),
     }
@@ -301,7 +301,7 @@ impl Canonicalize<'_> {
           Some(inst_id),
         );
         let op = &self.get_func(func_id).dfg[inst_id];
-        let (lop_data, typ) = (op.data.clone().into(), op.typ);
+        let (lop_data, typ) = (op.data.clone().into(), op.typ.clone());
 
         match_src! {
           target: lop_data,
