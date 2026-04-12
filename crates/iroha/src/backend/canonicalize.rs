@@ -398,10 +398,6 @@ impl Canonicalize<'_> {
                       LOpData::AddI { rd, lhs, rhs: self.legalize(imm, LegalizeOption::Default) },
                     LOpData::AddF { rd, lhs, rhs: imm } =>
                       LOpData::AddF { rd, lhs, rhs: self.legalize(imm, LegalizeOption::Default) },
-                    LOpData::MulI { rd, lhs, rhs: imm } =>
-                      LOpData::MulI { rd, lhs, rhs: self.legalize(imm, LegalizeOption::Default) },
-                    LOpData::MulF { rd, lhs, rhs: imm } =>
-                      LOpData::MulF { rd, lhs, rhs: self.legalize(imm, LegalizeOption::Default) },
                     LOpData::SNe { rd, lhs, rhs: imm } =>
                       LOpData::SNe { rd, lhs, rhs: self.legalize(imm, LegalizeOption::Default) },
                     LOpData::SEq { rd, lhs, rhs: imm } =>
@@ -416,18 +412,23 @@ impl Canonicalize<'_> {
                       LOpData::SubF { rd, lhs, rhs: self.legalize(imm, LegalizeOption::Default) },
                     LOpData::SubI { rd, lhs, rhs: imm } =>
                       LOpData::SubI { rd, lhs, rhs: self.legalize(imm, LegalizeOption::Default) },
-                    LOpData::DivF { rd, lhs, rhs: imm } =>
-                      LOpData::DivF { rd, lhs, rhs: self.legalize(imm, LegalizeOption::Default) },
-                    LOpData::DivI { rd, lhs, rhs: imm } =>
-                      LOpData::DivI { rd, lhs, rhs: self.legalize(imm, LegalizeOption::Default) },
-                    LOpData::ModI { rd, lhs, rhs: imm } =>
-                      LOpData::ModI { rd, lhs, rhs: self.legalize(imm, LegalizeOption::Default) },
                     LOpData::Shl { rd, lhs, rhs: imm } =>
                       LOpData::Shl { rd, lhs, rhs: self.legalize(imm, LegalizeOption::Default) },
                     LOpData::Shr { rd, lhs, rhs: imm } =>
                       LOpData::Shr { rd, lhs, rhs: self.legalize(imm, LegalizeOption::Default) },
                     LOpData::Sar { rd, lhs, rhs: imm } =>
                       LOpData::Sar { rd, lhs, rhs: self.legalize(imm, LegalizeOption::Default) },
+
+                    LOpData::MulI { rd, lhs, rhs: imm } =>
+                      LOpData::MulI { rd, lhs, rhs: self.legalize(imm, LegalizeOption::ForceImmLoad) },
+                    LOpData::MulF { rd, lhs, rhs: imm } =>
+                      LOpData::MulF { rd, lhs, rhs: self.legalize(imm, LegalizeOption::ForceImmLoad) },
+                    LOpData::DivF { rd, lhs, rhs: imm } =>
+                      LOpData::DivF { rd, lhs, rhs: self.legalize(imm, LegalizeOption::ForceImmLoad) },
+                    LOpData::DivI { rd, lhs, rhs: imm } =>
+                      LOpData::DivI { rd, lhs, rhs: self.legalize(imm, LegalizeOption::ForceImmLoad) },
+                    LOpData::ModI { rd, lhs, rhs: imm } =>
+                      LOpData::ModI { rd, lhs, rhs: self.legalize(imm, LegalizeOption::ForceImmLoad) },
 
                     _ => unreachable!("Unexpected op with literal on the right: {:?}", lop_data),
                   };
