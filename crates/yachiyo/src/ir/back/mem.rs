@@ -29,7 +29,7 @@ pub type RoDataInfo = IndexedArena<RoData>;
 #[derive(Debug, Clone)]
 pub struct RoData {
   inner: Vec<BOperand>,
-  typ: BType,
+  pub typ: BType,
 }
 
 impl RoData {
@@ -70,7 +70,7 @@ pub type DataInfo = IndexedArena<Data>;
 #[derive(Debug, Clone)]
 pub struct Data {
   inner: Vec<BOperand>,
-  typ: BType,
+  pub typ: BType,
 }
 
 impl Data {
@@ -392,7 +392,7 @@ pub type BssInfo = IndexedArena<Bss>;
 
 #[derive(Debug, Clone)]
 pub struct Bss {
-  typ: BType,
+  pub typ: BType,
 }
 
 impl Bss {
@@ -420,5 +420,25 @@ impl MemInfo for BssInfo {
       total += bss.size();
     }
     total
+  }
+}
+
+impl Index<BOperand> for BssInfo {
+  type Output = Bss;
+
+  fn index(&self, index: BOperand) -> &Self::Output {
+    match index {
+      BOperand::Bss(id) => self.get(id).unwrap(),
+      _ => panic!("BssInfo index: expected BOperand::Bss, got {:?}", index),
+    }
+  }
+}
+
+impl IndexMut<BOperand> for BssInfo {
+  fn index_mut(&mut self, index: BOperand) -> &mut Self::Output {
+    match index {
+      BOperand::Bss(id) => self.get_mut(id).unwrap(),
+      _ => panic!("BssInfo index_mut: expected BOperand::Bss, got {:?}", index),
+    }
   }
 }
