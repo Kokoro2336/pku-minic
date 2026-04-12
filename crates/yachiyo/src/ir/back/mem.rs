@@ -2,7 +2,7 @@
 
 use crate::base::Type;
 use crate::config::{PARAM_REG_MAX_NUM, STK_FRM_ALIGN};
-use crate::ir::back::BOperand;
+use crate::ir::back::{BOperand, BType};
 use crate::utils::arena::*;
 
 use rustc_hash::FxHashMap;
@@ -29,16 +29,14 @@ pub type RoDataInfo = IndexedArena<RoData>;
 #[derive(Debug, Clone)]
 pub struct RoData {
   inner: Vec<BOperand>,
-  size: u32,
-  align: u32,
+  typ: BType,
 }
 
 impl RoData {
   pub fn new(typ: Type, inner: Vec<BOperand>) -> Self {
     RoData {
       inner,
-      size: typ.size(),
-      align: typ.align(),
+      typ: typ.into(),
     }
   }
 
@@ -47,11 +45,11 @@ impl RoData {
   }
 
   pub fn size(&self) -> u32 {
-    self.size
+    self.typ.size()
   }
 
   pub fn align(&self) -> u32 {
-    self.align
+    self.typ.align()
   }
 }
 
@@ -60,8 +58,8 @@ impl MemInfo for RoDataInfo {
     let mut total = 0_u32;
     for id in self.collect() {
       let data = &self[id];
-      total = align_up(total, data.align);
-      total += data.size;
+      total = align_up(total, data.typ.align());
+      total += data.typ.size();
     }
     total
   }
@@ -72,16 +70,14 @@ pub type DataInfo = IndexedArena<Data>;
 #[derive(Debug, Clone)]
 pub struct Data {
   inner: Vec<BOperand>,
-  size: u32,
-  align: u32,
+  typ: BType,
 }
 
 impl Data {
   pub fn new(typ: Type, inner: Vec<BOperand>) -> Self {
     Data {
       inner,
-      size: typ.size(),
-      align: typ.align(),
+      typ: typ.into(),
     }
   }
 
@@ -90,11 +86,11 @@ impl Data {
   }
 
   pub fn size(&self) -> u32 {
-    self.size
+    self.typ.size()
   }
 
   pub fn align(&self) -> u32 {
-    self.align
+    self.typ.align()
   }
 }
 
@@ -103,8 +99,8 @@ impl MemInfo for DataInfo {
     let mut total = 0_u32;
     for id in self.collect() {
       let data = &self[id];
-      total = align_up(total, data.align);
-      total += data.size;
+      total = align_up(total, data.typ.align());
+      total += data.typ.size();
     }
     total
   }
@@ -125,26 +121,22 @@ pub struct FrameInfo {
 #[derive(Debug, Clone)]
 pub enum Slot {
   CalleeSaved {
-    size: u32,
-    align: u32,
+    typ: BType,
     offset: i32,
   },
   Local {
-    size: u32,
-    align: u32,
+    typ: BType,
     offset: i32,
   },
   Param {
     index: u32,
-    size: u32,
-    align: u32,
+    typ: BType,
     offset: i32,
   },
   /// Different from other kind of slot, the offset of Arg is not fixed, it is determined by the caller and callee together.
   /// We still store an Arg for each argument of each call, but the call sites' args offset can overlap with each other.
   Arg {
-    size: u32,
-    align: u32,
+    typ: BType,
     offset: i32,
   },
 }
@@ -158,7 +150,7 @@ impl FrameInfo {
   pub fn alloc(&mut self, slot: Slot) -> usize {
     self.storage.alloc(slot)
   }
-  
+
   pub fn len(&self) -> usize {
     self.storage.len()
   }
@@ -167,7 +159,11 @@ impl FrameInfo {
     self.storage.is_empty()
   }
 
-  pub fn get_spilled_arg_offsets(&mut self, callee_func_id: BOperand, callee_func_typ: &Type) -> Vec<BOperand> {
+  pub fn get_spilled_arg_offsets(
+    &mut self,
+    callee_func_id: BOperand,
+    callee_func_typ: &Type,
+  ) -> Vec<BOperand> {
     if self.arg_outgoing.contains_key(&callee_func_id) {
       return self.arg_outgoing[&callee_func_id].clone();
     }
@@ -178,8 +174,7 @@ impl FrameInfo {
         .filter_map(|(index, param)| {
           if index as u32 >= PARAM_REG_MAX_NUM {
             let slot_id = self.storage.alloc(Slot::Arg {
-              size: param.size(),
-              align: param.align(),
+              typ: param.clone().into(),
               offset: 0, // offset will be assigned later in build()
             });
             Some(BOperand::Slot(slot_id))
@@ -194,15 +189,14 @@ impl FrameInfo {
       for id in arg_ids.iter() {
         if let BOperand::Slot(slot_id) = id {
           if let Slot::Arg {
-            size,
-            align,
+            typ,
             offset: slot_offset,
             ..
           } = &mut self.storage[*slot_id]
           {
-            offset = align_up(offset, *align);
+            offset = align_up(offset, typ.align());
             *slot_offset = offset as i32;
-            offset += *size;
+            offset += typ.size();
           } else {
             unreachable!()
           }
@@ -257,28 +251,26 @@ impl FrameInfo {
     // Assign offsets for local slots.
     for id in local_slots {
       if let Slot::Local {
-        size,
-        align,
+        typ,
         offset: slot_offset,
       } = &mut self.storage[id]
       {
-        offset = align_up(offset as u32, *align) as i32;
+        offset = align_up(offset as u32, typ.align()) as i32;
         *slot_offset = offset;
-        offset += *size as i32;
+        offset += typ.size() as i32;
       }
     }
 
     // Assign offsets for callee-saved slots.
     for id in callee_saved_slots {
       if let Slot::CalleeSaved {
-        size,
-        align,
+        typ,
         offset: slot_offset,
       } = &mut self.storage[id]
       {
-        offset = align_up(offset as u32, *align) as i32;
+        offset = align_up(offset as u32, typ.align()) as i32;
         *slot_offset = offset;
-        offset += *size as i32;
+        offset += typ.size() as i32;
       }
     }
 
@@ -290,15 +282,14 @@ impl FrameInfo {
     // Assign offsets for param slots.
     for id in param_slots {
       if let Slot::Param {
-        size,
-        align,
+        typ,
         offset: slot_offset,
         ..
       } = &mut self.storage[id]
       {
-        offset = align_up(offset as u32, *align) as i32;
+        offset = align_up(offset as u32, typ.align()) as i32;
         *slot_offset = offset;
-        offset += *size as i32;
+        offset += typ.size() as i32;
       }
     }
   }
@@ -401,24 +392,22 @@ pub type BssInfo = IndexedArena<Bss>;
 
 #[derive(Debug, Clone)]
 pub struct Bss {
-  size: u32,
-  align: u32,
+  typ: BType,
 }
 
 impl Bss {
   pub fn new(typ: Type) -> Self {
     Bss {
-      size: typ.size(),
-      align: typ.align(),
+      typ: typ.into(),
     }
   }
 
   pub fn size(&self) -> u32 {
-    self.size
+    self.typ.size()
   }
 
   pub fn align(&self) -> u32 {
-    self.align
+    self.typ.align()
   }
 }
 
@@ -427,8 +416,8 @@ impl MemInfo for BssInfo {
     let mut total = 0_u32;
     for id in self.collect() {
       let bss = &self[id];
-      total = align_up(total, bss.align);
-      total += bss.size;
+      total = align_up(total, bss.align());
+      total += bss.size();
     }
     total
   }
