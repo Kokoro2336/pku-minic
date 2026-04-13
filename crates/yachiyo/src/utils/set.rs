@@ -1,4 +1,6 @@
-//! Set Implementations.
+//! Set utilities, including:
+//! - ArraySet
+//! - BitSet
 
 use std::fmt;
 use std::ops::{

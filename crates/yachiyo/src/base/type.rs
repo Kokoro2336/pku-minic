@@ -1,3 +1,5 @@
+//! Type definitions.
+
 const RISCV_BITS: u32 = 64;
 
 /// type of value

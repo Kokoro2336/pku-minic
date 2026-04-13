@@ -1,4 +1,4 @@
-//! Building dominator tree based on Lengauer-Tarjan algorithm.
+//! Dominance Analysis based on Lengauer-Tarjan algorithm.
 //! Reference: https://dl.acm.org/doi/10.1145/357062.357071
 
 use yachiyo::analysis::Analysis;

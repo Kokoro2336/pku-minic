@@ -1,4 +1,4 @@
-//! Definition of registers for BackIR.
+//! Register definitions of BackIR.
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]

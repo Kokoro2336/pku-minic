@@ -1,4 +1,4 @@
-//! Worklist implementation for IR optimization passes.
+//! Worklist implementation.
 
 use crate::utils::set::BitSet;
 

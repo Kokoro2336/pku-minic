@@ -1,4 +1,4 @@
-//! BFunction definition.
+//! Function definition of BackIR.
 
 #[cfg(feature = "debug")]
 use crate::debug::info;

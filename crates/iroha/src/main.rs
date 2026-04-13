@@ -1,3 +1,5 @@
+//! Main entry point of the compiler.
+
 use lalrpop_util::lalrpop_mod;
 use std::fs::read_to_string;
 use std::io::Result;

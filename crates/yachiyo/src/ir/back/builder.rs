@@ -1,4 +1,4 @@
-//! Definition of Machine IR builder.
+//! Builder definiton of BackIR.
 
 use crate::ir::back::{BOp, BOperand, BackIR};
 

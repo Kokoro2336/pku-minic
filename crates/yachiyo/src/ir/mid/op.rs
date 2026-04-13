@@ -1,3 +1,5 @@
+//! Instruction definition of IR.
+
 use std::ops::{Index, IndexMut};
 use std::vec::Vec;
 use strum_macros::EnumDiscriminants;

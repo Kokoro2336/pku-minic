@@ -1,4 +1,4 @@
-//! Utils for pattern matching to reduce code duplication.
+//! Pattern matching utilities to reduce code duplication.
 
 #[macro_export]
 macro_rules! match_src {

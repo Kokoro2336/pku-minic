@@ -1,4 +1,4 @@
-//! Operand definition for Lower IR instructions.
+//! Instruction definition of Lower IR.
 
 use crate::ir::back::{BOpData, BOperand};
 use strum_macros::EnumDiscriminants;

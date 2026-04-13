@@ -1,3 +1,5 @@
+//! Type definitions of BackIR.
+
 use crate::base::Type;
 use crate::config::RISCV_BITS;
 

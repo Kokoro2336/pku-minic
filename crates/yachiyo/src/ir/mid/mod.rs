@@ -1,3 +1,5 @@
+//! Optimizer IR (IR) definition.
+
 mod bb;
 mod builder;
 mod func;

@@ -1,4 +1,4 @@
-//! Lower IR module defintion, with graph structure variation APIs.
+//! Module definiton of BackIR.
 
 use super::{
   BBuilder, BBuilderGuard, BOp, BOpData, BOperand, BssInfo, DataInfo, LOpData, MOpData, Reg,

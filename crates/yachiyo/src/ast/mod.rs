@@ -1,4 +1,4 @@
-//! Definition of AST nodes and related types.
+//! Definition of AST nodes.
 
 use crate::base::Type;
 #[cfg(feature = "debug")]

@@ -1,4 +1,4 @@
-//! Pass management for IR optimization and transformation.
+//! Pass management for IR.
 
 use crate::cli::Cli;
 #[cfg(feature = "debug")]

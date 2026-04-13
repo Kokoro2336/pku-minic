@@ -1,5 +1,5 @@
 //! Backend Dead Code Elimation (BDCE).
-//! By the way, It's just a trivial DCE that has nothing to do with ADCE!!!
+//! P.S.: This is just a trivial DCE that has nothing to do with ADCE!!!
 
 use yachiyo::ir::back::{BBuilder, BFunction, BOpData, BOperand, BackIR, LOpData, MOpData, Reg};
 use yachiyo::pass::BPass;

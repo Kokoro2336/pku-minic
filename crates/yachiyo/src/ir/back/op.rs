@@ -1,4 +1,4 @@
-//! Definition of Lower IR (LIR) instructions.
+//! Instruction defintion of BackIR.
 
 use super::{BType, Reg};
 #[cfg(feature = "debug")]

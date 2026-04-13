@@ -1,4 +1,4 @@
-//! Peephole Optimization for BackIR.
+//! Peephole Optimization.
 
 use yachiyo::ir::back::{BBuilder, BFunction, BOpData, BOperand, BackIR, LOpData, MOpData};
 use yachiyo::pass::BPass;

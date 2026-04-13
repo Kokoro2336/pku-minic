@@ -1,4 +1,4 @@
-//! Garbage collection and reference rewriting support for Arena.
+//! Arena Compaction Pass.
 
 use yachiyo::ir::mid::IR;
 use yachiyo::pass::Pass;

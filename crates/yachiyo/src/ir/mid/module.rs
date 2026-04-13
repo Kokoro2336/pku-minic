@@ -1,4 +1,4 @@
-//! Definition of IR module, including global variables and functions.
+//! Module definition of IR.
 
 use crate::ir::mid::{
   BasicBlock, Builder, BuilderGuard, Op, OpData, OpType, Operand, PhiIncoming, CFG, CG, DFG,

@@ -1,3 +1,5 @@
+//! Basic Block definition of IR.
+
 #[cfg(feature = "debug")]
 use crate::debug::info;
 use crate::ir::mid::Operand;

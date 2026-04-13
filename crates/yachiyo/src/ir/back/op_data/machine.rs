@@ -1,4 +1,4 @@
-//! Instruction definition of Lower IR.
+//! Instruction definition of Machine IR.
 
 use crate::ir::back::{BOpData, BOperand};
 

@@ -1,3 +1,5 @@
+//! Function definition of IR.
+
 use crate::base::Type;
 #[cfg(feature = "debug")]
 use crate::debug::info;

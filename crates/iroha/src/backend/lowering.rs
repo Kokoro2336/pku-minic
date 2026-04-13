@@ -1,4 +1,4 @@
-//! IR Lowering from Mid IR to Lower IR.
+//! IR Lowering from IR to BackIR.
 
 use yachiyo::ast::Literal;
 use yachiyo::base::Type;

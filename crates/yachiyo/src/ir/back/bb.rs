@@ -1,3 +1,5 @@
+//! Basic Block definition for BackIR.
+
 #[cfg(feature = "debug")]
 use crate::debug::info;
 use crate::ir::back::BOperand;

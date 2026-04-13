@@ -1,6 +1,5 @@
-/**
- * IRBuilder state and insertion-point API.
- */
+//! Builder definition of IR.
+
 use crate::ir::mid::*;
 
 use std::ops::{Deref, DerefMut};
