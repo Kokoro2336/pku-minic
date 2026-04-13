@@ -611,9 +611,7 @@ impl Lowering {
                 for (dim, index) in indices.iter().enumerate() {
                     match &base_typ {
                         Type::Array { .. } => {
-                            let index = self.get(
-                        index.clone(),
-                            );
+                            let index = self.get(index.clone());
                             let mul_lop_id = self.create(BOp::new(
                                 BType::U64,
                                 vec![],
@@ -652,7 +650,7 @@ impl Lowering {
                         }
                         _ => {
                             let rhs = self.get(
-                            index.clone(),
+                              index.clone(),
                             );
                             let mul_op = self.create(
                                 BOp::new(
@@ -690,7 +688,7 @@ impl Lowering {
                 // If the truncated indices is empty, we need to map the GEP to the base pointer's LOp InstId directly.
                 if indices.is_empty() {
                     let target_id = self.get(
-                    base.clone(),
+                      base.clone(),
                     );
                     self.set(op_id, target_id);
                 }

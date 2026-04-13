@@ -729,8 +729,23 @@ impl Allocator<'_> {
                 _ => unreachable!("Neighbor can't be non-reg"),
               }
           });
-        } else if let BOperand::Reg(Reg::Virt(id)) = w {
-          if let Some(c) = self.color[*id] {
+        } else if w.is_virt() {
+          let get_color = |reg: BOperand| -> Option<Reg> {
+            match reg {
+              BOperand::Reg(phys @ (Reg::F(_) | Reg::X(_))) => Some(phys),
+              BOperand::Reg(Reg::Virt(_)) => {
+                let alias = self.get_alias(reg);
+                match alias {
+                  BOperand::Reg(phys @ (Reg::F(_) | Reg::X(_))) => Some(phys),
+                  BOperand::Reg(Reg::Virt(id)) => self.color[id],
+                  _ => unreachable!("Unexpected alias: {:?}", alias),
+                }
+              }
+              _ => unreachable!("Unexpected reg: {:?}", reg),
+            }
+          };
+
+          if let Some(c) = get_color(*w) {
             ok_colors.retain(|&color| color != c);
           }
         } else {
@@ -1133,12 +1148,12 @@ impl RegAlloc<'_> {
   }
 
   #[inline(always)]
-  fn get_phys_bitset() -> BitSet {
+  fn get_callee_saved_bitset() -> BitSet {
     let mut bitset = BitSet::new();
-    for reg in CALLEE_SAVED_XREGS.iter().chain(CALLER_SAVED_XREGS.iter()) {
+    for reg in CALLEE_SAVED_XREGS.iter() {
       bitset.insert(u8::from(Reg::X(*reg)) as usize);
     }
-    for reg in CALLEE_SAVED_FREGS.iter().chain(CALLER_SAVED_FREGS.iter()) {
+    for reg in CALLEE_SAVED_FREGS.iter() {
       bitset.insert(u8::from(Reg::F(*reg)) as usize);
     }
     bitset
@@ -1172,7 +1187,7 @@ impl RegAlloc<'_> {
                     self.create(BOp::new(
                         BType::U64,
                         vec![],
-                        MOpData::Addw { rd: RESERVED_REG_BOPRD, rs1: RESERVED_REG_BOPRD, rs2: SP_BOPRD }.into(),
+                        MOpData::Add { rd: RESERVED_REG_BOPRD, rs1: RESERVED_REG_BOPRD, rs2: SP_BOPRD }.into(),
                     ));
                     RESERVED_REG_BOPRD
                 } else {
@@ -1383,7 +1398,7 @@ impl RegAlloc<'_> {
       );
     }
     // Allocate space for used callee-saved registers.
-    let mut used_callee_saved = Self::get_phys_bitset();
+    let mut used_callee_saved = Self::get_callee_saved_bitset();
     used_callee_saved.bitand_assign(&self.used_phys);
     for reg in used_callee_saved.iter() {
       let reg = Reg::from(reg as u8);
