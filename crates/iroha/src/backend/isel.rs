@@ -112,8 +112,9 @@ impl ISel<'_> {
                         enu: LOpData,
                         minor_arms: {
                             // Xxxw operations extend the operand automatically.
-                            LOpData::AddI { .. } => MOpData::Addiw { rd: BOperand::Undef, rs1, imm },
-                            LOpData::SubI { .. } => MOpData::Addiw { rd: BOperand::Undef, rs1, imm: imm.negate_literal() },
+                            // TODO: For now only 64-bits operation of Add is required. We might extend the support to other operations in the future.
+                            LOpData::AddI { .. } => if typ == BType::I32 { MOpData::Addiw { rd: BOperand::Undef, rs1, imm } } else { MOpData::Addi { rd: BOperand::Undef, rs1, imm } },
+                            LOpData::SubI { .. } => if typ == BType::I32 { MOpData::Addiw { rd: BOperand::Undef, rs1, imm: imm.negate_literal() } } else { MOpData::Addi { rd: BOperand::Undef, rs1, imm: imm.negate_literal() } },
 
                             LOpData::Shl { .. } => MOpData::Slliw { rd: BOperand::Undef, rs1, imm },
                             LOpData::Shr { .. } => MOpData::Srliw { rd: BOperand::Undef, rs1, imm },
@@ -255,8 +256,9 @@ impl ISel<'_> {
                         target: lop_data,
                         enu: LOpData,
                         minor_arms: {
-                            LOpData::AddI { .. } => MOpData::Addw { rd: BOperand::Undef, rs1, rs2 },
-                            LOpData::SubI { .. } => MOpData::Subw { rd: BOperand::Undef, rs1, rs2 },
+                            LOpData::AddI { .. } => if typ == BType::I32 { MOpData::Addw { rd: BOperand::Undef, rs1, rs2 } } else { MOpData::Add { rd: BOperand::Undef, rs1, rs2 } },
+                            LOpData::SubI { .. } => if typ == BType::I32 { MOpData::Subw { rd: BOperand::Undef, rs1, rs2 } } else { MOpData::Sub { rd: BOperand::Undef, rs1, rs2 } },
+
                             LOpData::MulI { .. } => MOpData::Mulw { rd: BOperand::Undef, rs1, rs2 },
                             LOpData::DivI { .. } => MOpData::Divw { rd: BOperand::Undef, rs1, rs2 },
                             LOpData::ModI { .. } => MOpData::Remw { rd: BOperand::Undef, rs1, rs2 },

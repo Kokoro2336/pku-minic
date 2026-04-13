@@ -1,7 +1,7 @@
 use crate::base::Type;
 use crate::config::RISCV_BITS;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum BType {
   Void,
   I32,

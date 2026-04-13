@@ -22,6 +22,11 @@ pub enum MOpData {
     rs1: BOperand,
     rs2: BOperand,
   },
+  Sub {
+    rd: BOperand,
+    rs1: BOperand,
+    rs2: BOperand,
+  },
   Addi {
     rd: BOperand,
     rs1: BOperand,

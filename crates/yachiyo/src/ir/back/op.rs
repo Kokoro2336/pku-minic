@@ -255,7 +255,7 @@ impl BDFG {
           target: mop_data,
           op_with_rds: [
               Li, La, Mv, FmvS,
-            Add, Addi, Addw, Subw, Mulw, Divw, Remw,
+              Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw,
               Slliw, Srliw, Sraiw,
               Sllw, Srlw, Sraw,
               Slt, Slti, Sltu, Sltiu,
@@ -316,7 +316,7 @@ impl BDFG {
           target: mop_data,
           op_with_rds: [
               Li, La, Mv, FmvS,
-              Add, Addi, Addw, Subw, Mulw, Divw, Remw,
+            Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw,
               Slliw, Srliw, Sraiw,
               Sllw, Srlw, Sraw,
               Slt, Slti, Sltu, Sltiu,
@@ -390,7 +390,7 @@ impl BDFG {
       BOpData::M(mop_data) => match_src! {
           target: mop_data,
           bin_ops: [
-            Add, Addw, Subw, Mulw, Divw, Remw,
+              Add, Sub, Addw, Subw, Mulw, Divw, Remw,
               Sllw, Srlw, Sraw,
               Slt, Sltu, Xor,
               FaddS, FsubS, FmulS, FdivS,
@@ -485,7 +485,7 @@ impl BDFG {
       BOpData::M(mop_data) => match_src! {
           target: mop_data,
           bin_ops: [
-            Add, Addw, Subw, Mulw, Divw, Remw,
+              Add, Sub, Addw, Subw, Mulw, Divw, Remw,
               Sllw, Srlw, Sraw,
               Slt, Sltu, Xor,
               FaddS, FsubS, FmulS, FdivS,
