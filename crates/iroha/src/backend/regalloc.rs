@@ -1264,29 +1264,6 @@ impl RegAlloc<'_> {
       };
       self.create(store_op);
     }
-
-    // If ra's slot is non-undef, it means that the function is not a leaf and we need to save ra.
-    if self.slot_map[u8::from(Reg::X(XReg::Ra)) as usize] != BOperand::Undef {
-      let offset =
-        self.legalize_offset(self.get_offset(self.slot_map[u8::from(Reg::X(XReg::Ra)) as usize]));
-      let store_op = match_some! {
-        target: offset,
-        enu: BOperand,
-        minor_arms: {
-          BOperand::IntImm(_) => {
-              select_store(BType::U64, BOperand::Reg(Reg::X(XReg::Ra)), SP_BOPRD, offset)
-          },
-          BOperand::Reg(_) => {
-              select_store(BType::U64, BOperand::Reg(Reg::X(XReg::Ra)), offset, BOperand::IntImm(0))
-          }
-        },
-        uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
-        uni_arm: {
-            unreachable!("Expected integer immediate, found {:?}", offset);
-        }
-      };
-      self.create(store_op);
-    }
   }
 
   /// 1. Restore ra if the function is not a leaf.
@@ -1294,29 +1271,6 @@ impl RegAlloc<'_> {
   /// 3. Move sp back
   fn epilogue(&mut self) {
     let func_id = self.builder.current_function.unwrap();
-
-    if self.slot_map[u8::from(Reg::X(XReg::Ra)) as usize] != BOperand::Undef {
-      let offset =
-        self.legalize_offset(self.get_offset(self.slot_map[u8::from(Reg::X(XReg::Ra)) as usize]));
-      let load_op = match_some! {
-        target: offset,
-        enu: BOperand,
-        minor_arms: {
-          BOperand::IntImm(_) => {
-              select_load(BType::U64, BOperand::Reg(Reg::X(XReg::Ra)), SP_BOPRD, offset)
-          },
-          BOperand::Reg(_) => {
-              select_load(BType::U64, BOperand::Reg(Reg::X(XReg::Ra)), offset, BOperand::IntImm(0))
-          }
-        },
-        uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
-        uni_arm: {
-            unreachable!("Expected integer immediate, found {:?}", offset);
-        }
-      };
-      self.create(load_op);
-    }
-
     for saved in 0..self.slot_map.len() {
       let slot_id = self.slot_map[saved];
       if slot_id == BOperand::Undef {

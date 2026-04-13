@@ -1,4 +1,4 @@
-//! Canonicalization (and Legalization) .
+//! Canonicalization (and Legalization) , including:
 //! - Constant folding for binary operations with literal operands.
 //! - Reordering of operands to ensure literals are on the right side; adjusting the operator
 //! - Inserting LoadIntImm/LoadFloatImm instructions is necessary.
