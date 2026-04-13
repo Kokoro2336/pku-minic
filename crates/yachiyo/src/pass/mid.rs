@@ -1,6 +1,7 @@
 //! Pass management for IR optimization and transformation.
 
 use crate::cli::Cli;
+#[cfg(feature = "debug")]
 use crate::debug::info;
 use crate::debug::DumpLLVM;
 use crate::ir::mid::IR;
@@ -40,13 +41,16 @@ impl<'a> PassManager<'a> {
   pub fn run(mut self, ir: &'a mut IR) {
     let ir_ptr: *mut IR = ir;
     while let Some(mut pass) = self.passes.pop_front() {
+      #[cfg(feature = "debug")]
       info!("Running pass: {}", pass.name());
       // SAFETY: Passes run sequentially and each pass only borrows `ir` during this iteration.
       unsafe { pass.mount(&mut *ir_ptr) };
       pass.run();
+      #[cfg(feature = "debug")]
       info!("Finished pass: {}", pass.name());
 
       if self.cli.emit_llvm && self.cli.dump_llvm_after == pass.name() {
+        #[cfg(feature = "debug")]
         info!("Dumping IR after pass: {}", pass.name());
         let filename = self
           .cli
@@ -58,7 +62,9 @@ impl<'a> PassManager<'a> {
         unsafe {
           DumpLLVM::new(&mut *ir_ptr, filename).run();
         }
+        #[cfg(feature = "debug")]
         info!("Finished dumping IR after pass: {}", pass.name());
+        #[cfg(feature = "debug")]
         info!("Quit after dumping.");
         std::process::exit(0)
       }
@@ -66,6 +72,7 @@ impl<'a> PassManager<'a> {
 
     // If no pass specified, dump the LLVM IR after all optimizations.
     if self.cli.emit_llvm && self.cli.dump_llvm_after.is_empty() {
+      #[cfg(feature = "debug")]
       info!("Start Dumping LLVM IR.");
       let filename = self
         .cli
@@ -77,7 +84,9 @@ impl<'a> PassManager<'a> {
       unsafe {
         DumpLLVM::new(&mut *ir_ptr, filename).run();
       }
+      #[cfg(feature = "debug")]
       info!("Finish Dumping LLVM IR.");
+      #[cfg(feature = "debug")]
       info!("Quit after dumping.");
       std::process::exit(0)
     }

@@ -1,3 +1,4 @@
+#[cfg(feature = "debug")]
 use crate::debug::info;
 use crate::ir::mid::Operand;
 use crate::utils::arena::*;
@@ -35,6 +36,8 @@ impl Arena<BasicBlock> for IndexedArena<BasicBlock> {
         self.storage.push(data);
       }
     });
+
+    #[cfg(feature = "debug")]
 
     info!(
       "CFG GC: {} blocks collected, recycle rate: {:.2}%",

@@ -2,6 +2,7 @@
 
 use yachiyo::ast::*;
 use yachiyo::base::Type;
+#[cfg(feature = "debug")]
 use yachiyo::debug::{error, info};
 use yachiyo::utils::arena::Arena;
 use yachiyo::utils::table::SymbolTable;
@@ -362,6 +363,7 @@ impl Parser {
       .iter()
       .fold(1usize, |acc, index| acc * (*index as usize));
     if new_vals.len() != expected_size {
+      #[cfg(feature = "debug")]
       error!(
         "Array has insufficient initializers: expected {}, found {}. \\nFlattened values: {:?}",
         expected_size,
@@ -369,6 +371,8 @@ impl Parser {
         new_vals
       );
     }
+
+    #[cfg(feature = "debug")]
 
     info!("Successfully flattened array: {:?}", new_vals);
     if !has_non_zero && is_global {
@@ -391,6 +395,7 @@ impl Parser {
 
     match val {
       Node::ArrayInitVal { init_vals } => {
+        #[cfg(feature = "debug")]
         info!("Catch ArrayInitVal at depth {}", depth);
         if !(new_vals.len() as u32).is_multiple_of(*indices.last().unwrap()) {
           panic!("Array has insufficient initializers");

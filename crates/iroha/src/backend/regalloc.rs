@@ -962,12 +962,14 @@ impl Allocator<'_> {
       self.reset();
       // Run live analysis.
       let (_, live_outs) = analyze::<LiveAnalysis>(self.get_func(func_id));
+      #[cfg(feature = "debug")]
       yachiyo::debug::info!(
         "Finished liveness analysis for register allocation. funcs_live_outs: {:?}",
         live_outs
       );
       // Build the interference graph.
       self.build(&live_outs);
+      #[cfg(feature = "debug")]
       yachiyo::debug::info!(
         "Finished building interference graph for register allocation. adj_set: {:?}, degree: {:?}",
         self.adj_set,
@@ -975,6 +977,7 @@ impl Allocator<'_> {
       );
       // Make the initial worklist.
       self.make_worklist();
+      #[cfg(feature = "debug")]
       yachiyo::debug::info!(
                 "Finished making initial worklist for register allocation. simplify_worklist: {:?}, worklist_moves: {:?}, freeze_worklist: {:?}, spill_worklist: {:?}",
                 self.simplify_worklist,
@@ -997,6 +1000,7 @@ impl Allocator<'_> {
           break;
         }
       }
+      #[cfg(feature = "debug")]
       yachiyo::debug::info!(
                 "Finished main loop of register allocation. simplify_worklist: {:?}, worklist_moves: {:?}, freeze_worklist: {:?}, spill_worklist: {:?}, \nselect_stack: {:?}, \ncoalesced_nodes: {:?}",
                 self.simplify_worklist,
@@ -1008,6 +1012,7 @@ impl Allocator<'_> {
             );
       // Assign colors to the nodes.
       self.assign_colors();
+      #[cfg(feature = "debug")]
       yachiyo::debug::info!(
                 "Finished assigning colors for register allocation. colored_nodes: {:?}, \nspilled_nodes: {:?}",
                 self.colored_nodes,
@@ -1019,6 +1024,7 @@ impl Allocator<'_> {
       }
       self.insert_spills();
     }
+    #[cfg(feature = "debug")]
     yachiyo::debug::info!(
       "Finished register allocation for function v{}. \ncolored_nodes: {:?}, \nspilled_nodes: {:?}",
       func_id,
@@ -1121,6 +1127,8 @@ impl RegAlloc<'_> {
     let func = self.get_func_mut(func_id);
     let slot_id = func.frame_info.alloc(slot);
     self.slot_map[u8::from(reg) as usize] = BOperand::Slot(slot_id);
+
+    #[cfg(feature = "debug")]
 
     yachiyo::debug::info!(
       "Allocated slot for register {:?} in function v{}. slot_id: {:?}, slot_info: {:?}",
@@ -1432,6 +1440,7 @@ impl RegAlloc<'_> {
             self.builder.current_function,
             Some(inst_id),
           );
+          #[cfg(feature = "debug")]
           yachiyo::debug::info!(
             "Lowering store instruction. inst_id: {:?}, addr: {:?}, value: {:?}",
             inst_id,
@@ -1491,6 +1500,7 @@ impl RegAlloc<'_> {
             self.builder.current_function,
             Some(inst_id),
           );
+          #[cfg(feature = "debug")]
           yachiyo::debug::info!(
             "Lowering load instruction. inst_id: {:?}, rd: {:?}, addr: {:?}",
             inst_id,

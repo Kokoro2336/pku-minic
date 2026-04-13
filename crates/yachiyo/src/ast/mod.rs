@@ -1,6 +1,7 @@
 //! Definition of AST nodes and related types.
 
 use crate::base::Type;
+#[cfg(feature = "debug")]
 use crate::debug::info;
 use crate::utils::arena::*;
 
@@ -230,6 +231,8 @@ impl Arena<Node> for AST {
         self.storage.push(data);
       }
     });
+
+    #[cfg(feature = "debug")]
 
     info!(
       "AST GC: {} nodes collected, recycle rate: {:.2}%",

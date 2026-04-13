@@ -303,6 +303,7 @@ impl Lowering {
 
     let (typ, attrs, data) = {
       let op = &self.ir.funcs[func_id.clone()].dfg[op_id.clone()];
+      #[cfg(feature = "debug")]
       yachiyo::debug::info!("{:?}: Lowering op {:?}", op_id, op);
       (
         self.get_op_type(op_id.clone()),

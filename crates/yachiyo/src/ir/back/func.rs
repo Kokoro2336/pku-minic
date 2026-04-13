@@ -1,5 +1,6 @@
 //! BFunction definition.
 
+#[cfg(feature = "debug")]
 use crate::debug::info;
 use crate::ir::back::{
   BBasicBlock, BOp, BOpData, BOperand, FrameInfo, LOpData, MOpData, Reg, VirtReg, BCFG, BDFG,
@@ -93,6 +94,7 @@ impl IndexMut<BOperand> for BCG {
 
 impl VRegs {
   pub fn add_use(&mut self, vreg_id: BOperand, use_op_id: (BOperand, usize)) {
+    #[cfg(feature = "debug")]
     crate::debug::info!("Add use {:?} to vreg {:?}", use_op_id, vreg_id);
     let op_id = match_some! {
         target: vreg_id,
@@ -111,6 +113,7 @@ impl VRegs {
 
   /// op_idx: VReg, use_idx: Inst that uses the VReg.
   pub fn remove_use(&mut self, vreg_id: BOperand, use_tuple: (BOperand, usize)) {
+    #[cfg(feature = "debug")]
     crate::debug::info!("Remove use {:?} from vreg {:?}", use_tuple, vreg_id);
     let vreg_id = match_some! {
         target: vreg_id,
@@ -152,6 +155,7 @@ impl VRegs {
     } else {
       panic!("Def {:?}: not found in defs of op {:?}", def_op_id, vreg_id);
     }
+    #[cfg(feature = "debug")]
     crate::debug::info!("Remove def {:?} from vreg {:?}", def_op_id, vreg_id);
   }
 
@@ -240,6 +244,8 @@ impl Arena<VirtReg> for VRegs {
       }
     });
 
+    #[cfg(feature = "debug")]
+
     info!(
       "VRegs GC: {} virtual registers collected, recycle rate: {:.2}%",
       old_arena.len() - self.storage.len(),
@@ -272,6 +278,8 @@ impl Arena<BFunction> for BCG {
         self.storage.push(data);
       }
     });
+
+    #[cfg(feature = "debug")]
 
     info!(
       "BCG GC: {} functions collected, recycle rate: {:.2}%",

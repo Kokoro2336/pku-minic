@@ -1,4 +1,5 @@
 use crate::base::Type;
+#[cfg(feature = "debug")]
 use crate::debug::info;
 use crate::ir::mid::{BasicBlock, Op, OpData, Operand, PhiIncoming, CFG, DFG};
 use crate::utils::arena::*;
@@ -73,6 +74,8 @@ impl Arena<Function> for IndexedArena<Function> {
         self.storage.push(data);
       }
     });
+
+    #[cfg(feature = "debug")]
 
     info!(
       "CG GC: {} functions collected, recycle rate: {:.2}%",

@@ -9,10 +9,7 @@ pub enum BType {
   // For pointer
   U64,
   // For array
-  Array {
-    base: Box<BType>,
-    num: u32,
-  },
+  Array { base: Box<BType>, num: u32 },
 }
 
 impl BType {

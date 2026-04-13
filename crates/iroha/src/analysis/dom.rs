@@ -2,6 +2,7 @@
 //! Reference: https://dl.acm.org/doi/10.1145/357062.357071
 
 use yachiyo::analysis::Analysis;
+#[cfg(feature = "debug")]
 use yachiyo::debug::info;
 use yachiyo::ir::mid::{Operand, IR};
 use yachiyo::utils::set::BitSet;
@@ -147,8 +148,11 @@ impl<'a> BuildDomTree<'a> {
       };
 
       self.init(Operand::Func(idx));
+      #[cfg(feature = "debug")]
       info!("Start DFS traversal.");
       self.dfs(head);
+
+      #[cfg(feature = "debug")]
 
       info!("DFS traversal completed. Start computing dominators.");
       let num_visited = self.dfn_cnt;
@@ -202,6 +206,7 @@ impl<'a> BuildDomTree<'a> {
       }
 
       // Refine idom
+      #[cfg(feature = "debug")]
       info!("Dominator tree computed. Start refining immediate dominators.");
       for i in 0..self.rev.len() {
         let v = self.rev[i];

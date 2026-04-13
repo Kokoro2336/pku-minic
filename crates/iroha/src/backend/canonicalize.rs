@@ -5,7 +5,9 @@
 
 use yachiyo::base::Type;
 use yachiyo::config::{INT_IMM_MAX, INT_IMM_MIN};
-use yachiyo::ir::back::{BBuilder, BFunction, BOp, BOperand, BType, BackIR, LOpData, Reg, Slot, BAttr};
+use yachiyo::ir::back::{
+  BAttr, BBuilder, BFunction, BOp, BOperand, BType, BackIR, LOpData, Reg, Slot,
+};
 use yachiyo::pass::BPass;
 use yachiyo::utils::r#match::{match_some, match_src};
 
@@ -301,7 +303,11 @@ impl Canonicalize<'_> {
           Some(inst_id),
         );
         let op = &self.get_func(func_id).dfg[inst_id];
-        let (lop_data, typ, is_phi_move) = (op.data.clone().into(), op.typ.clone(), op.attrs.contains(&BAttr::PhiMove));
+        let (lop_data, typ, is_phi_move) = (
+          op.data.clone().into(),
+          op.typ.clone(),
+          op.attrs.contains(&BAttr::PhiMove),
+        );
 
         match_src! {
           target: lop_data,

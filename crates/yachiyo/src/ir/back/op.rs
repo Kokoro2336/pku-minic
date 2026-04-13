@@ -1,6 +1,7 @@
 //! Definition of Lower IR (LIR) instructions.
 
 use super::{BType, Reg};
+#[cfg(feature = "debug")]
 use crate::debug::info;
 use crate::ir::back::LOpData;
 use crate::ir::back::MOpData;
@@ -576,6 +577,8 @@ impl Arena<BOp> for BDFG {
         self.storage.push(data);
       }
     });
+
+    #[cfg(feature = "debug")]
 
     info!(
       "BDFG GC: {} instructions collected, recycle rate: {:.2}%",

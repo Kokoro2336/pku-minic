@@ -2,11 +2,11 @@
 //! By the way, It's just a trivial DCE that has nothing to do with ADCE!!!
 
 use yachiyo::ir::back::{BBuilder, BFunction, BOpData, BOperand, BackIR, LOpData, MOpData, Reg};
-use yachiyo::utils::worklist::{Worklist, WorklistTrait};
-use yachiyo::utils::set::BitSet;
 use yachiyo::pass::BPass;
 use yachiyo::utils::arena::ArenaItem;
 use yachiyo::utils::r#match::{match_some, match_src};
+use yachiyo::utils::set::BitSet;
+use yachiyo::utils::worklist::{Worklist, WorklistTrait};
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Default)]
@@ -228,7 +228,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
           BOpData::M(mop_data) => match_src! {
               target: mop_data,
               bin_ops: [
-                Add, Addw, Subw, Mulw, Divw, Remw,
+                  Add, Sub, Addw, Subw, Mulw, Divw, Remw,
                   Sllw, Srlw, Sraw,
                   Slt, Sltu, Xor,
                   FaddS, FsubS, FmulS, FdivS,
