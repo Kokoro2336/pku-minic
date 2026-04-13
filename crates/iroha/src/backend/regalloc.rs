@@ -12,8 +12,8 @@ use yachiyo::config::{
 };
 use yachiyo::config::{INT_IMM_MAX, INT_IMM_MIN, REGS_NUM};
 use yachiyo::ir::back::{
-  BAttr, BBuilder, BFunction, BOp, BOpData, BOperand, BType, BackIR, LOpData, MOpData, MemInfo,
-  Reg, Slot, XReg,
+  get_clobbered, BAttr, BBuilder, BFunction, BOp, BOpData, BOperand, BType, BackIR, LOpData,
+  MOpData, MemInfo, Reg, Slot, XReg,
 };
 use yachiyo::pass::BPass;
 use yachiyo::utils::r#match::match_some;
@@ -299,23 +299,6 @@ impl Allocator<'_> {
   }
 
   #[inline(always)]
-  fn get_clobbered<T: FromIterator<Reg>>(&self) -> T {
-    match self.typ {
-      AllocatorType::Int => CALLER_SAVED_XREGS
-        .to_vec()
-        .into_iter()
-        .map(Reg::X)
-        .collect::<T>(),
-      AllocatorType::Float => CALLER_SAVED_FREGS
-        .to_vec()
-        .into_iter()
-        .map(Reg::F)
-        .collect::<T>(),
-      AllocatorType::Vector => unimplemented!(),
-    }
-  }
-
-  #[inline(always)]
   fn get_colors_num(&self) -> usize {
     match self.typ {
       AllocatorType::Int => COLOR_XREGS,
@@ -410,11 +393,12 @@ impl Allocator<'_> {
           // Special handling for call instruction: add all clobbered registers to rd, since they are all defined by the call instruction.
           if op.attrs.contains(&BAttr::Clobber) {
             rds = rds.union(
-              &self
-                .get_clobbered::<ArraySet<Reg>>()
+              &get_clobbered::<ArraySet<Reg>>()
                 .into_iter()
                 .map(BOperand::Reg)
-                .collect(),
+                // In allocator, we only care about target nodes, so we filter out non-target nodes here.
+                .filter(|reg| self.is_target(*reg))
+                .collect::<ArraySet<BOperand>>(),
             );
           }
           op.attrs

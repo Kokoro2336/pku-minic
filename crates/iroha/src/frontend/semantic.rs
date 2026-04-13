@@ -1,4 +1,4 @@
-//! Semantic analysis, inlcuding: 
+//! Semantic analysis, inlcuding:
 //! - Type inference
 //! - Implicit cast insertion
 //! - Checks for semantic errors

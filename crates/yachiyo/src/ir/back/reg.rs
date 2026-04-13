@@ -1,5 +1,7 @@
 //! Register definitions of BackIR.
 
+use crate::config::{CALLER_SAVED_FREGS, CALLER_SAVED_XREGS};
+
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum XReg {
@@ -286,4 +288,15 @@ impl From<u8> for Reg {
       panic!("Invalid register ID: {id}");
     }
   }
+}
+
+pub fn get_clobbered<S: FromIterator<Reg>>() -> S {
+  let x_clobbered = CALLER_SAVED_XREGS
+    .to_vec()
+    .into_iter()
+    .map(Reg::X)
+    // RA should be included.
+    .chain(vec![Reg::X(XReg::Ra)]);
+  let f_clobbered = CALLER_SAVED_FREGS.to_vec().into_iter().map(Reg::F);
+  x_clobbered.chain(f_clobbered).collect::<S>()
 }

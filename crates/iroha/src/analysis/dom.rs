@@ -10,32 +10,32 @@ use yachiyo::utils::set::BitSet;
 pub type DomTree = Vec<Vec<usize>>;
 struct BuildDomTree<'a> {
   program: &'a IR,
-  // Vertex number -> DFS number
+  /// Vertex number -> DFS number
   dfn: Vec<usize>,
   dfn_cnt: usize,
-  // DFS number -> Vertex number
+  /// DFS number -> Vertex number
   rev: Vec<usize>,
-  // Vertex number -> Semi-dominator DFS number
+  /// Vertex number -> Semi-dominator DFS number
   sdom: Vec<usize>,
-  // Vertex number -> vertices that this vertex semi-dominates
+  /// Vertex number -> vertices that this vertex semi-dominates
   bucket: Vec<Vec<usize>>,
-  // Parent in DSU Forest
+  /// Parent in DSU Forest
   parent: Vec<usize>,
-  // Parent in the DFS Tree
+  /// Parent in the DFS Tree
   father: Vec<usize>,
-  // Recording the vertex with the minimum semi-dominator on path sdom[u] -> u
+  /// Recording the vertex with the minimum semi-dominator on path sdom[u] -> u
   min: Vec<usize>,
-  // Immediate dominator
+  /// Immediate dominator
   idom: Vec<usize>,
 
-  // temp structure
-  // Vertex number -> whether visited in DFS
+  /// temp structure
+  /// Vertex number -> whether visited in DFS
   visited: BitSet,
 
-  // state structure
+  /// state structure
   current_function: Option<Operand>,
 
-  // result
+  /// result
   dom_trees: Vec<DomTree>,
 }
 
