@@ -63,7 +63,8 @@ impl Lowering {
       Operand::Value(id) => self.value_map[id],
       Operand::Param { idx, .. } => self.param_map[idx],
 
-      // Legalize immediats when getting 'em.
+      // Legalize immediates when getting them.
+      // For zero immediate, replace it with zero register.
       Operand::Bool(imm) => if imm as i32 == 0 {
         BOperand::Reg(Reg::X(XReg::Zero))
       } else {
