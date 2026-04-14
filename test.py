@@ -4,6 +4,8 @@ import os
 import subprocess
 import sys
 import shutil
+import shlex
+import uuid
 
 def run_command(command, capture_output=True):
     """Runs a shell command."""
@@ -46,7 +48,7 @@ def matches_test_id(test_path, test_id, h_functional_dir):
             return False
     else:
         search_prefix = test_id
-        if not search_prefix:
+        if not search_prefix or is_hidden_test:
             return False
 
     target_name = search_prefix + ".sy"
@@ -120,19 +122,169 @@ def generate_cfg_graphs(ll_path: str, graph_dir: str, test_name: str):
 
     return 0, graphviz_stdout, graphviz_stderr
 
-def main():
-    raw_args = sys.argv[1:]
-    basic_with_selector = basic_has_selector(raw_args)
+def docker_image_exists(image_name: str) -> bool:
+    result = subprocess.run(
+        ["docker", "image", "inspect", image_name],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return result.returncode == 0
 
+def start_qemu_container(image_name: str, container_name: str, repo_root: str):
+    return subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-d",
+            "--name",
+            container_name,
+            "-v",
+            f"{repo_root}:/workspace",
+            "-w",
+            "/workspace",
+            image_name,
+            "sleep",
+            "infinity",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+def stop_qemu_container(container_name: str):
+    subprocess.run(
+        ["docker", "rm", "-f", container_name],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+def to_container_path(host_path: str, repo_root: str) -> str:
+    rel = os.path.relpath(os.path.abspath(host_path), repo_root)
+    return "/workspace/" + rel.replace(os.sep, "/")
+
+def run_qemu_runtime(
+    container_name: str,
+    repo_root: str,
+    asm_path: str,
+    elf_path: str,
+    input_file: str,
+):
+    asm_in_container = to_container_path(asm_path, repo_root)
+    elf_in_container = to_container_path(elf_path, repo_root)
+    sylib_in_container = "/workspace/sylib/sylib.c"
+
+    gcc_cmd = (
+        "riscv-gcc -O2 -static "
+        f"-x assembler {shlex.quote(asm_in_container)} "
+        f"-x c {shlex.quote(sylib_in_container)} "
+        f"-o {shlex.quote(elf_in_container)}"
+    )
+    gcc_result = subprocess.run(
+        ["docker", "exec", container_name, "bash", "-lc", gcc_cmd],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    if gcc_result.returncode != 0:
+        return gcc_result.returncode, gcc_result.stdout, gcc_result.stderr, None, None
+
+    run_cmd = f"qemu-riscv -L /usr/riscv64-linux-gnu {shlex.quote(elf_in_container)}"
+    exec_cmd = ["docker", "exec", "-i", container_name, "bash", "-lc", run_cmd]
+    if os.path.exists(input_file):
+        with open(input_file, "rb") as f_in:
+            run_result = subprocess.run(
+                exec_cmd,
+                stdin=f_in,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+    else:
+        run_result = subprocess.run(
+            exec_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    runtime_raw = run_result.stdout
+    runtime_with_ret = runtime_raw
+    if not runtime_with_ret.endswith(b"\n"):
+        runtime_with_ret += b"\n"
+    runtime_with_ret += f"{run_result.returncode}\n".encode()
+
+    merged_stdout = gcc_result.stdout + runtime_with_ret
+    merged_stderr = gcc_result.stderr + run_result.stderr
+    return run_result.returncode, merged_stdout, merged_stderr, runtime_with_ret, runtime_raw
+
+def resolve_asm_artifact(work_dir: str, target_dir: str, test_name: str):
+    candidates = [
+        os.path.join(target_dir, f"{test_name}.asm"),
+        os.path.join(target_dir, f"{test_name}.s"),
+        os.path.join(work_dir, f"{test_name}.asm"),
+        os.path.join(work_dir, f"{test_name}.s"),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+
+    for folder in [target_dir, work_dir]:
+        if not os.path.isdir(folder):
+            continue
+        for filename in sorted(os.listdir(folder)):
+            if filename.endswith(".asm") or filename.endswith(".s"):
+                return os.path.join(folder, filename)
+
+    return None
+
+def finalize_qemu_cases(qemu_cases, test_output_base: str):
+    moved_passed = 0
+    moved_failed = 0
+
+    for case in qemu_cases:
+        if case.get("finalized", False):
+            continue
+
+        host_passed = case.get("host_passed", case.get("returncode", 1) == 0)
+        runtime_done = case.get("runtime_done", False)
+        finished = (not host_passed) or runtime_done
+        if not finished:
+            continue
+
+        name_no_ext = case["name"]
+        work_test_output_dir = case["work_dir"]
+        status = "passed" if case["returncode"] == 0 else "failed"
+        test_output_dir = os.path.join(test_output_base, status, name_no_ext)
+        other_status = "failed" if status == "passed" else "passed"
+        other_output_dir = os.path.join(test_output_base, other_status, name_no_ext)
+
+        if os.path.exists(other_output_dir):
+            shutil.rmtree(other_output_dir)
+        if os.path.exists(test_output_dir):
+            shutil.rmtree(test_output_dir)
+        os.makedirs(os.path.dirname(test_output_dir), exist_ok=True)
+
+        if os.path.exists(work_test_output_dir):
+            shutil.move(work_test_output_dir, test_output_dir)
+
+        case["finalized"] = True
+
+        if case["returncode"] != 0:
+            print(f"  [FAILED] {name_no_ext} (Exit Code: {case['returncode']})")
+            moved_failed += 1
+        else:
+            print(f"  [PASSED] {name_no_ext}")
+            moved_passed += 1
+
+    return moved_passed, moved_failed
+
+def main():
     parser = argparse.ArgumentParser(description='Compiler Test Runner')
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--test', type=str, help='Test file name (excluding .sy suffix) or test number')
     group.add_argument(
         '--basic',
-        nargs='?',
-        const='all',
+        nargs='*',
         default=None,
-        help='Test basic suites: no value means all; "00" means functional prefix; "h00" means hidden functional prefix',
+        help='Test basic suites: no value means all; values can be multiple test ids (same style as --exclude), e.g. --basic 00 h29 82_long_func',
     )
     parser.add_argument(
         '--exclude',
@@ -153,19 +305,27 @@ def main():
     backend_group = parser.add_mutually_exclusive_group()
     backend_group.add_argument('--lli', action='store_true', help='Use lli to interpret linked .ll')
     backend_group.add_argument('--llc', action='store_true', help='Use llc to compile linked .ll into executable and run it')
+    backend_group.add_argument('--qemu', action='store_true', help='Compile on host, then run asm via riscv-gcc + qemu-riscv in docker (single container)')
     args = parser.parse_args()
 
     if args.exclude:
-        if args.basic is None or basic_with_selector:
+        if args.basic is None or len(args.basic) != 0:
             parser.error("--exclude is only allowed with --basic and no selector, e.g. --basic --exclude 00 h00")
         invalid_ids = [test_id for test_id in args.exclude if test_id == 'h']
         if invalid_ids:
             parser.error("Invalid --exclude test id: h")
 
+    if args.basic is not None:
+        invalid_ids = [test_id for test_id in args.basic if test_id == 'h']
+        if invalid_ids:
+            parser.error("Invalid --basic test id: h")
+
     if args.lli:
         exec_mode = 'lli'
     elif args.llc:
         exec_mode = 'llc'
+    elif args.qemu:
+        exec_mode = 'qemu'
     else:
         exec_mode = 'compiler'
 
@@ -173,7 +333,7 @@ def main():
     need_emit_llvm = args.emit_llvm or args.lli or args.llc or args.graph or bool(args.dump_llvm_after)
     need_runtime_exec = args.lli or args.llc
 
-    if args.clean and not (args.test or args.basic):
+    if args.clean and not (args.test or args.basic is not None):
         clean_directory("./test")
         print("Cleaned test directory.")
         sys.exit(0)
@@ -193,6 +353,33 @@ def main():
     if not os.path.exists(compiler_binary):
         print(f"Compiler binary not found at {compiler_binary}")
         sys.exit(1)
+
+    repo_root = os.path.abspath(os.path.dirname(__file__))
+    qemu_image = "iroha-qemu-test"
+    qemu_container_name = f"iroha-qemu-{uuid.uuid4().hex[:8]}"
+    qemu_cases = []
+
+    if args.qemu:
+        if shutil.which("docker") is None:
+            print("--qemu requested but docker was not found in PATH.")
+            sys.exit(1)
+
+        dockerfile_path = os.path.join(repo_root, "Dockerfile")
+        if not os.path.exists(dockerfile_path):
+            print(f"--qemu requested but Dockerfile was not found at {dockerfile_path}")
+            sys.exit(1)
+
+        print(f"Checking docker image: {qemu_image}")
+        if not docker_image_exists(qemu_image):
+            print(f"Docker image {qemu_image} not found. Building...")
+            build_image_result = subprocess.run(
+                ["docker", "build", "-t", qemu_image, "-f", dockerfile_path, repo_root],
+                stdout=None,
+                stderr=None,
+            )
+            if build_image_result.returncode != 0:
+                print("Docker build failed. Exiting.")
+                sys.exit(1)
 
     test_files = []
     base_dir = "./testcases/functional_recover"
@@ -225,32 +412,21 @@ def main():
             print(f"Test file {args.test} not found.")
             sys.exit(1)
     elif args.basic is not None:
-        basic_selector = args.basic
+        basic_selectors = args.basic
+        all_sy = []
+        for d in search_dirs:
+            all_sy.extend(find_files(d, ".sy"))
 
-        if basic_selector == 'all':
-            # Find all test files
-            for d in search_dirs:
-                test_files.extend(find_files(d, ".sy"))
+        if len(basic_selectors) == 0 or "all" in basic_selectors:
+            test_files = all_sy
         else:
-            # Prefix-filtered basic run.
-            if basic_selector.startswith('h'):
-                search_prefix = basic_selector[1:]
-                current_search_dirs = [h_functional_dir]
-            else:
-                search_prefix = basic_selector
-                current_search_dirs = [functional_dir]
-
-            all_sy = []
-            for d in current_search_dirs:
-                all_sy.extend(find_files(d, ".sy"))
-
-            for f in all_sy:
-                basename = os.path.basename(f)
-                if basename.startswith(search_prefix):
-                    test_files.append(f)
+            test_files = [
+                test_file for test_file in all_sy
+                if any(matches_test_id(test_file, test_id, h_functional_dir) for test_id in basic_selectors)
+            ]
 
             if not test_files:
-                print(f"No test files matched basic selector: {basic_selector}")
+                print(f"No test files matched basic selectors: {' '.join(basic_selectors)}")
                 sys.exit(1)
 
         # Sort for consistent order
@@ -283,6 +459,8 @@ def main():
         debugger_flag = "--lldb"
 
     if debugger_tool is not None:
+        if args.qemu:
+            parser.error("--qemu does not support debugger mode")
         if shutil.which(debugger_tool) is None:
             print(f"{debugger_flag} requested but {debugger_tool} was not found in PATH.")
             sys.exit(1)
@@ -299,10 +477,13 @@ def main():
     sylib_ll = "./sylib/sylib.ll"
 
     # clean test/ first
-    if args.basic or args.clean:
+    if args.basic is not None or args.clean:
         clean_directory(test_output_base)
     passed = 0
     failed = 0
+    selected_tests_count = len(test_files)
+    excluded_count = len(args.exclude) if args.exclude else 0
+    interrupted = False
 
     try:
         for test_file in test_files:
@@ -323,7 +504,7 @@ def main():
             
             # Expected output file (if any)
             # We specify an output file in CWD, then move it.
-            output_file_name = f"{name_no_ext}.out"
+            output_file_name = f"{name_no_ext}.asm" if args.qemu else f"{name_no_ext}.out"
             linked_ll_name = f"{name_no_ext}.linked.ll"
             target_dir = os.path.join(work_test_output_dir, "target")
             graph_output_dir = os.path.join(work_test_output_dir, "graph")
@@ -344,7 +525,6 @@ def main():
                 cmd.append(f"--dump-asm-after={args.dump_asm_after}")
             if args.graph:
                 cmd.append("--graph")
-            
             try:
                 run_env = {**os.environ, "RUST_BACKTRACE": "1"} if args.trace else None
 
@@ -520,19 +700,21 @@ def main():
                         with open(os.path.join(work_test_output_dir, "actual.out"), "wb") as f_actual:
                             f_actual.write(runtime_with_ret)
                 
-                # Determine output directory based on result
-                status = "passed" if final_returncode == 0 else "failed"
-                test_output_dir = os.path.join(test_output_base, status, name_no_ext)
-                
-                # Clean up the other possible location to avoid confusion
-                other_status = "failed" if final_returncode == 0 else "passed"
-                other_output_dir = os.path.join(test_output_base, other_status, name_no_ext)
-                if os.path.exists(other_output_dir):
-                    shutil.rmtree(other_output_dir)
+                test_output_dir = work_test_output_dir
+                if not args.qemu:
+                    # Determine output directory based on result
+                    status = "passed" if final_returncode == 0 else "failed"
+                    test_output_dir = os.path.join(test_output_base, status, name_no_ext)
+                    
+                    # Clean up the other possible location to avoid confusion
+                    other_status = "failed" if final_returncode == 0 else "passed"
+                    other_output_dir = os.path.join(test_output_base, other_status, name_no_ext)
+                    if os.path.exists(other_output_dir):
+                        shutil.rmtree(other_output_dir)
 
-                if os.path.exists(test_output_dir):
-                    shutil.rmtree(test_output_dir)
-                os.makedirs(os.path.dirname(test_output_dir), exist_ok=True)
+                    if os.path.exists(test_output_dir):
+                        shutil.rmtree(test_output_dir)
+                    os.makedirs(os.path.dirname(test_output_dir), exist_ok=True)
 
                 # Copy original source file
                 shutil.copy2(test_file, work_test_output_dir)
@@ -583,6 +765,43 @@ def main():
                 if os.path.exists(output_file_name):
                     shutil.move(output_file_name, os.path.join(work_test_output_dir, output_file_name))
 
+                if args.qemu:
+                    asm_host_path = resolve_asm_artifact(work_test_output_dir, target_dir, name_no_ext)
+                    if asm_host_path is None:
+                        final_returncode = 1
+                        asm_hint = [
+                            f"target files: {', '.join(sorted(os.listdir(target_dir))) if os.path.isdir(target_dir) else '<missing target dir>'}",
+                            f"work files: {', '.join(sorted(os.listdir(work_test_output_dir))) if os.path.isdir(work_test_output_dir) else '<missing work dir>'}",
+                        ]
+                        with open(os.path.join(work_test_output_dir, "stderr.txt"), "ab") as f_err:
+                            f_err.write(
+                                (
+                                    f"\n[ERROR] Asm artifact not found for {name_no_ext}. "
+                                    + " | ".join(asm_hint)
+                                    + "\n"
+                                ).encode()
+                            )
+                    elf_host_path = os.path.join(target_dir, f"{name_no_ext}.elf")
+                    qemu_cases.append({
+                        "name": name_no_ext,
+                        "test_file": test_file,
+                        "work_dir": work_test_output_dir,
+                        "target_dir": target_dir,
+                        "asm_path": asm_host_path,
+                        "elf_path": elf_host_path,
+                        "expected_output_file": expected_output_file,
+                        "returncode": final_returncode,
+                        "host_passed": final_returncode == 0,
+                        "runtime_done": False,
+                        "finalized": False,
+                    })
+
+                    if final_returncode != 0:
+                        print(f"  [HOST COMPILATION FAILED] {name_no_ext} (Exit Code: {final_returncode})")
+                    else:
+                        print(f"  [HOST COMPILATION PASSED] {name_no_ext}")
+                    continue
+
                 shutil.move(work_test_output_dir, test_output_dir)
 
                 if final_returncode != 0:
@@ -595,11 +814,103 @@ def main():
             except Exception as e:
                 print(f"  [ERROR] Exception during test {name_no_ext}: {e}")
 
-    except KeyboardInterrupt:
-        print(f"Test interrupted by user. Passed: {passed}, Failed: {failed}")
-        sys.exit(1)
+        if args.qemu:
+            runnable_cases = [case for case in qemu_cases if case["returncode"] == 0]
+            container_running = False
 
-    print(f"Testing complete. Passed: {passed}, Failed: {failed}, Skipped: {len(args.exclude) if args.exclude else 0}")
+            if runnable_cases:
+                print("Starting qemu user-mode container...")
+                start_result = start_qemu_container(qemu_image, qemu_container_name, repo_root)
+                if start_result.returncode != 0:
+                    error_msg = (
+                        b"\n[ERROR] Failed to start qemu docker container\n"
+                        + start_result.stderr
+                    )
+                    print("Failed to start qemu container.")
+                    for case in runnable_cases:
+                        case["returncode"] = 1
+                        case["runtime_done"] = True
+                        with open(os.path.join(case["work_dir"], "stderr.txt"), "ab") as f_err:
+                            f_err.write(error_msg)
+                else:
+                    container_running = True
+                    try:
+                        for case in runnable_cases:
+                            name_no_ext = case["name"]
+                            print(f"  [QEMU] Running {name_no_ext}...")
+                            input_file = os.path.splitext(case["test_file"])[0] + ".in"
+                            qemu_code, qemu_stdout, qemu_stderr, runtime_with_ret, runtime_raw = run_qemu_runtime(
+                                qemu_container_name,
+                                repo_root,
+                                case["asm_path"],
+                                case["elf_path"],
+                                input_file,
+                            )
+
+                            with open(os.path.join(case["work_dir"], "stdout.txt"), "ab") as f_out:
+                                f_out.write(qemu_stdout)
+                            with open(os.path.join(case["work_dir"], "stderr.txt"), "ab") as f_err:
+                                f_err.write(qemu_stderr)
+
+                            if runtime_with_ret is None:
+                                case["returncode"] = 1
+                                case["runtime_done"] = True
+                                with open(os.path.join(case["work_dir"], "stderr.txt"), "ab") as f_err:
+                                    f_err.write(b"\n[ERROR] qemu runtime execution did not produce output.\n")
+                                continue
+
+                            expected_output_file = case["expected_output_file"]
+                            if not os.path.exists(expected_output_file):
+                                case["returncode"] = 1
+                                case["runtime_done"] = True
+                                with open(os.path.join(case["work_dir"], "stderr.txt"), "ab") as f_err:
+                                    f_err.write(
+                                        f"\n[ERROR] Expected output not found: {expected_output_file}\n".encode()
+                                    )
+                                continue
+
+                            with open(expected_output_file, "rb") as f_exp:
+                                expected_bytes = f_exp.read()
+
+                            expected_norm = normalize_output_bytes(expected_bytes)
+                            actual_with_ret_norm = normalize_output_bytes(runtime_with_ret)
+                            actual_raw_norm = normalize_output_bytes(runtime_raw or b"")
+                            if expected_norm != actual_with_ret_norm and expected_norm != actual_raw_norm:
+                                case["returncode"] = 1
+                                with open(os.path.join(case["work_dir"], "stderr.txt"), "ab") as f_err:
+                                    f_err.write(b"\n[ERROR] Output mismatch with expected .out\n")
+                            else:
+                                case["returncode"] = 0
+
+                            case["runtime_done"] = True
+
+                            with open(os.path.join(case["work_dir"], "actual.out"), "wb") as f_actual:
+                                f_actual.write(runtime_with_ret)
+
+                            # Keep qemu process return code in logs for debugging; pass/fail is decided by output diff.
+                            with open(os.path.join(case["work_dir"], "stderr.txt"), "ab") as f_err:
+                                f_err.write(f"\n[INFO] qemu exit code: {qemu_code}\n".encode())
+                    finally:
+                        if container_running:
+                            stop_qemu_container(qemu_container_name)
+
+            moved_passed, moved_failed = finalize_qemu_cases(qemu_cases, test_output_base)
+            passed += moved_passed
+            failed += moved_failed
+
+    except KeyboardInterrupt:
+        interrupted = True
+        print("Test interrupted by user. Finalizing finished results...")
+        if args.qemu:
+            moved_passed, moved_failed = finalize_qemu_cases(qemu_cases, test_output_base)
+            passed += moved_passed
+            failed += moved_failed
+
+    skipped_count = excluded_count + max(selected_tests_count - (passed + failed), 0)
+    print(f"Testing complete. Passed: {passed}, Failed: {failed}, Skipped: {skipped_count}")
+
+    if interrupted:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-//! Configuration for the Compiler.
+//! Configuration for the compiler.
 
 use crate::ir::back::{FReg, XReg};
 
@@ -8,7 +8,7 @@ pub const PARAM_REG_MAX_NUM: u32 = 8;
 pub const INT_IMM_MAX: i32 = 2047;
 pub const INT_IMM_MIN: i32 = -2048;
 
-// Configs
+// Register configuration.
 pub const RESERVED_REG: XReg = XReg::T6; // Reserved for spill code.
 pub const CALLER_SAVED_XREGS: &[XReg] = &[
   XReg::T0,
