@@ -1131,6 +1131,7 @@ impl RegAlloc<'_> {
         if offset.is_literal() {
           BOp::new(BType::Void, attrs, MOpData::Lw { rd, base, offset }.into())
         } else {
+          // Don't use x0 here, which could introduce extra instruction.
           BOp::new(BType::Void, attrs, MOpData::Lw { rd, base: RESERVED_REG_BOPRD, offset: BOperand::IntImm(0) }.into())
         }
       } else {
