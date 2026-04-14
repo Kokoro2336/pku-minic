@@ -332,14 +332,21 @@ impl Canonicalize<'_> {
                   LOpData::OLt { rd, .. } => LOpData::OGt { rd, lhs: self.legalize(rhs, LegalizeOption::Default), rhs: self.legalize(lhs, LegalizeOption::Default) },
                   LOpData::OLe { rd, .. } => LOpData::OGe { rd, lhs: self.legalize(rhs, LegalizeOption::Default), rhs: self.legalize(lhs, LegalizeOption::Default) },
 
-                  // For Sub/Div/Mod/Shift, Operands can't be swapped, so we have to load lhs individually.
-                  LOpData::SubF { rd, lhs: imm, rhs } =>
-                    LOpData::SubF { rd, lhs: self.legalize(imm, LegalizeOption::ForceImmLoad), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::SubI { rd, lhs: imm, rhs } => if attrs.contains(&BAttr::PtrArith) {
                     LOpData::SubI { rd, lhs: self.legalize(imm, LegalizeOption::ForceImmLoad), rhs: self.legalize(rhs, LegalizeOption::NoLoad) }
                   } else {
                     LOpData::SubI { rd, lhs: self.legalize(imm, LegalizeOption::ForceImmLoad), rhs: self.legalize(rhs, LegalizeOption::Default) }
                   }
+                  LOpData::AddI { rd, lhs: imm, rhs } => if attrs.contains(&BAttr::PtrArith) {
+                    // CAUTION: DO NOT change the position of mem entities!
+                    LOpData::AddI { rd, lhs: self.legalize(imm, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::NoLoad) }
+                  } else {
+                    LOpData::AddI { rd, lhs: self.legalize(rhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) }
+                  }
+
+                  // For Sub/Div/Mod/Shift, Operands can't be swapped, so we have to load lhs individually.
+                  LOpData::SubF { rd, lhs: imm, rhs } =>
+                    LOpData::SubF { rd, lhs: self.legalize(imm, LegalizeOption::ForceImmLoad), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::DivF { rd, lhs: imm, rhs } =>
                     LOpData::DivF { rd, lhs: self.legalize(imm, LegalizeOption::ForceImmLoad), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::DivI { rd, lhs: imm, rhs } =>
@@ -353,11 +360,6 @@ impl Canonicalize<'_> {
                   LOpData::Sar { rd, lhs: imm, rhs } =>
                     LOpData::Sar { rd, lhs: self.legalize(imm, LegalizeOption::ForceImmLoad), rhs: self.legalize(rhs, LegalizeOption::Default) },
 
-                  LOpData::AddI { rd, lhs: imm, rhs } => if attrs.contains(&BAttr::PtrArith) {
-                    LOpData::AddI { rd, lhs: self.legalize(rhs, LegalizeOption::NoLoad), rhs: self.legalize(imm, LegalizeOption::Default) }
-                  } else {
-                    LOpData::AddI { rd, lhs: self.legalize(rhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) }
-                  }
                   LOpData::AddF { rd, lhs: imm, rhs } =>
                     LOpData::AddF { rd, lhs: self.legalize(rhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
                   LOpData::MulI { rd, lhs: imm, rhs } =>
