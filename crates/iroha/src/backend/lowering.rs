@@ -606,9 +606,7 @@ impl Lowering {
                 };
 
                 // Initialize the current base address with the base pointer.
-                let mut current_lop_vreg_id = self.get(
-                  base.clone(),
-                );
+                let mut current_lop_vreg_id = self.get(base.clone());
                 for (dim, index) in indices.iter().enumerate() {
                     match &base_typ {
                         Type::Array { .. } => {
@@ -619,24 +617,24 @@ impl Lowering {
                                 LOpData::MulI {
                                     rd: BOperand::Undef,
                                     lhs: index,
-                                    rhs: BOperand::IntImm(base_typ.subarr_size(dim) as i32),
+                                    rhs: BOperand::IntImm(base_typ.subarr_size(dim + 1) as i32),
                                 }
                                 .into(),
                             ));
 
-                            // If the end of loop reached, bind the VReg of GEP to the current instruction.
-                            let add_lop =
-                                    BOp::new(
-                                        BType::U64,
-                                        vec![],
-                                        LOpData::AddI {
-                                            rd: BOperand::Undef,
-                                            lhs: current_lop_vreg_id,
-                                            rhs: self.get_rd(mul_lop_id).expect("Mul should produce a value"),
-                                        }
-                                        .into(),
-                                    );
+                            let add_lop = BOp::new(
+                                BType::U64,
+                                vec![BAttr::PtrArith],
+                                LOpData::AddI {
+                                    rd: BOperand::Undef,
+                                    lhs: self.get_rd(mul_lop_id).unwrap(),
+                                    // Always place base on rhs for the convenience of slot unrolling in post-ra.
+                                    rhs: current_lop_vreg_id,
+                                }
+                                .into(),
+                            );
 
+                            // If the end of loop reached, bind the VReg of GEP to the current instruction.
                             if dim == indices.len() - 1 {
                                 self.create_and_map_lop(
                                     op_id.clone(), add_lop
@@ -673,11 +671,11 @@ impl Lowering {
                                 op_id.clone(),
                                 BOp::new(
                                     BType::U64,
-                                    vec![],
+                                    vec![BAttr::PtrArith],
                                     LOpData::AddI {
                                         rd: BOperand::Undef,
-                                        lhs: current_lop_vreg_id,
-                                        rhs: mul_op_vreg_id,
+                                        lhs: mul_op_vreg_id,
+                                        rhs: current_lop_vreg_id,
                                     }
                                     .into(),
                                 ),
@@ -688,9 +686,7 @@ impl Lowering {
 
                 // If the truncated indices is empty, we need to map the GEP to the base pointer's LOp InstId directly.
                 if indices.is_empty() {
-                    let target_id = self.get(
-                      base.clone(),
-                    );
+                    let target_id = self.get(base.clone());
                     self.set(op_id, target_id);
                 }
             }

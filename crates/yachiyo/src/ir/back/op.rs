@@ -157,15 +157,15 @@ impl BOperand {
 #[derive(Debug, Clone, PartialEq)]
 pub enum BAttr {
   Name(String),
+  /// Indicates that this is a pointer arithmetic operation, which should not have a leading load/store.
+  PtrArith,
   /// Indicates that this move is a phi move. If an instruction has this attribute, ISel won't create.
   PhiMove,
   /// For call instructions, indicates the operand is a return value.
   Clobber,
   /// For the result of call instruction.
   ImplicitDef(BOperand),
-  /// For call instructions, indicates the operand is a used value that is not explicitly passed in the operand list,
-  /// e.g. caller-saved registers.
-  /// Ret value operand is also considered implicit use, since it's not explicitly passed in the operand list of the call instruction.
+  /// For call/ret instructions, indicates the operand is a used value that is not explicitly passed in the operand list.
   ImplicitUse(Vec<BOperand>),
 }
 

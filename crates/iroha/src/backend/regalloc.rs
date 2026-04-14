@@ -25,31 +25,6 @@ use rustc_hash::FxHashSet;
 const RESERVED_REG_BOPRD: BOperand = BOperand::Reg(Reg::X(RESERVED_REG));
 const SP_BOPRD: BOperand = BOperand::Reg(Reg::X(XReg::Sp));
 
-/// typ: The type of rs.
-fn select_store(typ: BType, rs: BOperand, base: BOperand, offset: BOperand) -> BOp {
-  match typ {
-    BType::I32 | BType::U64 | BType::Array { .. } => {
-      BOp::new(BType::Void, vec![], MOpData::Sw { rs, base, offset }.into())
-    }
-    BType::F32 => BOp::new(
-      BType::Void,
-      vec![],
-      MOpData::Fsw { rs, base, offset }.into(),
-    ),
-    BType::Void => unreachable!(),
-  }
-}
-/// typ: The type of rd.
-fn select_load(typ: BType, rd: BOperand, base: BOperand, offset: BOperand) -> BOp {
-  match typ {
-    BType::I32 | BType::U64 | BType::Array { .. } => {
-      BOp::new(typ, vec![], MOpData::Lw { rd, base, offset }.into())
-    }
-    BType::F32 => BOp::new(typ, vec![], MOpData::Flw { rd, base, offset }.into()),
-    BType::Void => unreachable!(),
-  }
-}
-
 #[derive(PartialEq, Eq, Default)]
 #[allow(unused)]
 enum AllocatorType {
@@ -1105,6 +1080,110 @@ impl RegAlloc<'_> {
     &mut self.ir.as_mut().unwrap().funcs[func_id]
   }
 
+  /// typ: The type of rs.
+  fn select_store(&mut self, typ: BType, attrs: Vec<BAttr>, rs: BOperand, base: BOperand, offset: Option<BOperand>) -> BOp {
+    if let Some(offset) = offset {
+      // if offset is a reg, create individual add instruction.
+      if !offset.is_literal() {
+        self.create(BOp::new(
+            BType::U64,
+            vec![],
+            MOpData::Add { rd: RESERVED_REG_BOPRD, rs1: base, rs2: offset }.into()
+        ));
+      }
+    };
+    match typ {
+      BType::I32 | BType::U64 | BType::Array { .. } => if let Some(offset) = offset {
+        if offset.is_literal() {
+          BOp::new(BType::Void, attrs, MOpData::Sw { rs, base, offset }.into())
+        } else {
+          BOp::new(BType::Void, attrs, MOpData::Sw { rs, base: RESERVED_REG_BOPRD, offset: BOperand::IntImm(0) }.into())
+        }
+      } else {
+        BOp::new(BType::Void, attrs, MOpData::Sw { rs, base, offset: BOperand::IntImm(0) }.into())
+      },
+      BType::F32 => if let Some(offset) = offset {
+        if offset.is_literal() {
+          BOp::new(BType::Void, attrs, MOpData::Fsw { rs, base, offset }.into())
+        } else {
+          BOp::new(BType::Void, attrs, MOpData::Fsw { rs, base: RESERVED_REG_BOPRD, offset: BOperand::IntImm(0) }.into())
+        }
+      } else {
+        BOp::new(BType::Void, attrs, MOpData::Fsw { rs, base, offset: BOperand::IntImm(0) }.into())
+      },
+      BType::Void => unreachable!(),
+    }
+  }
+  /// typ: The type of rd.
+  fn select_load(&mut self, typ: BType, attrs: Vec<BAttr>, rd: BOperand, base: BOperand, offset: Option<BOperand>) -> BOp {
+    if let Some(offset) = offset {
+      // if offset is a reg, create individual add instruction.
+      if !offset.is_literal() {
+        self.create(BOp::new(
+            BType::U64,
+            vec![],
+            MOpData::Add { rd: RESERVED_REG_BOPRD, rs1: base, rs2: offset }.into()
+        ));
+      }
+    };
+    match typ {
+      BType::I32 | BType::U64 | BType::Array { .. } => if let Some(offset) = offset {
+        if offset.is_literal() {
+          BOp::new(BType::Void, attrs, MOpData::Lw { rd, base, offset }.into())
+        } else {
+          BOp::new(BType::Void, attrs, MOpData::Lw { rd, base: RESERVED_REG_BOPRD, offset: BOperand::IntImm(0) }.into())
+        }
+      } else {
+        BOp::new(BType::Void, attrs, MOpData::Lw { rd, base, offset: BOperand::IntImm(0) }.into())
+      },
+      BType::F32 => if let Some(offset) = offset {
+        if offset.is_literal() {
+          BOp::new(BType::Void, attrs, MOpData::Flw { rd, base, offset }.into())
+        } else {
+          BOp::new(BType::Void, attrs, MOpData::Flw { rd, base: RESERVED_REG_BOPRD, offset: BOperand::IntImm(0) }.into())
+        }
+      } else {
+        BOp::new(BType::Void, attrs, MOpData::Flw { rd, base, offset: BOperand::IntImm(0) }.into())
+      },
+      BType::Void => unreachable!(),
+    }
+  }
+  fn select_ptr_add(&mut self, typ: BType, attrs: Vec<BAttr>, rd: BOperand, rs1: BOperand, base: BOperand, offset: Option<BOperand>) -> BOp {
+    let final_offset = if let Some(offset) = offset {
+      self.create(BOp::new(
+        typ.clone(),
+        vec![],
+        if offset.is_literal() {
+          MOpData::Addi { rd: RESERVED_REG_BOPRD, rs1: base, imm: offset }.into()
+        } else {
+          MOpData::Add { rd: RESERVED_REG_BOPRD, rs1: base, rs2: offset }.into()
+        }
+      ));
+      RESERVED_REG_BOPRD
+    } else {
+      base
+    };
+    BOp::new(typ, attrs, MOpData::Add { rd, rs1, rs2: final_offset }.into())
+  }
+  fn select_ptr_sub(&mut self, typ: BType, attrs: Vec<BAttr>, rd: BOperand, rs1: BOperand, base: BOperand, offset: Option<BOperand>) -> BOp {
+    let final_offset = if let Some(offset) = offset {
+      self.create(BOp::new(
+        typ.clone(),
+        vec![],
+        // TODO: really Add here?
+        if offset.is_literal() {
+          MOpData::Addi { rd: RESERVED_REG_BOPRD, rs1: base, imm: offset }.into()
+        } else {
+          MOpData::Add { rd: RESERVED_REG_BOPRD, rs1: base, rs2: offset }.into()
+        }
+      ));
+      RESERVED_REG_BOPRD
+    } else {
+      base
+    };
+    BOp::new(typ, attrs, MOpData::Sub { rd, rs1, rs2: final_offset }.into())
+  }
+
   #[inline(always)]
   fn alloc_and_map_slot(&mut self, reg: Reg, slot: Slot) -> BOperand {
     let func_id = self.builder.current_function.unwrap();
@@ -1175,11 +1254,6 @@ impl RegAlloc<'_> {
                         BType::I32,
                         vec![],
                         MOpData::Li { rd: RESERVED_REG_BOPRD, imm: i }.into(),
-                    ));
-                    self.create(BOp::new(
-                        BType::U64,
-                        vec![],
-                        MOpData::Add { rd: RESERVED_REG_BOPRD, rs1: RESERVED_REG_BOPRD, rs2: SP_BOPRD }.into(),
                     ));
                     RESERVED_REG_BOPRD
                 } else {
@@ -1257,11 +1331,8 @@ impl RegAlloc<'_> {
           target: offset,
           enu: BOperand,
           minor_arms: {
-            BOperand::IntImm(_) => {
-                select_store(self.get_operand_type(value), value, SP_BOPRD, offset)
-            }
-            BOperand::Reg(_) => {
-                select_store(self.get_operand_type(value), value, offset, BOperand::IntImm(0))
+            BOperand::IntImm(_) | BOperand::Reg(_) => {
+                self.select_store(self.get_operand_type(value), vec![], value, SP_BOPRD, Some(offset))
             }
           },
           uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
@@ -1290,11 +1361,8 @@ impl RegAlloc<'_> {
         target: offset,
         enu: BOperand,
         minor_arms: {
-            BOperand::IntImm(_) => {
-                select_load(self.get_operand_type(rd), rd, SP_BOPRD, offset)
-            }
-            BOperand::Reg(_) => {
-                select_load(self.get_operand_type(rd), rd, offset, BOperand::IntImm(0))
+            BOperand::IntImm(_) | BOperand::Reg(_) => {
+                self.select_load(self.get_operand_type(rd), vec![], rd, SP_BOPRD, Some(offset))
             }
         },
         uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
@@ -1416,7 +1484,7 @@ impl RegAlloc<'_> {
       let inst_ids = self.get_func(func_id).cfg[bb_id].cur.clone();
       for inst_id in inst_ids {
         let op = &self.get_func(func_id).dfg[inst_id];
-        let (op_data, rd_typ) = (op.data.clone(), op.typ.clone());
+        let (op_data, rd_typ, attrs) = (op.data.clone(), op.typ.clone(), op.attrs.clone());
 
         if let BOpData::L(LOpData::Store { addr, value }) = op_data {
           self.builder.set_before_inst(
@@ -1424,6 +1492,7 @@ impl RegAlloc<'_> {
             self.builder.current_function,
             Some(inst_id),
           );
+
           #[cfg(feature = "debug")]
           yachiyo::debug::info!(
             "Lowering store instruction. inst_id: {:?}, addr: {:?}, value: {:?}",
@@ -1431,6 +1500,7 @@ impl RegAlloc<'_> {
             addr,
             value
           );
+
           let store_op = match_some! {
               target: addr,
               enu: BOperand,
@@ -1441,11 +1511,8 @@ impl RegAlloc<'_> {
                           target: offset,
                           enu: BOperand,
                           minor_arms: {
-                              BOperand::IntImm(_) => {
-                                  select_store(self.get_operand_type(value), value, SP_BOPRD, offset)
-                              }
-                              BOperand::Reg(_) => {
-                                  select_store(self.get_operand_type(value), value, offset, BOperand::IntImm(0))
+                              BOperand::IntImm(_) | BOperand::Reg(_) => {
+                                  self.select_store(self.get_operand_type(value), attrs, value, SP_BOPRD, Some(offset))
                               }
                           },
                           uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
@@ -1466,10 +1533,10 @@ impl RegAlloc<'_> {
                               target: addr,
                           }.into()
                       ));
-                      select_store(self.get_operand_type(value), value, RESERVED_REG_BOPRD, BOperand::IntImm(0))
+                      self.select_store(self.get_operand_type(value), attrs, value, RESERVED_REG_BOPRD, None)
                   },
                   BOperand::Reg(_) => {
-                      select_store(self.get_operand_type(value), value, addr, BOperand::IntImm(0))
+                      self.select_store(self.get_operand_type(value), attrs, value, addr, None)
                   }
               },
               uni_ops: [IntImm, FloatImm, Func, BB, Inst, Undef],
@@ -1501,11 +1568,8 @@ impl RegAlloc<'_> {
                           target: offset,
                           enu: BOperand,
                           minor_arms: {
-                              BOperand::IntImm(_) => {
-                                  select_load(rd_typ, rd, SP_BOPRD, offset)
-                              }
-                              BOperand::Reg(_) => {
-                                  select_load(rd_typ, rd, offset, BOperand::IntImm(0))
+                              BOperand::IntImm(_) | BOperand::Reg(_) => {
+                                  self.select_load(rd_typ, attrs, rd, SP_BOPRD, Some(offset))
                               }
                           },
                           uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
@@ -1525,10 +1589,10 @@ impl RegAlloc<'_> {
                               target: addr,
                           }.into()
                       ));
-                      select_load(rd_typ, rd, RESERVED_REG_BOPRD, BOperand::IntImm(0))
+                      self.select_load(rd_typ, attrs, rd, RESERVED_REG_BOPRD, None)
                   },
                   BOperand::Reg(_) => {
-                      select_load(rd_typ, rd, addr, BOperand::IntImm(0))
+                      self.select_load(rd_typ, attrs, rd, addr, None)
                   }
               },
               uni_ops: [IntImm, FloatImm, Func, BB, Inst, Undef],
@@ -1537,6 +1601,110 @@ impl RegAlloc<'_> {
               }
           };
           self.replace_op(inst_id, bb_id, load_op);
+
+        // Pointer arithmetic lowering
+        } else if let BOpData::L(LOpData::AddI { rd, lhs, rhs: addr }) = op_data {
+          self.builder.set_before_inst(
+            self.ir.as_mut().unwrap(),
+            self.builder.current_function,
+            Some(inst_id),
+          );
+
+          let rd_typ = self.get_operand_type(rd);
+          let add_op = match_some! {
+              target: addr,
+              enu: BOperand,
+              minor_arms: {
+                  BOperand::Slot(_) => {
+                      let offset = self.legalize_offset(self.get_offset(addr));
+                      match_some! {
+                          target: offset,
+                          enu: BOperand,
+                          minor_arms: {
+                              BOperand::IntImm(_) | BOperand::Reg(_) => {
+                                  self.select_ptr_add(rd_typ, attrs, rd, lhs, SP_BOPRD, Some(offset))
+                              }
+                          },
+                          uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
+                          uni_arm: {
+                              unreachable!("Expected integer immediate, found {:?}", offset);
+                          }
+                      }
+                  }
+                  BOperand::Data(_)
+                  | BOperand::RoData(_)
+                  | BOperand::Bss(_) => {
+                      self.create(BOp::new(
+                          BType::U64,
+                          vec![],
+                          MOpData::La {
+                              rd: RESERVED_REG_BOPRD,
+                              target: addr,
+                          }.into()
+                      ));
+                      self.select_ptr_add(rd_typ, attrs, rd, lhs, RESERVED_REG_BOPRD, None)
+                  },
+                  BOperand::Reg(_) => {
+                      self.select_ptr_add(rd_typ, attrs, rd, lhs, addr, None)
+                  }
+              },
+              uni_ops: [IntImm, FloatImm, Func, BB, Inst, Undef],
+              uni_arm: {
+                  unreachable!("Expected memory enetities, found {:?}", addr);
+              }
+          };
+          self.replace_op(inst_id, bb_id, add_op);
+        } else if let BOpData::L(LOpData::SubI { rd, lhs, rhs: addr }) = op_data {
+          self.builder.set_before_inst(
+            self.ir.as_mut().unwrap(),
+            self.builder.current_function,
+            Some(inst_id),
+          );
+
+          let rd_typ = self.get_operand_type(rd);
+          let sub_op = match_some! {
+              target: addr,
+              enu: BOperand,
+              minor_arms: {
+                  BOperand::Slot(_) => {
+                      let offset = self.legalize_offset(self.get_offset(addr));
+                      match_some! {
+                          target: offset,
+                          enu: BOperand,
+                          minor_arms: {
+                              BOperand::IntImm(_) | BOperand::Reg(_) => {
+                                  self.select_ptr_sub(rd_typ, attrs, rd, lhs, SP_BOPRD, Some(offset))
+                              }
+                          },
+                          uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
+                          uni_arm: {
+                              unreachable!("Expected integer immediate, found {:?}", offset);
+                          }
+                      }
+                  }
+                  BOperand::Data(_)
+                  | BOperand::RoData(_)
+                  | BOperand::Bss(_) => {
+                      self.create(BOp::new(
+                          BType::U64,
+                          vec![],
+                          MOpData::La {
+                              rd: RESERVED_REG_BOPRD,
+                              target: addr,
+                          }.into()
+                      ));
+                      self.select_ptr_sub(rd_typ, attrs, rd, lhs, RESERVED_REG_BOPRD, None)
+                  },
+                  BOperand::Reg(_) => {
+                      self.select_ptr_sub(rd_typ, attrs, rd, lhs, addr, None)
+                  }
+              },
+              uni_ops: [IntImm, FloatImm, Func, BB, Inst, Undef],
+              uni_arm: {
+                  unreachable!("Expected memory enetities, found {:?}", addr);
+              }
+          };
+          self.replace_op(inst_id, bb_id, sub_op);
         } else if let BOpData::M(MOpData::Ret) = op_data {
           self.builder.set_before_inst(
             self.ir.as_mut().unwrap(),
