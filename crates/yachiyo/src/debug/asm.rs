@@ -1,4 +1,4 @@
-//! Dump BackIR to RISC-V assembly files.
+//! Dumping BackIR to RISC-V assembly.
 
 use crate::ir::back::BackIR;
 

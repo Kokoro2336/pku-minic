@@ -1,4 +1,4 @@
-//! Lower IR module defintion, with graph structure variation APIs.
+//! Module definiton of BackIR.
 
 use super::{
   BBuilder, BBuilderGuard, BOp, BOpData, BOperand, BssInfo, DataInfo, LOpData, MOpData, Reg,
@@ -325,7 +325,7 @@ impl BackIR {
                     cfg.add_succ(bb, (offset, op));
                 }
             },
-            uni_ops: [Li, La, Mv, FmvS, Add, Addi, Addw, Subw, Mulw, Divw, Remw, Addiw, Slliw, Srliw, Sraiw, Sllw, Srlw, Sraw, Slt, Slti, Sltu, Sltiu, Xor, Xori, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FneS, FgtS, FgeS, FcvtWS, FcvtSW, FmvWX, FmvXW, Lw, Sw, Flw, Fsw, Ld, Sd, Call, Ret],
+            uni_ops: [Li, La, Mv, FmvS, Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw, Addiw, Slliw, Srliw, Sraiw, Sllw, Srlw, Sraw, Slt, Slti, Sltu, Sltiu, Xor, Xori, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FneS, FgtS, FgeS, FcvtWS, FcvtSW, FmvWX, FmvXW, Lw, Sw, Flw, Fsw, Ld, Sd, Call, Ret],
             uni_arm: {}
         }
       }
@@ -390,7 +390,7 @@ impl BackIR {
                     cfg.remove_succ(bb, (offset, op));
                 }
             },
-            uni_ops: [Li, La, Mv, FmvS, Add, Addi, Addw, Subw, Mulw, Divw, Remw, Addiw, Slliw, Srliw, Sraiw, Sllw, Srlw, Sraw, Slt, Slti, Sltu, Sltiu, Xor, Xori, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FneS, FgtS, FgeS, FcvtWS, FcvtSW, FmvWX, FmvXW, Lw, Sw, Flw, Fsw, Ld, Sd, Call, Ret],
+            uni_ops: [Li, La, Mv, FmvS, Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw, Addiw, Slliw, Srliw, Sraiw, Sllw, Srlw, Sraw, Slt, Slti, Sltu, Sltiu, Xor, Xori, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FneS, FgtS, FgeS, FcvtWS, FcvtSW, FmvWX, FmvXW, Lw, Sw, Flw, Fsw, Ld, Sd, Call, Ret],
             uni_arm: {}
         }
       }
@@ -403,6 +403,7 @@ impl BackIR {
     current_function: Option<BOperand>,
     op: BOp,
   ) -> BOperand {
+    #[cfg(feature = "debug")]
     crate::debug::info!("Creating op {:?} in function {:?}", op, current_function);
 
     let (cfg, dfg) =
@@ -436,6 +437,8 @@ impl BackIR {
       op_id
     };
 
+    #[cfg(feature = "debug")]
+
     crate::debug::info!("Created op {:?} in block {:?}", op_id, current_block);
 
     self.bind(current_function, op_id);
@@ -464,6 +467,7 @@ impl BackIR {
           rd_arm: LOpData(rd) => {
               match rd {
                   BOperand::Reg(_) => {
+                      #[cfg(feature = "debug")]
                       crate::debug::info!("Bind existing vreg {:?} with op {:?} in function {:?}", rd, op_id, current_function);
                       // Bind the operation with the existing virt reg.
                       vregs.add_def(*rd, op_id);
@@ -475,6 +479,7 @@ impl BackIR {
                       *rd = BOperand::Reg(Reg::Virt(new_vreg));
                       // Bind the operation with the virt reg.
                       vregs.add_def(BOperand::Reg(Reg::Virt(new_vreg)), op_id);
+                      #[cfg(feature = "debug")]
                       crate::debug::info!("Bind new vreg {:?} with op {:?} in function {:?}", rd, op_id, current_function);
                   }
                   BOperand::Data(_)
@@ -502,7 +507,7 @@ impl BackIR {
           target: mop_data,
           op_with_rds: [
               Li, La, Mv, FmvS,
-            Add, Addi, Addw, Subw, Mulw, Divw, Remw,
+              Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw,
               Slliw, Srliw, Sraiw,
               Sllw, Srlw, Sraw,
               Slt, Slti, Sltu, Sltiu,
@@ -600,6 +605,7 @@ impl BackIR {
     op: BOperand,
     bb: Option<BOperand>,
   ) -> BOp {
+    #[cfg(feature = "debug")]
     crate::debug::info!(
       "Removing op {:?}: {:?} in function {:?}",
       op,
@@ -641,6 +647,8 @@ impl BackIR {
       _ => panic!("BackIR remove_op: dfg slot {} is not data", op_id),
     };
 
+    #[cfg(feature = "debug")]
+
     crate::debug::info!(
       "Removed op {:?}: {:?} in block {:?} of function {:?}",
       op,
@@ -663,6 +671,7 @@ impl BackIR {
     bb_id: BOperand,
     new_op: BOp,
   ) -> BOperand {
+    #[cfg(feature = "debug")]
     crate::debug::info!(
       "Replacing op {:?} with {:?} in function {:?}",
       op_id,
@@ -716,6 +725,7 @@ impl BackIR {
     bb_id: BOperand,
     new_op: BOp,
   ) -> BOperand {
+    #[cfg(feature = "debug")]
     crate::debug::info!(
       "Replacing op {:?} with {:?} in function {:?}",
       op_id,

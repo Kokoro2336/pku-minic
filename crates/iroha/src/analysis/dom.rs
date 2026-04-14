@@ -1,7 +1,8 @@
-//! Building dominator tree based on Lengauer-Tarjan algorithm.
+//! Dominance Analysis based on Lengauer-Tarjan algorithm.
 //! Reference: https://dl.acm.org/doi/10.1145/357062.357071
 
 use yachiyo::analysis::Analysis;
+#[cfg(feature = "debug")]
 use yachiyo::debug::info;
 use yachiyo::ir::mid::{Operand, IR};
 use yachiyo::utils::set::BitSet;
@@ -9,32 +10,32 @@ use yachiyo::utils::set::BitSet;
 pub type DomTree = Vec<Vec<usize>>;
 struct BuildDomTree<'a> {
   program: &'a IR,
-  // Vertex number -> DFS number
+  /// Vertex number -> DFS number
   dfn: Vec<usize>,
   dfn_cnt: usize,
-  // DFS number -> Vertex number
+  /// DFS number -> Vertex number
   rev: Vec<usize>,
-  // Vertex number -> Semi-dominator DFS number
+  /// Vertex number -> Semi-dominator DFS number
   sdom: Vec<usize>,
-  // Vertex number -> vertices that this vertex semi-dominates
+  /// Vertex number -> vertices that this vertex semi-dominates
   bucket: Vec<Vec<usize>>,
-  // Parent in DSU Forest
+  /// Parent in DSU Forest
   parent: Vec<usize>,
-  // Parent in the DFS Tree
+  /// Parent in the DFS Tree
   father: Vec<usize>,
-  // Recording the vertex with the minimum semi-dominator on path sdom[u] -> u
+  /// Recording the vertex with the minimum semi-dominator on path sdom[u] -> u
   min: Vec<usize>,
-  // Immediate dominator
+  /// Immediate dominator
   idom: Vec<usize>,
 
-  // temp structure
-  // Vertex number -> whether visited in DFS
+  /// temp structure
+  /// Vertex number -> whether visited in DFS
   visited: BitSet,
 
-  // state structure
+  /// state structure
   current_function: Option<Operand>,
 
-  // result
+  /// result
   dom_trees: Vec<DomTree>,
 }
 
@@ -147,8 +148,11 @@ impl<'a> BuildDomTree<'a> {
       };
 
       self.init(Operand::Func(idx));
+      #[cfg(feature = "debug")]
       info!("Start DFS traversal.");
       self.dfs(head);
+
+      #[cfg(feature = "debug")]
 
       info!("DFS traversal completed. Start computing dominators.");
       let num_visited = self.dfn_cnt;
@@ -202,6 +206,7 @@ impl<'a> BuildDomTree<'a> {
       }
 
       // Refine idom
+      #[cfg(feature = "debug")]
       info!("Dominator tree computed. Start refining immediate dominators.");
       for i in 0..self.rev.len() {
         let v = self.rev[i];

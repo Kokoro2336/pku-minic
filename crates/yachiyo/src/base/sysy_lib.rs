@@ -1,4 +1,4 @@
-//! SysY standard library definitions.
+//! SysY runtime library definitions.
 
 use crate::base::Type;
 

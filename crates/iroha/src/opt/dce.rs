@@ -4,9 +4,9 @@ use yachiyo::ir::mid::Builder;
 use yachiyo::ir::mid::{OpData, Operand, PhiIncoming, IR};
 use yachiyo::pass::Pass;
 use yachiyo::utils::arena::ArenaItem;
+use yachiyo::utils::r#match::match_src;
 use yachiyo::utils::set::BitSet;
 use yachiyo::utils::worklist::{Worklist, WorklistTrait};
-use yachiyo::utils::r#match::match_src;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Default)]
@@ -95,9 +95,7 @@ impl<'a> Pass<'a> for DCE<'a> {
         Operand::Value(id) => {
           let op_id = *id;
           if this.is_dead(operand) && !func.dfg[op_id].is_impure() {
-            this
-              .worklist
-              .push_back(operand.clone());
+            this.worklist.push_back(operand.clone());
           }
         }
         Operand::Global(id) => {

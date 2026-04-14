@@ -1,3 +1,5 @@
+//! Analyses.
+
 mod dom;
 mod live;
 

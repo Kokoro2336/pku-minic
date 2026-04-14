@@ -4,6 +4,7 @@
 use crate::analysis::{DomAnalysis, DomFrontier, DomTree};
 use yachiyo::analysis::analyze;
 use yachiyo::base::Type;
+#[cfg(feature = "debug")]
 use yachiyo::debug::info;
 use yachiyo::ir::mid::{Attr, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::ir::mid::{Builder, BuilderGuard};
@@ -584,14 +585,18 @@ impl<'a> Pass<'a> for Mem2Reg<'a> {
     let (dom_trees, frontiers) = analyze::<DomAnalysis>(program);
 
     // 3. Insert Phi nodes
+    #[cfg(feature = "debug")]
     info!("Start inserting phi nodes.");
     InsertPhi::new(program, frontiers).run();
+    #[cfg(feature = "debug")]
     info!("Phi nodes inserted.");
 
     // 4. Rename variables
+    #[cfg(feature = "debug")]
     info!("Start renaming variables.");
     let mut renamer = Renaming::new(program, dom_trees);
     renamer.run();
+    #[cfg(feature = "debug")]
     info!("Variables renamed.");
   }
 }

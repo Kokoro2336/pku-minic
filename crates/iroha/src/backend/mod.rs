@@ -1,4 +1,4 @@
-//! Assembly module
+//! Backend.
 
 mod canonicalize;
 mod compaction;

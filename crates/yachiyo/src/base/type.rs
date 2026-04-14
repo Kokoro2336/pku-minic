@@ -1,3 +1,5 @@
+//! Type definitions.
+
 const RISCV_BITS: u32 = 64;
 
 /// type of value
@@ -94,12 +96,14 @@ impl Type {
   pub fn subarr_size(&self, dim_idx: usize) -> u32 {
     match self {
       Type::Array { base, dims } => {
-        if dim_idx >= dims.len() {
+        if dim_idx > dims.len() {
           panic!(
             "Dimension index out of bounds. Array has only {} dimensions, but got index {}.",
             dims.len(),
             dim_idx
           );
+        } else if dim_idx == dims.len() {
+          return base.size();
         }
         base.size() * dims[dim_idx..].iter().product::<u32>()
       }

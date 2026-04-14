@@ -1,7 +1,9 @@
+//! Type definitions of BackIR.
+
 use crate::base::Type;
 use crate::config::RISCV_BITS;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum BType {
   Void,
   I32,
@@ -9,10 +11,7 @@ pub enum BType {
   // For pointer
   U64,
   // For array
-  Array {
-    base: Box<BType>,
-    num: u32,
-  },
+  Array { base: Box<BType>, num: u32 },
 }
 
 impl BType {

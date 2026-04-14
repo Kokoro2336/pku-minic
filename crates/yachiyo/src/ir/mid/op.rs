@@ -1,9 +1,12 @@
+//! Instruction definition of IR.
+
 use std::ops::{Index, IndexMut};
 use std::vec::Vec;
 use strum_macros::EnumDiscriminants;
 
 use crate::ast::Literal;
 use crate::base::Type;
+#[cfg(feature = "debug")]
 use crate::debug::info;
 use crate::utils::arena::*;
 use crate::utils::r#match::{match_some, match_src};
@@ -712,6 +715,8 @@ impl Arena<Op> for IndexedArena<Op> {
         self.storage.push(data);
       }
     });
+
+    #[cfg(feature = "debug")]
 
     info!(
       "DFG GC: {} ops collected, recycle rate: {:.2}%",

@@ -143,6 +143,7 @@ def main():
     parser.add_argument('--clean', action='store_true', help='Clean test directories before running')
     parser.add_argument('--graph', action='store_true', help='Generate CFG graphs (.dot/.svg) from linked LLVM IR using opt + graphviz')
     parser.add_argument('--trace', action='store_true', help='Enable trace logging')
+    parser.add_argument('--no-debug', action='store_true', help='Disable cargo debug feature (enabled by default)')
     debug_group = parser.add_mutually_exclusive_group()
     debug_group.add_argument('--gdb', action='store_true', help='Run compiler under rust-gdb for interactive debugging (single test only)')
     debug_group.add_argument('--lldb', action='store_true', help='Run compiler under rust-lldb for interactive debugging (single test only)')
@@ -179,7 +180,10 @@ def main():
 
     # Ensure cargo build is run
     print("Running cargo build...")
-    build_result = run_command("RUSTFLAG='-A warnings' cargo build", capture_output=False)
+    build_cmd = "RUSTFLAG='-A warnings' cargo build --features debug"
+    if args.no_debug:
+        build_cmd = "RUSTFLAG='-A warnings' cargo build"
+    build_result = run_command(build_cmd, capture_output=False)
 
     if build_result.returncode != 0:
         print("Build failed. Exiting.")

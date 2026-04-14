@@ -1,3 +1,5 @@
+//! Lexer/Parser rules definition for the compiler, based on LALRPOP.
+
 use yachiyo::base::Type;
 use yachiyo::ast::*;
 use yachiyo::utils::arena::Arena;

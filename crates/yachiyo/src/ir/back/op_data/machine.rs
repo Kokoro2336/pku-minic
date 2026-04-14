@@ -1,4 +1,4 @@
-//! Instruction definition of Lower IR.
+//! Instruction definition of Machine IR.
 
 use crate::ir::back::{BOpData, BOperand};
 
@@ -18,6 +18,11 @@ pub enum MOpData {
   // Integer Arithmetic & Logic
   // Register-Register ALU ops (32-bit)
   Add {
+    rd: BOperand,
+    rs1: BOperand,
+    rs2: BOperand,
+  },
+  Sub {
     rd: BOperand,
     rs1: BOperand,
     rs2: BOperand,

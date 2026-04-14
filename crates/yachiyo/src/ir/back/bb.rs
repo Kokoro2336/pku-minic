@@ -1,3 +1,6 @@
+//! Basic Block definition for BackIR.
+
+#[cfg(feature = "debug")]
 use crate::debug::info;
 use crate::ir::back::BOperand;
 use crate::utils::arena::*;
@@ -99,6 +102,8 @@ impl Arena<BBasicBlock> for BCFG {
         self.storage.push(data);
       }
     });
+
+    #[cfg(feature = "debug")]
 
     info!(
       "BCFG GC: {} basic blocks collected, recycle rate: {:.2}%",

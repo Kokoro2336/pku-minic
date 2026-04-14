@@ -24,3 +24,6 @@ textwrap = "0.16.2"
 tool = "0.2.1"
 regex = "1.11.0"
 rustc-hash = { workspace = true }
+
+[features]
+debug = []

@@ -1,4 +1,4 @@
-//! Passes management for IRs.
+//! Pass management for Intermediate Representations.
 
 mod back;
 mod mid;

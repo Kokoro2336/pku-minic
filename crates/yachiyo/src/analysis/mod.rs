@@ -1,5 +1,6 @@
 //! Analysis framework for IR.
 
+#[cfg(feature = "debug")]
 use crate::debug::info;
 
 pub trait Analysis<'a>: Default {
@@ -15,8 +16,11 @@ pub fn analyze<'a, A: Analysis<'a>>(input: &'a A::Input) -> A::Output {
   let mut analysis = A::default();
   analysis.mount(input);
 
+  #[cfg(feature = "debug")]
+
   info!("Running analysis: {}", analysis.name());
   let result = analysis.run();
+  #[cfg(feature = "debug")]
   info!("Finished analysis: {}", analysis.name());
 
   result

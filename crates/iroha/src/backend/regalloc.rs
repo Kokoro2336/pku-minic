@@ -12,8 +12,8 @@ use yachiyo::config::{
 };
 use yachiyo::config::{INT_IMM_MAX, INT_IMM_MIN, REGS_NUM};
 use yachiyo::ir::back::{
-  BAttr, BBuilder, BFunction, BOp, BOpData, BOperand, BType, BackIR, LOpData, MOpData, MemInfo,
-  Reg, Slot, XReg,
+  get_clobbered, BAttr, BBuilder, BFunction, BOp, BOpData, BOperand, BType, BackIR, LOpData,
+  MOpData, MemInfo, Reg, Slot, XReg,
 };
 use yachiyo::pass::BPass;
 use yachiyo::utils::r#match::match_some;
@@ -24,31 +24,6 @@ use rustc_hash::FxHashSet;
 
 const RESERVED_REG_BOPRD: BOperand = BOperand::Reg(Reg::X(RESERVED_REG));
 const SP_BOPRD: BOperand = BOperand::Reg(Reg::X(XReg::Sp));
-
-/// typ: The type of rs.
-fn select_store(typ: BType, rs: BOperand, base: BOperand, offset: BOperand) -> BOp {
-  match typ {
-    BType::I32 | BType::U64 | BType::Array { .. } => {
-      BOp::new(BType::Void, vec![], MOpData::Sw { rs, base, offset }.into())
-    }
-    BType::F32 => BOp::new(
-      BType::Void,
-      vec![],
-      MOpData::Fsw { rs, base, offset }.into(),
-    ),
-    BType::Void => unreachable!(),
-  }
-}
-/// typ: The type of rd.
-fn select_load(typ: BType, rd: BOperand, base: BOperand, offset: BOperand) -> BOp {
-  match typ {
-    BType::I32 | BType::U64 | BType::Array { .. } => {
-      BOp::new(typ, vec![], MOpData::Lw { rd, base, offset }.into())
-    }
-    BType::F32 => BOp::new(typ, vec![], MOpData::Flw { rd, base, offset }.into()),
-    BType::Void => unreachable!(),
-  }
-}
 
 #[derive(PartialEq, Eq, Default)]
 #[allow(unused)]
@@ -299,23 +274,6 @@ impl Allocator<'_> {
   }
 
   #[inline(always)]
-  fn get_clobbered<T: FromIterator<Reg>>(&self) -> T {
-    match self.typ {
-      AllocatorType::Int => CALLER_SAVED_XREGS
-        .to_vec()
-        .into_iter()
-        .map(Reg::X)
-        .collect::<T>(),
-      AllocatorType::Float => CALLER_SAVED_FREGS
-        .to_vec()
-        .into_iter()
-        .map(Reg::F)
-        .collect::<T>(),
-      AllocatorType::Vector => unimplemented!(),
-    }
-  }
-
-  #[inline(always)]
   fn get_colors_num(&self) -> usize {
     match self.typ {
       AllocatorType::Int => COLOR_XREGS,
@@ -410,11 +368,12 @@ impl Allocator<'_> {
           // Special handling for call instruction: add all clobbered registers to rd, since they are all defined by the call instruction.
           if op.attrs.contains(&BAttr::Clobber) {
             rds = rds.union(
-              &self
-                .get_clobbered::<ArraySet<Reg>>()
+              &get_clobbered::<ArraySet<Reg>>()
                 .into_iter()
                 .map(BOperand::Reg)
-                .collect(),
+                // In allocator, we only care about target nodes, so we filter out non-target nodes here.
+                .filter(|reg| self.is_target(*reg))
+                .collect::<ArraySet<BOperand>>(),
             );
           }
           op.attrs
@@ -729,8 +688,23 @@ impl Allocator<'_> {
                 _ => unreachable!("Neighbor can't be non-reg"),
               }
           });
-        } else if let BOperand::Reg(Reg::Virt(id)) = w {
-          if let Some(c) = self.color[*id] {
+        } else if w.is_virt() {
+          let get_color = |reg: BOperand| -> Option<Reg> {
+            match reg {
+              BOperand::Reg(phys @ (Reg::F(_) | Reg::X(_))) => Some(phys),
+              BOperand::Reg(Reg::Virt(_)) => {
+                let alias = self.get_alias(reg);
+                match alias {
+                  BOperand::Reg(phys @ (Reg::F(_) | Reg::X(_))) => Some(phys),
+                  BOperand::Reg(Reg::Virt(id)) => self.color[id],
+                  _ => unreachable!("Unexpected alias: {:?}", alias),
+                }
+              }
+              _ => unreachable!("Unexpected reg: {:?}", reg),
+            }
+          };
+
+          if let Some(c) = get_color(*w) {
             ok_colors.retain(|&color| color != c);
           }
         } else {
@@ -947,12 +921,14 @@ impl Allocator<'_> {
       self.reset();
       // Run live analysis.
       let (_, live_outs) = analyze::<LiveAnalysis>(self.get_func(func_id));
+      #[cfg(feature = "debug")]
       yachiyo::debug::info!(
         "Finished liveness analysis for register allocation. funcs_live_outs: {:?}",
         live_outs
       );
       // Build the interference graph.
       self.build(&live_outs);
+      #[cfg(feature = "debug")]
       yachiyo::debug::info!(
         "Finished building interference graph for register allocation. adj_set: {:?}, degree: {:?}",
         self.adj_set,
@@ -960,6 +936,7 @@ impl Allocator<'_> {
       );
       // Make the initial worklist.
       self.make_worklist();
+      #[cfg(feature = "debug")]
       yachiyo::debug::info!(
                 "Finished making initial worklist for register allocation. simplify_worklist: {:?}, worklist_moves: {:?}, freeze_worklist: {:?}, spill_worklist: {:?}",
                 self.simplify_worklist,
@@ -982,6 +959,7 @@ impl Allocator<'_> {
           break;
         }
       }
+      #[cfg(feature = "debug")]
       yachiyo::debug::info!(
                 "Finished main loop of register allocation. simplify_worklist: {:?}, worklist_moves: {:?}, freeze_worklist: {:?}, spill_worklist: {:?}, \nselect_stack: {:?}, \ncoalesced_nodes: {:?}",
                 self.simplify_worklist,
@@ -993,6 +971,7 @@ impl Allocator<'_> {
             );
       // Assign colors to the nodes.
       self.assign_colors();
+      #[cfg(feature = "debug")]
       yachiyo::debug::info!(
                 "Finished assigning colors for register allocation. colored_nodes: {:?}, \nspilled_nodes: {:?}",
                 self.colored_nodes,
@@ -1004,6 +983,7 @@ impl Allocator<'_> {
       }
       self.insert_spills();
     }
+    #[cfg(feature = "debug")]
     yachiyo::debug::info!(
       "Finished register allocation for function v{}. \ncolored_nodes: {:?}, \nspilled_nodes: {:?}",
       func_id,
@@ -1100,12 +1080,118 @@ impl RegAlloc<'_> {
     &mut self.ir.as_mut().unwrap().funcs[func_id]
   }
 
+  /// typ: The type of rs.
+  fn select_store(&mut self, typ: BType, attrs: Vec<BAttr>, rs: BOperand, base: BOperand, offset: Option<BOperand>) -> BOp {
+    if let Some(offset) = offset {
+      // if offset is a reg, create individual add instruction.
+      if !offset.is_literal() {
+        self.create(BOp::new(
+            BType::U64,
+            vec![],
+            MOpData::Add { rd: RESERVED_REG_BOPRD, rs1: base, rs2: offset }.into()
+        ));
+      }
+    };
+    match typ {
+      BType::I32 | BType::U64 | BType::Array { .. } => if let Some(offset) = offset {
+        if offset.is_literal() {
+          BOp::new(BType::Void, attrs, MOpData::Sw { rs, base, offset }.into())
+        } else {
+          BOp::new(BType::Void, attrs, MOpData::Sw { rs, base: RESERVED_REG_BOPRD, offset: BOperand::IntImm(0) }.into())
+        }
+      } else {
+        BOp::new(BType::Void, attrs, MOpData::Sw { rs, base, offset: BOperand::IntImm(0) }.into())
+      },
+      BType::F32 => if let Some(offset) = offset {
+        if offset.is_literal() {
+          BOp::new(BType::Void, attrs, MOpData::Fsw { rs, base, offset }.into())
+        } else {
+          BOp::new(BType::Void, attrs, MOpData::Fsw { rs, base: RESERVED_REG_BOPRD, offset: BOperand::IntImm(0) }.into())
+        }
+      } else {
+        BOp::new(BType::Void, attrs, MOpData::Fsw { rs, base, offset: BOperand::IntImm(0) }.into())
+      },
+      BType::Void => unreachable!(),
+    }
+  }
+  /// typ: The type of rd.
+  fn select_load(&mut self, typ: BType, attrs: Vec<BAttr>, rd: BOperand, base: BOperand, offset: Option<BOperand>) -> BOp {
+    if let Some(offset) = offset {
+      // if offset is a reg, create individual add instruction.
+      if !offset.is_literal() {
+        self.create(BOp::new(
+            BType::U64,
+            vec![],
+            MOpData::Add { rd: RESERVED_REG_BOPRD, rs1: base, rs2: offset }.into()
+        ));
+      }
+    };
+    match typ {
+      BType::I32 | BType::U64 | BType::Array { .. } => if let Some(offset) = offset {
+        if offset.is_literal() {
+          BOp::new(BType::Void, attrs, MOpData::Lw { rd, base, offset }.into())
+        } else {
+          BOp::new(BType::Void, attrs, MOpData::Lw { rd, base: RESERVED_REG_BOPRD, offset: BOperand::IntImm(0) }.into())
+        }
+      } else {
+        BOp::new(BType::Void, attrs, MOpData::Lw { rd, base, offset: BOperand::IntImm(0) }.into())
+      },
+      BType::F32 => if let Some(offset) = offset {
+        if offset.is_literal() {
+          BOp::new(BType::Void, attrs, MOpData::Flw { rd, base, offset }.into())
+        } else {
+          BOp::new(BType::Void, attrs, MOpData::Flw { rd, base: RESERVED_REG_BOPRD, offset: BOperand::IntImm(0) }.into())
+        }
+      } else {
+        BOp::new(BType::Void, attrs, MOpData::Flw { rd, base, offset: BOperand::IntImm(0) }.into())
+      },
+      BType::Void => unreachable!(),
+    }
+  }
+  fn select_ptr_add(&mut self, typ: BType, attrs: Vec<BAttr>, rd: BOperand, rs1: BOperand, base: BOperand, offset: Option<BOperand>) -> BOp {
+    let final_offset = if let Some(offset) = offset {
+      self.create(BOp::new(
+        typ.clone(),
+        vec![],
+        if offset.is_literal() {
+          MOpData::Addi { rd: RESERVED_REG_BOPRD, rs1: base, imm: offset }.into()
+        } else {
+          MOpData::Add { rd: RESERVED_REG_BOPRD, rs1: base, rs2: offset }.into()
+        }
+      ));
+      RESERVED_REG_BOPRD
+    } else {
+      base
+    };
+    BOp::new(typ, attrs, MOpData::Add { rd, rs1, rs2: final_offset }.into())
+  }
+  fn select_ptr_sub(&mut self, typ: BType, attrs: Vec<BAttr>, rd: BOperand, rs1: BOperand, base: BOperand, offset: Option<BOperand>) -> BOp {
+    let final_offset = if let Some(offset) = offset {
+      self.create(BOp::new(
+        typ.clone(),
+        vec![],
+        // TODO: really Add here?
+        if offset.is_literal() {
+          MOpData::Addi { rd: RESERVED_REG_BOPRD, rs1: base, imm: offset }.into()
+        } else {
+          MOpData::Add { rd: RESERVED_REG_BOPRD, rs1: base, rs2: offset }.into()
+        }
+      ));
+      RESERVED_REG_BOPRD
+    } else {
+      base
+    };
+    BOp::new(typ, attrs, MOpData::Sub { rd, rs1, rs2: final_offset }.into())
+  }
+
   #[inline(always)]
   fn alloc_and_map_slot(&mut self, reg: Reg, slot: Slot) -> BOperand {
     let func_id = self.builder.current_function.unwrap();
     let func = self.get_func_mut(func_id);
     let slot_id = func.frame_info.alloc(slot);
     self.slot_map[u8::from(reg) as usize] = BOperand::Slot(slot_id);
+
+    #[cfg(feature = "debug")]
 
     yachiyo::debug::info!(
       "Allocated slot for register {:?} in function v{}. slot_id: {:?}, slot_info: {:?}",
@@ -1133,12 +1219,12 @@ impl RegAlloc<'_> {
   }
 
   #[inline(always)]
-  fn get_phys_bitset() -> BitSet {
+  fn get_callee_saved_bitset() -> BitSet {
     let mut bitset = BitSet::new();
-    for reg in CALLEE_SAVED_XREGS.iter().chain(CALLER_SAVED_XREGS.iter()) {
+    for reg in CALLEE_SAVED_XREGS.iter() {
       bitset.insert(u8::from(Reg::X(*reg)) as usize);
     }
-    for reg in CALLEE_SAVED_FREGS.iter().chain(CALLER_SAVED_FREGS.iter()) {
+    for reg in CALLEE_SAVED_FREGS.iter() {
       bitset.insert(u8::from(Reg::F(*reg)) as usize);
     }
     bitset
@@ -1168,11 +1254,6 @@ impl RegAlloc<'_> {
                         BType::I32,
                         vec![],
                         MOpData::Li { rd: RESERVED_REG_BOPRD, imm: i }.into(),
-                    ));
-                    self.create(BOp::new(
-                        BType::U64,
-                        vec![],
-                        MOpData::Addw { rd: RESERVED_REG_BOPRD, rs1: RESERVED_REG_BOPRD, rs2: SP_BOPRD }.into(),
                     ));
                     RESERVED_REG_BOPRD
                 } else {
@@ -1250,40 +1331,14 @@ impl RegAlloc<'_> {
           target: offset,
           enu: BOperand,
           minor_arms: {
-            BOperand::IntImm(_) => {
-                select_store(self.get_operand_type(value), value, SP_BOPRD, offset)
-            }
-            BOperand::Reg(_) => {
-                select_store(self.get_operand_type(value), value, offset, BOperand::IntImm(0))
+            BOperand::IntImm(_) | BOperand::Reg(_) => {
+                self.select_store(self.get_operand_type(value), vec![], value, SP_BOPRD, Some(offset))
             }
           },
           uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
           uni_arm: {
             unreachable!("Expected integer immediate, found {:?}", offset);
           }
-      };
-      self.create(store_op);
-    }
-
-    // If ra's slot is non-undef, it means that the function is not a leaf and we need to save ra.
-    if self.slot_map[u8::from(Reg::X(XReg::Ra)) as usize] != BOperand::Undef {
-      let offset =
-        self.legalize_offset(self.get_offset(self.slot_map[u8::from(Reg::X(XReg::Ra)) as usize]));
-      let store_op = match_some! {
-        target: offset,
-        enu: BOperand,
-        minor_arms: {
-          BOperand::IntImm(_) => {
-              select_store(BType::U64, BOperand::Reg(Reg::X(XReg::Ra)), SP_BOPRD, offset)
-          },
-          BOperand::Reg(_) => {
-              select_store(BType::U64, BOperand::Reg(Reg::X(XReg::Ra)), offset, BOperand::IntImm(0))
-          }
-        },
-        uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
-        uni_arm: {
-            unreachable!("Expected integer immediate, found {:?}", offset);
-        }
       };
       self.create(store_op);
     }
@@ -1294,29 +1349,6 @@ impl RegAlloc<'_> {
   /// 3. Move sp back
   fn epilogue(&mut self) {
     let func_id = self.builder.current_function.unwrap();
-
-    if self.slot_map[u8::from(Reg::X(XReg::Ra)) as usize] != BOperand::Undef {
-      let offset =
-        self.legalize_offset(self.get_offset(self.slot_map[u8::from(Reg::X(XReg::Ra)) as usize]));
-      let load_op = match_some! {
-        target: offset,
-        enu: BOperand,
-        minor_arms: {
-          BOperand::IntImm(_) => {
-              select_load(BType::U64, BOperand::Reg(Reg::X(XReg::Ra)), SP_BOPRD, offset)
-          },
-          BOperand::Reg(_) => {
-              select_load(BType::U64, BOperand::Reg(Reg::X(XReg::Ra)), offset, BOperand::IntImm(0))
-          }
-        },
-        uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
-        uni_arm: {
-            unreachable!("Expected integer immediate, found {:?}", offset);
-        }
-      };
-      self.create(load_op);
-    }
-
     for saved in 0..self.slot_map.len() {
       let slot_id = self.slot_map[saved];
       if slot_id == BOperand::Undef {
@@ -1329,11 +1361,8 @@ impl RegAlloc<'_> {
         target: offset,
         enu: BOperand,
         minor_arms: {
-            BOperand::IntImm(_) => {
-                select_load(self.get_operand_type(rd), rd, SP_BOPRD, offset)
-            }
-            BOperand::Reg(_) => {
-                select_load(self.get_operand_type(rd), rd, offset, BOperand::IntImm(0))
+            BOperand::IntImm(_) | BOperand::Reg(_) => {
+                self.select_load(self.get_operand_type(rd), vec![], rd, SP_BOPRD, Some(offset))
             }
         },
         uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
@@ -1429,7 +1458,7 @@ impl RegAlloc<'_> {
       );
     }
     // Allocate space for used callee-saved registers.
-    let mut used_callee_saved = Self::get_phys_bitset();
+    let mut used_callee_saved = Self::get_callee_saved_bitset();
     used_callee_saved.bitand_assign(&self.used_phys);
     for reg in used_callee_saved.iter() {
       let reg = Reg::from(reg as u8);
@@ -1455,7 +1484,7 @@ impl RegAlloc<'_> {
       let inst_ids = self.get_func(func_id).cfg[bb_id].cur.clone();
       for inst_id in inst_ids {
         let op = &self.get_func(func_id).dfg[inst_id];
-        let (op_data, rd_typ) = (op.data.clone(), op.typ.clone());
+        let (op_data, rd_typ, attrs) = (op.data.clone(), op.typ.clone(), op.attrs.clone());
 
         if let BOpData::L(LOpData::Store { addr, value }) = op_data {
           self.builder.set_before_inst(
@@ -1463,12 +1492,15 @@ impl RegAlloc<'_> {
             self.builder.current_function,
             Some(inst_id),
           );
+
+          #[cfg(feature = "debug")]
           yachiyo::debug::info!(
             "Lowering store instruction. inst_id: {:?}, addr: {:?}, value: {:?}",
             inst_id,
             addr,
             value
           );
+
           let store_op = match_some! {
               target: addr,
               enu: BOperand,
@@ -1479,11 +1511,8 @@ impl RegAlloc<'_> {
                           target: offset,
                           enu: BOperand,
                           minor_arms: {
-                              BOperand::IntImm(_) => {
-                                  select_store(self.get_operand_type(value), value, SP_BOPRD, offset)
-                              }
-                              BOperand::Reg(_) => {
-                                  select_store(self.get_operand_type(value), value, offset, BOperand::IntImm(0))
+                              BOperand::IntImm(_) | BOperand::Reg(_) => {
+                                  self.select_store(self.get_operand_type(value), attrs, value, SP_BOPRD, Some(offset))
                               }
                           },
                           uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
@@ -1504,10 +1533,10 @@ impl RegAlloc<'_> {
                               target: addr,
                           }.into()
                       ));
-                      select_store(self.get_operand_type(value), value, RESERVED_REG_BOPRD, BOperand::IntImm(0))
+                      self.select_store(self.get_operand_type(value), attrs, value, RESERVED_REG_BOPRD, None)
                   },
                   BOperand::Reg(_) => {
-                      select_store(self.get_operand_type(value), value, addr, BOperand::IntImm(0))
+                      self.select_store(self.get_operand_type(value), attrs, value, addr, None)
                   }
               },
               uni_ops: [IntImm, FloatImm, Func, BB, Inst, Undef],
@@ -1522,6 +1551,7 @@ impl RegAlloc<'_> {
             self.builder.current_function,
             Some(inst_id),
           );
+          #[cfg(feature = "debug")]
           yachiyo::debug::info!(
             "Lowering load instruction. inst_id: {:?}, rd: {:?}, addr: {:?}",
             inst_id,
@@ -1538,11 +1568,8 @@ impl RegAlloc<'_> {
                           target: offset,
                           enu: BOperand,
                           minor_arms: {
-                              BOperand::IntImm(_) => {
-                                  select_load(rd_typ, rd, SP_BOPRD, offset)
-                              }
-                              BOperand::Reg(_) => {
-                                  select_load(rd_typ, rd, offset, BOperand::IntImm(0))
+                              BOperand::IntImm(_) | BOperand::Reg(_) => {
+                                  self.select_load(rd_typ, attrs, rd, SP_BOPRD, Some(offset))
                               }
                           },
                           uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
@@ -1562,10 +1589,10 @@ impl RegAlloc<'_> {
                               target: addr,
                           }.into()
                       ));
-                      select_load(rd_typ, rd, RESERVED_REG_BOPRD, BOperand::IntImm(0))
+                      self.select_load(rd_typ, attrs, rd, RESERVED_REG_BOPRD, None)
                   },
                   BOperand::Reg(_) => {
-                      select_load(rd_typ, rd, addr, BOperand::IntImm(0))
+                      self.select_load(rd_typ, attrs, rd, addr, None)
                   }
               },
               uni_ops: [IntImm, FloatImm, Func, BB, Inst, Undef],
@@ -1574,6 +1601,110 @@ impl RegAlloc<'_> {
               }
           };
           self.replace_op(inst_id, bb_id, load_op);
+
+        // Pointer arithmetic lowering
+        } else if let BOpData::L(LOpData::AddI { rd, lhs, rhs: addr }) = op_data {
+          self.builder.set_before_inst(
+            self.ir.as_mut().unwrap(),
+            self.builder.current_function,
+            Some(inst_id),
+          );
+
+          let rd_typ = self.get_operand_type(rd);
+          let add_op = match_some! {
+              target: addr,
+              enu: BOperand,
+              minor_arms: {
+                  BOperand::Slot(_) => {
+                      let offset = self.legalize_offset(self.get_offset(addr));
+                      match_some! {
+                          target: offset,
+                          enu: BOperand,
+                          minor_arms: {
+                              BOperand::IntImm(_) | BOperand::Reg(_) => {
+                                  self.select_ptr_add(rd_typ, attrs, rd, lhs, SP_BOPRD, Some(offset))
+                              }
+                          },
+                          uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
+                          uni_arm: {
+                              unreachable!("Expected integer immediate, found {:?}", offset);
+                          }
+                      }
+                  }
+                  BOperand::Data(_)
+                  | BOperand::RoData(_)
+                  | BOperand::Bss(_) => {
+                      self.create(BOp::new(
+                          BType::U64,
+                          vec![],
+                          MOpData::La {
+                              rd: RESERVED_REG_BOPRD,
+                              target: addr,
+                          }.into()
+                      ));
+                      self.select_ptr_add(rd_typ, attrs, rd, lhs, RESERVED_REG_BOPRD, None)
+                  },
+                  BOperand::Reg(_) => {
+                      self.select_ptr_add(rd_typ, attrs, rd, lhs, addr, None)
+                  }
+              },
+              uni_ops: [IntImm, FloatImm, Func, BB, Inst, Undef],
+              uni_arm: {
+                  unreachable!("Expected memory enetities, found {:?}", addr);
+              }
+          };
+          self.replace_op(inst_id, bb_id, add_op);
+        } else if let BOpData::L(LOpData::SubI { rd, lhs, rhs: addr }) = op_data {
+          self.builder.set_before_inst(
+            self.ir.as_mut().unwrap(),
+            self.builder.current_function,
+            Some(inst_id),
+          );
+
+          let rd_typ = self.get_operand_type(rd);
+          let sub_op = match_some! {
+              target: addr,
+              enu: BOperand,
+              minor_arms: {
+                  BOperand::Slot(_) => {
+                      let offset = self.legalize_offset(self.get_offset(addr));
+                      match_some! {
+                          target: offset,
+                          enu: BOperand,
+                          minor_arms: {
+                              BOperand::IntImm(_) | BOperand::Reg(_) => {
+                                  self.select_ptr_sub(rd_typ, attrs, rd, lhs, SP_BOPRD, Some(offset))
+                              }
+                          },
+                          uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
+                          uni_arm: {
+                              unreachable!("Expected integer immediate, found {:?}", offset);
+                          }
+                      }
+                  }
+                  BOperand::Data(_)
+                  | BOperand::RoData(_)
+                  | BOperand::Bss(_) => {
+                      self.create(BOp::new(
+                          BType::U64,
+                          vec![],
+                          MOpData::La {
+                              rd: RESERVED_REG_BOPRD,
+                              target: addr,
+                          }.into()
+                      ));
+                      self.select_ptr_sub(rd_typ, attrs, rd, lhs, RESERVED_REG_BOPRD, None)
+                  },
+                  BOperand::Reg(_) => {
+                      self.select_ptr_sub(rd_typ, attrs, rd, lhs, addr, None)
+                  }
+              },
+              uni_ops: [IntImm, FloatImm, Func, BB, Inst, Undef],
+              uni_arm: {
+                  unreachable!("Expected memory enetities, found {:?}", addr);
+              }
+          };
+          self.replace_op(inst_id, bb_id, sub_op);
         } else if let BOpData::M(MOpData::Ret) = op_data {
           self.builder.set_before_inst(
             self.ir.as_mut().unwrap(),

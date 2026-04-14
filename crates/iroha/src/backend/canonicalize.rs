@@ -1,11 +1,13 @@
-//! Canonicalization (and Legalization) .
+//! Canonicalization (and Legalization) , including:
 //! - Constant folding for binary operations with literal operands.
 //! - Reordering of operands to ensure literals are on the right side; adjusting the operator
 //! - Inserting LoadIntImm/LoadFloatImm instructions is necessary.
 
 use yachiyo::base::Type;
 use yachiyo::config::{INT_IMM_MAX, INT_IMM_MIN};
-use yachiyo::ir::back::{BBuilder, BFunction, BOp, BOperand, BType, BackIR, LOpData, Reg, Slot, BAttr};
+use yachiyo::ir::back::{
+  BAttr, BBuilder, BFunction, BOp, BOperand, BType, BackIR, LOpData, Reg, Slot,
+};
 use yachiyo::pass::BPass;
 use yachiyo::utils::r#match::{match_some, match_src};
 
@@ -301,7 +303,7 @@ impl Canonicalize<'_> {
           Some(inst_id),
         );
         let op = &self.get_func(func_id).dfg[inst_id];
-        let (lop_data, typ, is_phi_move) = (op.data.clone().into(), op.typ.clone(), op.attrs.contains(&BAttr::PhiMove));
+        let (lop_data, typ, attrs) = (op.data.clone().into(), op.typ.clone(), op.attrs.clone());
 
         match_src! {
           target: lop_data,
@@ -330,11 +332,21 @@ impl Canonicalize<'_> {
                   LOpData::OLt { rd, .. } => LOpData::OGt { rd, lhs: self.legalize(rhs, LegalizeOption::Default), rhs: self.legalize(lhs, LegalizeOption::Default) },
                   LOpData::OLe { rd, .. } => LOpData::OGe { rd, lhs: self.legalize(rhs, LegalizeOption::Default), rhs: self.legalize(lhs, LegalizeOption::Default) },
 
+                  LOpData::SubI { rd, lhs: imm, rhs } => if attrs.contains(&BAttr::PtrArith) {
+                    LOpData::SubI { rd, lhs: self.legalize(imm, LegalizeOption::ForceImmLoad), rhs: self.legalize(rhs, LegalizeOption::NoLoad) }
+                  } else {
+                    LOpData::SubI { rd, lhs: self.legalize(imm, LegalizeOption::ForceImmLoad), rhs: self.legalize(rhs, LegalizeOption::Default) }
+                  }
+                  LOpData::AddI { rd, lhs: imm, rhs } => if attrs.contains(&BAttr::PtrArith) {
+                    // CAUTION: DO NOT change the position of mem entities!
+                    LOpData::AddI { rd, lhs: self.legalize(imm, LegalizeOption::ForceImmLoad), rhs: self.legalize(rhs, LegalizeOption::NoLoad) }
+                  } else {
+                    LOpData::AddI { rd, lhs: self.legalize(rhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) }
+                  }
+
                   // For Sub/Div/Mod/Shift, Operands can't be swapped, so we have to load lhs individually.
                   LOpData::SubF { rd, lhs: imm, rhs } =>
                     LOpData::SubF { rd, lhs: self.legalize(imm, LegalizeOption::ForceImmLoad), rhs: self.legalize(rhs, LegalizeOption::Default) },
-                  LOpData::SubI { rd, lhs: imm, rhs } =>
-                    LOpData::SubI { rd, lhs: self.legalize(imm, LegalizeOption::ForceImmLoad), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::DivF { rd, lhs: imm, rhs } =>
                     LOpData::DivF { rd, lhs: self.legalize(imm, LegalizeOption::ForceImmLoad), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::DivI { rd, lhs: imm, rhs } =>
@@ -348,8 +360,6 @@ impl Canonicalize<'_> {
                   LOpData::Sar { rd, lhs: imm, rhs } =>
                     LOpData::Sar { rd, lhs: self.legalize(imm, LegalizeOption::ForceImmLoad), rhs: self.legalize(rhs, LegalizeOption::Default) },
 
-                  LOpData::AddI { rd, lhs: imm, rhs } =>
-                    LOpData::AddI { rd, lhs: self.legalize(rhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
                   LOpData::AddF { rd, lhs: imm, rhs } =>
                     LOpData::AddF { rd, lhs: self.legalize(rhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
                   LOpData::MulI { rd, lhs: imm, rhs } =>
@@ -371,13 +381,25 @@ impl Canonicalize<'_> {
                 };
                 self.replace_op_rauw(inst_id, BOp::new(
                   typ,
-                  vec![],
+                  attrs,
                   new_lop_data.into(),
                 ));
               },
               (false, true) => {
                 // No swap. Just legalize.
                 let new_lop_data = match lop_data {
+                  // Pointer arithmetic should not load mem entities.
+                  LOpData::AddI { rd, lhs, rhs: imm } => if attrs.contains(&BAttr::PtrArith) {
+                    LOpData::AddI { rd, lhs: self.legalize(lhs, LegalizeOption::NoLoad), rhs: self.legalize(imm, LegalizeOption::Default) }
+                  } else {
+                    LOpData::AddI { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) }
+                  }
+                  LOpData::SubI { rd, lhs, rhs: imm } => if attrs.contains(&BAttr::PtrArith) {
+                    LOpData::SubI { rd, lhs: self.legalize(lhs, LegalizeOption::NoLoad), rhs: self.legalize(imm, LegalizeOption::Default) }
+                  } else {
+                    LOpData::SubI { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) }
+                  }
+
                   LOpData::SGt { rd, lhs, rhs: imm } =>
                     LOpData::SGt { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
                   LOpData::SGe { rd, lhs, rhs: imm } =>
@@ -394,8 +416,6 @@ impl Canonicalize<'_> {
                     LOpData::OLt { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
                   LOpData::OLe { rd, lhs, rhs: imm } =>
                     LOpData::OLe { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
-                  LOpData::AddI { rd, lhs, rhs: imm } =>
-                    LOpData::AddI { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
                   LOpData::AddF { rd, lhs, rhs: imm } =>
                     LOpData::AddF { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
                   LOpData::SNe { rd, lhs, rhs: imm } =>
@@ -410,8 +430,6 @@ impl Canonicalize<'_> {
                     LOpData::Xor { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
                   LOpData::SubF { rd, lhs, rhs: imm } =>
                     LOpData::SubF { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
-                  LOpData::SubI { rd, lhs, rhs: imm } =>
-                    LOpData::SubI { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
                   LOpData::Shl { rd, lhs, rhs: imm } =>
                     LOpData::Shl { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
                   LOpData::Shr { rd, lhs, rhs: imm } =>
@@ -435,45 +453,53 @@ impl Canonicalize<'_> {
                 };
                 self.replace_op_rauw(inst_id, BOp::new(
                   typ,
-                  vec![],
+                  attrs,
                   new_lop_data.into(),
                 ));
               }
               (false, false) => {
                 // No swap. Just legalize both operands.
-                let (lhs, rhs) = (self.legalize(lhs, LegalizeOption::Default), self.legalize(rhs, LegalizeOption::Default));
                 let new_lop_data = match lop_data {
-                  LOpData::SGt { rd, .. } => LOpData::SGt { rd, lhs, rhs },
-                  LOpData::SGe { rd, .. } => LOpData::SGe { rd, lhs, rhs },
-                  LOpData::SLt { rd, .. } => LOpData::SLt { rd, lhs, rhs },
-                  LOpData::SLe { rd, .. } => LOpData::SLe { rd, lhs, rhs },
-                  LOpData::OGt { rd, .. } => LOpData::OGt { rd, lhs, rhs },
-                  LOpData::OGe { rd, .. } => LOpData::OGe { rd, lhs, rhs },
-                  LOpData::OLt { rd, .. } => LOpData::OLt { rd, lhs, rhs },
-                  LOpData::OLe { rd, .. } => LOpData::OLe { rd, lhs, rhs },
-                  LOpData::AddI { rd, .. } => LOpData::AddI { rd, lhs, rhs },
-                  LOpData::AddF { rd, .. } => LOpData::AddF { rd, lhs, rhs },
-                  LOpData::SubI { rd, .. } => LOpData::SubI { rd, lhs, rhs },
-                  LOpData::SubF { rd, .. } => LOpData::SubF { rd, lhs, rhs },
-                  LOpData::MulI { rd, .. } => LOpData::MulI { rd, lhs, rhs },
-                  LOpData::MulF { rd, .. } => LOpData::MulF { rd, lhs, rhs },
-                  LOpData::DivI { rd, .. } => LOpData::DivI { rd, lhs, rhs },
-                  LOpData::DivF { rd, .. } => LOpData::DivF { rd, lhs, rhs },
-                  LOpData::ModI { rd, .. } => LOpData::ModI { rd, lhs, rhs },
-                  LOpData::SNe { rd, .. } => LOpData::SNe { rd, lhs, rhs },
-                  LOpData::SEq { rd, .. } => LOpData::SEq { rd, lhs, rhs },
-                  LOpData::OEq { rd, .. } => LOpData::OEq { rd, lhs, rhs },
-                  LOpData::ONe { rd, .. } => LOpData::ONe { rd, lhs, rhs },
-                  LOpData::Xor { rd, .. } => LOpData::Xor { rd, lhs, rhs },
-                  LOpData::Shl { rd, .. } => LOpData::Shl { rd, lhs, rhs },
-                  LOpData::Shr { rd, .. } => LOpData::Shr { rd, lhs, rhs },
-                  LOpData::Sar { rd, .. } => LOpData::Sar { rd, lhs, rhs },
+                  LOpData::AddI { rd, .. } => if attrs.contains(&BAttr::PtrArith) {
+                    LOpData::AddI { rd, lhs: self.legalize(lhs, LegalizeOption::NoLoad), rhs: self.legalize(rhs, LegalizeOption::NoLoad) }
+                  } else {
+                    LOpData::AddI { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) }
+                  },
+                  LOpData::SubI { rd, .. } => if attrs.contains(&BAttr::PtrArith) {
+                    LOpData::SubI { rd, lhs: self.legalize(lhs, LegalizeOption::NoLoad), rhs: self.legalize(rhs, LegalizeOption::NoLoad) }
+                  } else {
+                    LOpData::SubI { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) }
+                  },
+
+                  LOpData::SGt { rd, .. } => LOpData::SGt { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::SGe { rd, .. } => LOpData::SGe { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::SLt { rd, .. } => LOpData::SLt { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::SLe { rd, .. } => LOpData::SLe { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::OGt { rd, .. } => LOpData::OGt { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::OGe { rd, .. } => LOpData::OGe { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::OLt { rd, .. } => LOpData::OLt { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::OLe { rd, .. } => LOpData::OLe { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::AddF { rd, .. } => LOpData::AddF { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::SubF { rd, .. } => LOpData::SubF { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::MulI { rd, .. } => LOpData::MulI { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::MulF { rd, .. } => LOpData::MulF { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::DivI { rd, .. } => LOpData::DivI { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::DivF { rd, .. } => LOpData::DivF { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::ModI { rd, .. } => LOpData::ModI { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::SNe { rd, .. } => LOpData::SNe { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::SEq { rd, .. } => LOpData::SEq { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::OEq { rd, .. } => LOpData::OEq { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::ONe { rd, .. } => LOpData::ONe { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::Xor { rd, .. } => LOpData::Xor { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::Shl { rd, .. } => LOpData::Shl { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::Shr { rd, .. } => LOpData::Shr { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::Sar { rd, .. } => LOpData::Sar { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
 
                   _ => unreachable!("Unexpected op with no literal operand: {:?}", lop_data),
                 };
                 self.replace_op_rauw(inst_id, BOp::new(
                   typ,
-                  vec![],
+                  attrs,
                   new_lop_data.into(),
                 ));
               }
@@ -491,7 +517,7 @@ impl Canonicalize<'_> {
             };
             self.replace_op_rauw(inst_id, BOp::new(
               typ,
-              vec![],
+              attrs,
               new_lop_data.into(),
             ));
           },
@@ -501,7 +527,7 @@ impl Canonicalize<'_> {
               let new_lop_data = LOpData::Store { addr: self.legalize(addr, LegalizeOption::NoLoad), value: self.legalize(value, LegalizeOption::ForceImmLoad) };
               self.replace_op_rauw(inst_id, BOp::new(
                 typ,
-                vec![],
+                attrs,
                 new_lop_data.into(),
               ));
             }
@@ -510,7 +536,7 @@ impl Canonicalize<'_> {
               let new_lop_data = LOpData::Load { addr: self.legalize(addr, LegalizeOption::NoLoad), rd };
               self.replace_op_rauw(inst_id, BOp::new(
                 typ,
-                vec![],
+                attrs,
                 new_lop_data.into(),
               ));
             },
@@ -520,20 +546,20 @@ impl Canonicalize<'_> {
               if let BOperand::Reg(Reg::X(_)) | BOperand::Reg(Reg::F(_)) = rd {
                 self.replace_op_no_rauw(inst_id, BOp::new(
                   typ,
-                  vec![],
+                  attrs,
                   new_lop_data.into(),
                 ));
-              } else if is_phi_move {
+              } else if attrs.contains(&BAttr::PhiMove) {
                 // For phi move, we also don't want to RAUW because it might cause issues with phi move elimination later.
                 self.replace_op_no_rauw(inst_id, BOp::new(
                   typ,
-                  vec![],
+                  attrs,
                   new_lop_data.into(),
                 ));
               } else {
                 self.replace_op_rauw(inst_id, BOp::new(
                   typ,
-                  vec![],
+                  attrs,
                   new_lop_data.into(),
                 ));
               }
@@ -546,7 +572,7 @@ impl Canonicalize<'_> {
               };
               self.replace_op_rauw(inst_id, BOp::new(
                 typ,
-                vec![],
+                attrs,
                 new_lop_data.into(),
               ));
             },

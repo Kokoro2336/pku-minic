@@ -1,3 +1,5 @@
+//! Main entry point of the compiler.
+
 use lalrpop_util::lalrpop_mod;
 use std::fs::read_to_string;
 use std::io::Result;
@@ -7,7 +9,9 @@ use iroha::frontend::*;
 use iroha::opt::*;
 
 use yachiyo::cli::Cli;
+#[cfg(feature = "debug")]
 use yachiyo::debug::info;
+#[cfg(feature = "debug")]
 use yachiyo::debug::log::setup;
 use yachiyo::debug::DumpASM;
 use yachiyo::pass::*;
@@ -18,7 +22,9 @@ lalrpop_mod!(sysy);
 fn main() -> Result<()> {
   // setup logging
   // We need to keep this guard alive for the entire duration of the program.
+  #[cfg(feature = "debug")]
   let _guard = setup("rsyc.log");
+  #[cfg(feature = "debug")]
   info!("Logger initialized.");
 
   // Parse the args
@@ -49,6 +55,7 @@ fn main() -> Result<()> {
     // For now, we set the stack size to 16MB to avoid stack overflow in deep recursion of semantic analysis.
     .stack_size(16 * 1024 * 1024)
     .spawn(move || {
+      #[cfg(feature = "debug")]
       info!("Start Semantic Analysis.");
       let result = {
         match Semantic::new(result).run() {
@@ -58,10 +65,14 @@ fn main() -> Result<()> {
           }
         }
       };
+      #[cfg(feature = "debug")]
       info!("Finish Semantic Analysis.");
+
+      #[cfg(feature = "debug")]
 
       info!("Start Emitting.");
       let ir = Emit::new(result).run();
+      #[cfg(feature = "debug")]
       info!("Finish Emitting.");
       ir
     })?
@@ -85,11 +96,14 @@ fn main() -> Result<()> {
     .run(&mut ir);
 
   // Start Lowering
+  #[cfg(feature = "debug")]
   info!("Start Lowering.");
   let mut back_ir = Lowering::new(ir).run();
+  #[cfg(feature = "debug")]
   info!("Finish Lowering.");
 
   if cli.dump_asm_after == "Lowering" {
+    #[cfg(feature = "debug")]
     info!("Start Dumping Assembly.");
     let asm_filename = cli
       .output
@@ -98,6 +112,7 @@ fn main() -> Result<()> {
       .to_string_lossy()
       .to_string();
     DumpASM::new(&back_ir, asm_filename).run();
+    #[cfg(feature = "debug")]
     info!("Finish Dumping Assembly.");
     std::process::exit(0);
   }

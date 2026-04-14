@@ -38,7 +38,7 @@ impl ISel<'_> {
     let func_id = self
       .builder
       .current_function
-      .expect("ISel: not in a function");
+      .unwrap();
     self
       .ir
       .as_ref()
@@ -84,14 +84,15 @@ impl ISel<'_> {
     let func_id = self
       .builder
       .current_function
-      .expect("ISel: not in a function");
+      .unwrap();
     let func = &self.ir.as_ref().unwrap().funcs[func_id];
     let bop = &func.dfg[lop_id];
-    let (lop_data, is_phi_move, typ) = (
-      bop.data.clone().into(),
-      bop.attrs.contains(&BAttr::PhiMove),
-      bop.typ.clone(),
-    );
+    let (lop_data, attrs, typ) = (bop.data.clone().into(), bop.attrs.clone(), bop.typ.clone());
+
+    // Pointer arithmetic should be lowered in post-ra.
+    if attrs.contains(&BAttr::PtrArith) {
+      return;
+    }
 
     // Set before current inst.
     self.builder.set_current_inst(lop_id);
@@ -112,8 +113,9 @@ impl ISel<'_> {
                         enu: LOpData,
                         minor_arms: {
                             // Xxxw operations extend the operand automatically.
-                            LOpData::AddI { .. } => MOpData::Addiw { rd: BOperand::Undef, rs1, imm },
-                            LOpData::SubI { .. } => MOpData::Addiw { rd: BOperand::Undef, rs1, imm: imm.negate_literal() },
+                            // TODO: For now only 64-bits operation of Add is required. We might extend the support to other operations in the future.
+                            LOpData::AddI { .. } => if typ == BType::I32 { MOpData::Addiw { rd: BOperand::Undef, rs1, imm } } else { MOpData::Addi { rd: BOperand::Undef, rs1, imm } },
+                            LOpData::SubI { .. } => if typ == BType::I32 { MOpData::Addiw { rd: BOperand::Undef, rs1, imm: imm.negate_literal() } } else { MOpData::Addi { rd: BOperand::Undef, rs1, imm: imm.negate_literal() } },
 
                             LOpData::Shl { .. } => MOpData::Slliw { rd: BOperand::Undef, rs1, imm },
                             LOpData::Shr { .. } => MOpData::Srliw { rd: BOperand::Undef, rs1, imm },
@@ -247,7 +249,7 @@ impl ISel<'_> {
                         }
                     };
 
-                    self.replace_op_rauw(lop_id, BOp::new(typ.clone(), vec![], mop_data.into()));
+                    self.replace_op_rauw(lop_id, BOp::new(typ.clone(), attrs, mop_data.into()));
                 },
                 (false, false) => {
                     let (rs1, rs2) = (*lhs, *rhs);
@@ -255,8 +257,9 @@ impl ISel<'_> {
                         target: lop_data,
                         enu: LOpData,
                         minor_arms: {
-                            LOpData::AddI { .. } => MOpData::Addw { rd: BOperand::Undef, rs1, rs2 },
-                            LOpData::SubI { .. } => MOpData::Subw { rd: BOperand::Undef, rs1, rs2 },
+                            LOpData::AddI { .. } => if typ == BType::I32 { MOpData::Addw { rd: BOperand::Undef, rs1, rs2 } } else { MOpData::Add { rd: BOperand::Undef, rs1, rs2 } },
+                            LOpData::SubI { .. } => if typ == BType::I32 { MOpData::Subw { rd: BOperand::Undef, rs1, rs2 } } else { MOpData::Sub { rd: BOperand::Undef, rs1, rs2 } },
+
                             LOpData::MulI { .. } => MOpData::Mulw { rd: BOperand::Undef, rs1, rs2 },
                             LOpData::DivI { .. } => MOpData::Divw { rd: BOperand::Undef, rs1, rs2 },
                             LOpData::ModI { .. } => MOpData::Remw { rd: BOperand::Undef, rs1, rs2 },
@@ -380,7 +383,7 @@ impl ISel<'_> {
                         }
                     };
 
-                    self.replace_op_rauw(lop_id, BOp::new(typ.clone(), vec![], mop_data.into()));
+                    self.replace_op_rauw(lop_id, BOp::new(typ.clone(), attrs, mop_data.into()));
                 }
             }
         },
@@ -399,7 +402,7 @@ impl ISel<'_> {
                 }
             };
 
-            self.replace_op_rauw(lop_id, BOp::new(typ.clone(), vec![], mop_data.into()));
+            self.replace_op_rauw(lop_id, BOp::new(typ.clone(), attrs, mop_data.into()));
         },
         fallback: {
             LOpData::Store {..}
@@ -410,7 +413,7 @@ impl ISel<'_> {
                     lop_id,
                     BOp::new(
                         typ.clone(),
-                        vec![],
+                        attrs,
                         MOpData::Call { target: *func }.into(),
                     ),
                 );
@@ -428,7 +431,7 @@ impl ISel<'_> {
                     lop_id,
                     BOp::new(
                         typ.clone(),
-                        vec![],
+                        attrs,
                         MOpData::J { target: *else_bb }.into(),
                     ),
                 );
@@ -439,7 +442,7 @@ impl ISel<'_> {
                     lop_id,
                     BOp::new(
                         typ.clone(),
-                        vec![],
+                        attrs,
                         MOpData::J { target: *target_bb }.into()
                     ),
                 );
@@ -462,7 +465,7 @@ impl ISel<'_> {
                             lop_id,
                             BOp::new(
                                 typ.clone(),
-                                vec![],
+                                attrs,
                                 // For Move, we still use the original rd.
                                 mop_data.into(),
                             ),
@@ -470,7 +473,7 @@ impl ISel<'_> {
                     },
                     // Else if the destination is a virtual register, we
                     BOperand::Reg(Reg::Virt(_)) => {
-                        let rd = if is_phi_move { *rd } else { BOperand::Undef };
+                        let rd = if attrs.contains(&BAttr::PhiMove) { *rd } else { BOperand::Undef };
                         let mop_data = match typ {
                             BType::I32
                             | BType::U64
@@ -478,12 +481,12 @@ impl ISel<'_> {
                             BType::F32 => MOpData::FmvS { rd, rs: *src },
                             BType::Void => unreachable!("Move with void type doesn't make sense"),
                         };
-                        if is_phi_move {
+                        if attrs.contains(&BAttr::PhiMove) {
                             self.replace_op_no_rauw(
                                 lop_id,
                                 BOp::new(
                                     typ.clone(),
-                                    vec![],
+                                    attrs,
                                     mop_data.into(),
                                 ),
                             );
@@ -492,7 +495,7 @@ impl ISel<'_> {
                                 lop_id,
                                 BOp::new(
                                     typ.clone(),
-                                    vec![],
+                                    attrs,
                                     mop_data.into(),
                                 ),
                             );
@@ -512,7 +515,7 @@ impl ISel<'_> {
                     lop_id,
                     BOp::new(
                         BType::F32,
-                        vec![],
+                        attrs,
                         // CAUTION: Create LOpData::Load here.
                         LOpData::Load { rd: BOperand::Undef, addr: rodata_id }.into(),
                     )
@@ -524,7 +527,7 @@ impl ISel<'_> {
                     lop_id,
                     BOp::new(
                         typ.clone(),
-                        vec![],
+                        attrs,
                         MOpData::Li { rd: BOperand::Undef, imm: *imm }.into(),
                     )
                 );
@@ -535,7 +538,7 @@ impl ISel<'_> {
                     lop_id,
                     BOp::new(
                         typ.clone(),
-                        vec![],
+                        attrs,
                         MOpData::La { rd: BOperand::Undef, target: *addr }.into(),
                     )
                 );
@@ -547,7 +550,7 @@ impl ISel<'_> {
                     lop_id,
                     BOp::new(
                         BType::Void,
-                        vec![],
+                        attrs,
                         MOpData::Ret.into(),
                     ),
                 );

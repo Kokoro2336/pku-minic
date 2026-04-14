@@ -1,3 +1,5 @@
+//! BackIR instruction definitions.
+
 mod lower;
 mod machine;
 

@@ -1,4 +1,4 @@
-//! Intermediate Representation (IR) definitions and utilities.
+//! Definition of IR.
 
 pub mod back;
 pub mod mid;

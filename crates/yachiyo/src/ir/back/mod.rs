@@ -1,4 +1,4 @@
-//! Machine IR (MIR) definition.
+//! Backend IR (BackIR) definition.
 
 mod bb;
 mod builder;

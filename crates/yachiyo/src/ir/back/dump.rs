@@ -257,6 +257,12 @@ impl AsmFormatCtx<'_> {
           self.format_operand(rs1),
           self.format_operand(rs2)
         ),
+        MOpData::Sub { rd, rs1, rs2 } => format!(
+          "sub {}, {}, {}",
+          self.format_operand(rd),
+          self.format_operand(rs1),
+          self.format_operand(rs2)
+        ),
         MOpData::Addi { rd, rs1, imm } => format!(
           "addi {}, {}, {}",
           self.format_operand(rd),

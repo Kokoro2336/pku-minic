@@ -1,6 +1,7 @@
-//! Definition of Lower IR (LIR) instructions.
+//! Instruction defintion of BackIR.
 
 use super::{BType, Reg};
+#[cfg(feature = "debug")]
 use crate::debug::info;
 use crate::ir::back::LOpData;
 use crate::ir::back::MOpData;
@@ -156,15 +157,15 @@ impl BOperand {
 #[derive(Debug, Clone, PartialEq)]
 pub enum BAttr {
   Name(String),
+  /// Indicates that this is a pointer arithmetic operation, which should not have a leading load/store.
+  PtrArith,
   /// Indicates that this move is a phi move. If an instruction has this attribute, ISel won't create.
   PhiMove,
   /// For call instructions, indicates the operand is a return value.
   Clobber,
   /// For the result of call instruction.
   ImplicitDef(BOperand),
-  /// For call instructions, indicates the operand is a used value that is not explicitly passed in the operand list,
-  /// e.g. caller-saved registers.
-  /// Ret value operand is also considered implicit use, since it's not explicitly passed in the operand list of the call instruction.
+  /// For call/ret instructions, indicates the operand is a used value that is not explicitly passed in the operand list.
   ImplicitUse(Vec<BOperand>),
 }
 
@@ -255,7 +256,7 @@ impl BDFG {
           target: mop_data,
           op_with_rds: [
               Li, La, Mv, FmvS,
-            Add, Addi, Addw, Subw, Mulw, Divw, Remw,
+              Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw,
               Slliw, Srliw, Sraiw,
               Sllw, Srlw, Sraw,
               Slt, Slti, Sltu, Sltiu,
@@ -316,7 +317,7 @@ impl BDFG {
           target: mop_data,
           op_with_rds: [
               Li, La, Mv, FmvS,
-              Add, Addi, Addw, Subw, Mulw, Divw, Remw,
+            Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw,
               Slliw, Srliw, Sraiw,
               Sllw, Srlw, Sraw,
               Slt, Slti, Sltu, Sltiu,
@@ -390,7 +391,7 @@ impl BDFG {
       BOpData::M(mop_data) => match_src! {
           target: mop_data,
           bin_ops: [
-            Add, Addw, Subw, Mulw, Divw, Remw,
+              Add, Sub, Addw, Subw, Mulw, Divw, Remw,
               Sllw, Srlw, Sraw,
               Slt, Sltu, Xor,
               FaddS, FsubS, FmulS, FdivS,
@@ -485,7 +486,7 @@ impl BDFG {
       BOpData::M(mop_data) => match_src! {
           target: mop_data,
           bin_ops: [
-            Add, Addw, Subw, Mulw, Divw, Remw,
+              Add, Sub, Addw, Subw, Mulw, Divw, Remw,
               Sllw, Srlw, Sraw,
               Slt, Sltu, Xor,
               FaddS, FsubS, FmulS, FdivS,
@@ -576,6 +577,8 @@ impl Arena<BOp> for BDFG {
         self.storage.push(data);
       }
     });
+
+    #[cfg(feature = "debug")]
 
     info!(
       "BDFG GC: {} instructions collected, recycle rate: {:.2}%",
