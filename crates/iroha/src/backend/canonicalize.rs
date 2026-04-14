@@ -339,7 +339,7 @@ impl Canonicalize<'_> {
                   }
                   LOpData::AddI { rd, lhs: imm, rhs } => if attrs.contains(&BAttr::PtrArith) {
                     // CAUTION: DO NOT change the position of mem entities!
-                    LOpData::AddI { rd, lhs: self.legalize(imm, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::NoLoad) }
+                    LOpData::AddI { rd, lhs: self.legalize(imm, LegalizeOption::ForceImmLoad), rhs: self.legalize(rhs, LegalizeOption::NoLoad) }
                   } else {
                     LOpData::AddI { rd, lhs: self.legalize(rhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) }
                   }
