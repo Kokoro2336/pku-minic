@@ -64,8 +64,16 @@ impl Lowering {
       Operand::Param { idx, .. } => self.param_map[idx],
 
       // Legalize immediats when getting 'em.
-      Operand::Bool(imm) => BOperand::IntImm(imm as i32),
-      Operand::Int(imm) => BOperand::IntImm(imm),
+      Operand::Bool(imm) => if imm as i32 == 0 {
+        BOperand::Reg(Reg::X(XReg::Zero))
+      } else {
+        BOperand::IntImm(imm as i32)
+      }
+      Operand::Int(imm) => if imm == 0 {
+        BOperand::Reg(Reg::X(XReg::Zero))
+      } else {
+        BOperand::IntImm(imm)
+      },
       Operand::Float(imm) => BOperand::FloatImm(imm),
       Operand::Undefined => BOperand::Undef,
     }
