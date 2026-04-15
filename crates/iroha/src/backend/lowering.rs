@@ -485,12 +485,9 @@ impl Lowering {
                 );
             },
             OpData::Store { addr, value } => {
-                let addr = self.get(
-                addr.clone(),
-                );
-                let value = self.get(
-                value.clone(),
-                );
+                let addr = self.get(addr.clone());
+                let val_typ = self.get_op_type(value.clone());
+                let value = self.get(value.clone());
                 self.create_and_map_lop(
                     op_id.clone(),
                     BOp::new(
@@ -499,6 +496,7 @@ impl Lowering {
                         LOpData::Store {
                             addr,
                             value,
+                            val_typ: val_typ.into(),
                         }
                         .into(),
                     ),
@@ -534,9 +532,7 @@ impl Lowering {
                 for (idx, arg) in args.iter().enumerate() {
                     let arg_typ = self.get_op_type(arg.clone());
                     if idx < PARAM_REG_MAX_NUM as usize {
-                        let arg = self.get(
-                      arg.clone(),
-                        );
+                        let arg = self.get(arg.clone());
                         self.create(BOp::new(
                             arg_typ.clone().into(),
                             vec![],
@@ -548,15 +544,15 @@ impl Lowering {
                         ));
                     } else {
                         let slot_id = spilled_arg_offsets[idx - PARAM_REG_MAX_NUM as usize];
-                        let arg = self.get(
-                        arg.clone(),
-                        );
+                        let arg_typ = self.get_op_type(arg.clone());
+                        let arg = self.get(arg.clone());
                         self.create(BOp::new(
                             Type::Void.into(),
                             vec![],
                             LOpData::Store {
                                 addr: slot_id,
                                 value: arg,
+                                val_typ: arg_typ.into(),
                             }
                             .into(),
                         ));
@@ -624,20 +620,22 @@ impl Lowering {
             }
             OpData::GEP { base, indices } => {
                 // GEP is only used for array in SysY.
-                let typ = self.get_op_type(base.clone());
-                let base_typ = match &typ {
+                let pointee_typ = {
+                  let base_typ = self.get_op_type(base.clone());
+                  match &base_typ {
                     Type::Pointer { base } => (**base).clone(),
                     _ => unreachable!("Only array type can be the base of GEP"),
+                  }
                 };
 
                 // Initialize the current base address with the base pointer.
                 let mut current_lop_vreg_id = self.get(base.clone());
                 for (dim, index) in indices.iter().enumerate() {
-                    match &base_typ {
+                    match &pointee_typ {
                         Type::Array { .. } => {
                             // Truncate the first index of indices
                             if dim == 0 {
-                                continue;
+                              continue;
                             }
                             let index = self.get(index.clone());
                             let mul_lop_id = self.create(BOp::new(
@@ -646,7 +644,7 @@ impl Lowering {
                                 LOpData::MulI {
                                     rd: BOperand::Undef,
                                     lhs: index,
-                                    rhs: BOperand::IntImm(base_typ.subarr_size(dim) as i32),
+                                    rhs: BOperand::IntImm(pointee_typ.subarr_size(dim) as i32),
                                 }
                                 .into(),
                             ));
@@ -669,11 +667,9 @@ impl Lowering {
                                     op_id.clone(), add_lop
                                 );
                             } else {
-                                let add_lop_id = self.create(
-                                    add_lop,
-                                );
+                                let add_lop_id = self.create(add_lop);
                                 // Update current base address.
-                                current_lop_vreg_id = self.get_rd(add_lop_id).expect("Add should produce a value");
+                                current_lop_vreg_id = self.get_rd(add_lop_id).unwrap();
                             }
                         }
                         _ => {
@@ -685,7 +681,7 @@ impl Lowering {
                                     vec![],
                                     LOpData::MulI {
                                         rd: BOperand::Undef,
-                                        lhs: BOperand::IntImm(base_typ.size() as i32),
+                                        lhs: BOperand::IntImm(pointee_typ.size() as i32),
                                         rhs,
                                     }
                                     .into(),
@@ -713,9 +709,10 @@ impl Lowering {
                 }
 
                 // If the truncated indices is empty, we need to map the GEP to the base pointer's LOp InstId directly.
-                if indices.is_empty() {
-                    let target_id = self.get(base.clone());
-                    self.set(op_id, target_id);
+                // TODO: The edge case is totally in a mess. We might refacor it.
+                if indices.is_empty() || (indices.len() == 1 && matches!(pointee_typ, Type::Array { .. })) {
+                  let target_id = self.get(base.clone());
+                  self.set(op_id, target_id);
                 }
             }
             OpData::Ret { value } => {
@@ -913,10 +910,13 @@ impl Lowering {
 
             // Replace the src of the original move.
             self.replace_src(move_lop_id, src, temp_vreg_id);
+            // Update the out-degree of temp and src.
+            *out_degree.entry(temp_vreg_id).or_insert(0) += 1;
+            *out_degree.entry(src).or_insert(0) -= 1;
 
-            // We don't update the out-degree of temp, letting it stay as 0.
-            move_lop_ids.push(src_temp_id);
-            // So that the new temp move will be scheduled in the next iterations.
+            // But we will shcedule it directly rather than putting it back to move_lop_ids,
+            // since we want to break the cycle as soon as possible.
+            new.push((src_temp_id, self.builder.current_block.unwrap()));
           }
           _ => unreachable!("Expected Move, got {:?}", move_lop_data),
         }

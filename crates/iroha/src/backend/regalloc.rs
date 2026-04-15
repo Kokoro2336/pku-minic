@@ -783,11 +783,12 @@ impl Allocator<'_> {
         );
 
         let store_op = BOp::new(
-          typ.clone(),
+          BType::Void,
           vec![],
           LOpData::Store {
             addr: slot_id,
             value: *self.get_rd(def).unwrap(),
+            val_typ: typ.clone(),
           }
           .into(),
         );
@@ -1113,29 +1114,55 @@ impl RegAlloc<'_> {
       BType::I32 | BType::U64 | BType::Array { .. } => {
         if let Some(offset) = offset {
           if offset.is_literal() {
-            BOp::new(BType::Void, attrs, MOpData::Sw { rs, base, offset }.into())
+            BOp::new(
+              BType::Void,
+              attrs,
+              match typ {
+                BType::I32 => MOpData::Sw { rs, base, offset }.into(),
+                BType::U64 | BType::Array { .. } => MOpData::Sd { rs, base, offset }.into(),
+                _ => unreachable!(),
+              },
+            )
           } else {
             BOp::new(
               BType::Void,
               attrs,
-              MOpData::Sw {
-                rs,
-                base: RESERVED_REG_BOPRD,
-                offset: BOperand::IntImm(0),
-              }
-              .into(),
+              match typ {
+                BType::I32 => MOpData::Sw {
+                  rs,
+                  base: RESERVED_REG_BOPRD,
+                  offset: BOperand::IntImm(0),
+                }
+                .into(),
+                BType::U64 | BType::Array { .. } => MOpData::Sd {
+                  rs,
+                  base: RESERVED_REG_BOPRD,
+                  offset: BOperand::IntImm(0),
+                }
+                .into(),
+                _ => unreachable!(),
+              },
             )
           }
         } else {
           BOp::new(
             BType::Void,
             attrs,
-            MOpData::Sw {
-              rs,
-              base,
-              offset: BOperand::IntImm(0),
-            }
-            .into(),
+            match typ {
+              BType::I32 => MOpData::Sw {
+                rs,
+                base,
+                offset: BOperand::IntImm(0),
+              }
+              .into(),
+              BType::U64 | BType::Array { .. } => MOpData::Sd {
+                rs,
+                base,
+                offset: BOperand::IntImm(0),
+              }
+              .into(),
+              _ => unreachable!(),
+            },
           )
         }
       }
@@ -1199,30 +1226,56 @@ impl RegAlloc<'_> {
       BType::I32 | BType::U64 | BType::Array { .. } => {
         if let Some(offset) = offset {
           if offset.is_literal() {
-            BOp::new(BType::Void, attrs, MOpData::Lw { rd, base, offset }.into())
+            BOp::new(
+              BType::Void,
+              attrs,
+              match typ {
+                BType::I32 => MOpData::Lw { rd, base, offset }.into(),
+                BType::U64 | BType::Array { .. } => MOpData::Ld { rd, base, offset }.into(),
+                _ => unreachable!(),
+              },
+            )
           } else {
             // Don't use x0 here, which could introduce extra instruction.
             BOp::new(
               BType::Void,
               attrs,
-              MOpData::Lw {
-                rd,
-                base: RESERVED_REG_BOPRD,
-                offset: BOperand::IntImm(0),
-              }
-              .into(),
+              match typ {
+                BType::I32 => MOpData::Lw {
+                  rd,
+                  base: RESERVED_REG_BOPRD,
+                  offset: BOperand::IntImm(0),
+                }
+                .into(),
+                BType::U64 | BType::Array { .. } => MOpData::Ld {
+                  rd,
+                  base: RESERVED_REG_BOPRD,
+                  offset: BOperand::IntImm(0),
+                }
+                .into(),
+                _ => unreachable!(),
+              },
             )
           }
         } else {
           BOp::new(
             BType::Void,
             attrs,
-            MOpData::Lw {
-              rd,
-              base,
-              offset: BOperand::IntImm(0),
-            }
-            .into(),
+            match typ {
+              BType::I32 => MOpData::Lw {
+                rd,
+                base,
+                offset: BOperand::IntImm(0),
+              }
+              .into(),
+              BType::U64 | BType::Array { .. } => MOpData::Ld {
+                rd,
+                base,
+                offset: BOperand::IntImm(0),
+              }
+              .into(),
+              _ => unreachable!(),
+            },
           )
         }
       }
@@ -1496,7 +1549,8 @@ impl RegAlloc<'_> {
           enu: BOperand,
           minor_arms: {
             BOperand::IntImm(_) | BOperand::Reg(_) => {
-                self.select_store(self.get_operand_type(value), vec![], value, SP_BOPRD, Some(offset))
+                // CAUTION: Do not get_operand_type(value) here, which could misread the value into a I32/F32 type and introduce fatal error.
+                self.select_store(BType::U64, vec![], value, SP_BOPRD, Some(offset))
             }
           },
           uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
@@ -1526,7 +1580,7 @@ impl RegAlloc<'_> {
         enu: BOperand,
         minor_arms: {
             BOperand::IntImm(_) | BOperand::Reg(_) => {
-                self.select_load(self.get_operand_type(rd), vec![], rd, SP_BOPRD, Some(offset))
+                self.select_load(BType::U64, vec![], rd, SP_BOPRD, Some(offset))
             }
         },
         uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
@@ -1650,7 +1704,7 @@ impl RegAlloc<'_> {
         let op = &self.get_func(func_id).dfg[inst_id];
         let (op_data, rd_typ, attrs) = (op.data.clone(), op.typ.clone(), op.attrs.clone());
 
-        if let BOpData::L(LOpData::Store { addr, value }) = op_data {
+        if let BOpData::L(LOpData::Store { addr, value, val_typ }) = op_data {
           self.builder.set_before_inst(
             self.ir.as_mut().unwrap(),
             self.builder.current_function,
@@ -1676,7 +1730,7 @@ impl RegAlloc<'_> {
                           enu: BOperand,
                           minor_arms: {
                               BOperand::IntImm(_) | BOperand::Reg(_) => {
-                                  self.select_store(self.get_operand_type(value), attrs, value, SP_BOPRD, Some(offset))
+                                  self.select_store(val_typ, attrs, value, SP_BOPRD, Some(offset))
                               }
                           },
                           uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
@@ -1697,10 +1751,10 @@ impl RegAlloc<'_> {
                               target: addr,
                           }.into()
                       ));
-                      self.select_store(self.get_operand_type(value), attrs, value, RESERVED_REG_BOPRD, None)
+                      self.select_store(val_typ, attrs, value, RESERVED_REG_BOPRD, None)
                   },
                   BOperand::Reg(_) => {
-                      self.select_store(self.get_operand_type(value), attrs, value, addr, None)
+                      self.select_store(val_typ, attrs, value, addr, None)
                   }
               },
               uni_ops: [IntImm, FloatImm, Func, BB, Inst, Undef],

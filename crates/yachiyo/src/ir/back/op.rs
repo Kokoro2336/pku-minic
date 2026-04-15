@@ -389,7 +389,7 @@ impl BDFG {
               vec![(value, 1)]
           },
           fallback: {
-              LOpData::Store { addr, value } => vec![(addr, 0), (value, 1)],
+              LOpData::Store { addr, value, .. } => vec![(addr, 0), (value, 1)],
               LOpData::Load { addr, .. } => vec![(addr, 1)],
               LOpData::Move { src, .. } => vec![(src, 1)],
               LOpData::Br { cond, .. } => vec![(cond, 0)],
@@ -483,7 +483,7 @@ impl BDFG {
               vec![(value, 1)]
           },
           fallback: {
-              LOpData::Store { addr, value } => vec![(addr, 0), (value, 1)],
+              LOpData::Store { addr, value, .. } => vec![(addr, 0), (value, 1)],
               LOpData::Load { addr, .. } => vec![(addr, 1)],
               LOpData::Move { src, .. } => vec![(src, 1)],
               LOpData::Br { cond, .. } => vec![(cond, 0)],

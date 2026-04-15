@@ -217,7 +217,7 @@ pub enum MOpData {
     base: BOperand,
     offset: BOperand,
   },
-
+  // We don't have double float oeprations in SysY, so no Fld/Fsd here.
   /// Load/Store 64-bit doubleword.
   /// ONLY used for Pointers (e.g., array base addresses) or Stack Frame management in RV64.
   Ld {

@@ -376,7 +376,7 @@ impl Arena<BFunction> for BCG {
                                     }
                                 },
                                 fallback: {
-                                    LOpData::Store { addr, value } => {
+                                    LOpData::Store { addr, value, .. } => {
                                         if addr.is_virt() {
                                             remap_with_vregs(addr, &old_arena_vregs);
                                         }

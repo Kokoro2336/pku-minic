@@ -527,9 +527,9 @@ impl Canonicalize<'_> {
             ));
           },
           fallback: {
-            LOpData::Store { addr, value } => {
+            LOpData::Store { addr, value, val_typ } => {
               // Mem operand should not be
-              let new_lop_data = LOpData::Store { addr: self.legalize(addr, LegalizeOption::NoLoad), value: self.legalize(value, LegalizeOption::ForceImmLoad) };
+              let new_lop_data = LOpData::Store { addr: self.legalize(addr, LegalizeOption::NoLoad), value: self.legalize(value, LegalizeOption::ForceImmLoad), val_typ };
               self.replace_op_rauw(inst_id, BOp::new(
                 typ,
                 attrs,

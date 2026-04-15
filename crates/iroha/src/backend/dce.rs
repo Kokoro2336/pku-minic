@@ -202,7 +202,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
                   check(self, value);
               },
               fallback: {
-                  LOpData::Store { addr, value } => {
+                  LOpData::Store { addr, value, .. } => {
                       check(self, addr);
                       check(self, value);
                   }

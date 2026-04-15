@@ -1,6 +1,6 @@
 //! Instruction definition of Lower IR.
 
-use crate::ir::back::{BOpData, BOperand};
+use crate::ir::back::{BOpData, BOperand, BType};
 use strum_macros::EnumDiscriminants;
 
 #[derive(Debug, Clone, EnumDiscriminants)]
@@ -165,6 +165,8 @@ pub enum LOpData {
   Store {
     addr: BOperand,
     value: BOperand,
+    /// For frame lowering, we need to know the value type to determine the store instruction.
+    val_typ: BType,
   },
   Load {
     rd: BOperand,
@@ -270,7 +272,7 @@ impl std::fmt::Display for LOpData {
       LOpData::OLe { rd, lhs, rhs } => write!(f, "ole {rd}, {lhs}, {rhs}"),
       LOpData::Sitofp { rd, value } => write!(f, "sitofp {rd}, {value}"),
       LOpData::Fptosi { rd, value } => write!(f, "fptosi {rd}, {value}"),
-      LOpData::Store { addr, value } => write!(f, "store {addr}, {value}"),
+      LOpData::Store { addr, value, .. } => write!(f, "store {addr}, {value}"),
       LOpData::Load { rd, addr } => write!(f, "load {rd}, {addr}"),
       LOpData::Move { rd, src } => write!(f, "move {rd}, {src}"),
       LOpData::LoadIntImm { rd, imm } => write!(f, "loadIntImm {rd}, {imm}"),
