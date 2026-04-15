@@ -2,7 +2,7 @@
 //! Based on Appel and George's paper Iterated Register Coalescing.
 //! Reference: https://dl.acm.org/doi/10.1145/229542.229546
 
-use std::ops::{BitAndAssign, BitOr};
+use std::ops::BitAndAssign;
 
 use crate::analysis::{LiveAnalysis, LiveOuts};
 use yachiyo::analysis::analyze;
@@ -66,7 +66,7 @@ struct Allocator<'a> {
   colored_nodes: BitSet,
 
   /// Nodes removed from the graph.
-  select_stack: Vec<BOperand>,
+  select_stack: Worklist<BOperand, BitSet>,
 
   // ========== Moves Structures ==========
   // All of the following structures are indexed by InstId.
@@ -110,7 +110,7 @@ impl Allocator<'_> {
       spilled_nodes: BitSet::new(),
       coalesced_nodes: BitSet::new(),
       colored_nodes: BitSet::new(),
-      select_stack: Vec::new(),
+      select_stack: Worklist::new(),
       coalesced_moves: BitSet::new(),
       frozen_moves: BitSet::new(),
       worklist_moves: Worklist::new(),
@@ -417,18 +417,22 @@ impl Allocator<'_> {
 
   #[inline(always)]
   fn adjacent(&self, n: BOperand) -> ArraySet<BOperand> {
-    let mut select_stack = ArraySet::new();
-    for s in self.select_stack.iter() {
-      select_stack.insert(*s);
-    }
-    let mut coalesced_nodes = ArraySet::new();
-    for n in self.coalesced_nodes.iter() {
-      coalesced_nodes.insert(BOperand::Reg(Reg::Virt(n)));
-    }
     if let BOperand::Reg(Reg::Virt(id)) = n {
-      self.adj_list[id]
-        .difference(&select_stack)
-        .difference(&coalesced_nodes)
+      let mut res = ArraySet::new();
+      for adj in self.adj_list[id].iter() {
+        match adj {
+          BOperand::Reg(Reg::Virt(adj_id)) => {
+            if !self.select_stack.contains(adj) && !self.coalesced_nodes.contains(*adj_id) {
+              res.insert(*adj);
+            }
+          }
+          BOperand::Reg(Reg::F(_) | Reg::X(_)) => {
+            res.insert(*adj);
+          }
+          _ => unreachable!(),
+        }
+      }
+      res
     } else {
       ArraySet::new()
     }
@@ -437,15 +441,14 @@ impl Allocator<'_> {
   #[inline(always)]
   fn node_moves(&self, n: BOperand) -> ArraySet<BOperand> {
     if let BOperand::Reg(Reg::Virt(id)) = n {
-      let mut included_moves = ArraySet::new();
-      for m in self
-        .active_moves
-        .bitor(self.worklist_moves.get_in_list())
-        .iter()
-      {
-        included_moves.insert(BOperand::Inst(m));
+      let mut res = ArraySet::new();
+      for m in self.move_list[id].iter() {
+        let inst_id = m.get_inst_id();
+        if self.active_moves.contains(inst_id) || self.worklist_moves.contains(m) {
+          res.insert(*m);
+        }
       }
-      self.move_list[id].intersection(&included_moves)
+      res
     } else {
       ArraySet::new()
     }
@@ -482,7 +485,7 @@ impl Allocator<'_> {
     if !self.is_target(n) {
       return;
     }
-    self.select_stack.push(n);
+    self.select_stack.push_back(n);
     for m in self.adjacent(n) {
       self.decrement_degree(m);
     }
@@ -686,7 +689,7 @@ impl Allocator<'_> {
   }
 
   fn assign_colors(&mut self) {
-    while let Some(n) = self.select_stack.pop() {
+    while let Some(n) = self.select_stack.pop_back() {
       let mut ok_colors = self.get_colors::<Vec<Reg>>();
       // Use physical adjacent list rather than adjacent().
       for w in self.adj_list[n.get_virt_id()].iter() {
@@ -940,22 +943,25 @@ impl Allocator<'_> {
       );
       // Build the interference graph.
       self.build(&live_outs);
+
       #[cfg(feature = "debug")]
       yachiyo::debug::info!(
         "Finished building interference graph for register allocation. adj_set: {:?}, degree: {:?}",
         self.adj_set,
         self.degree
       );
+
       // Make the initial worklist.
       self.make_worklist();
+
       #[cfg(feature = "debug")]
       yachiyo::debug::info!(
-                "Finished making initial worklist for register allocation. simplify_worklist: {:?}, worklist_moves: {:?}, freeze_worklist: {:?}, spill_worklist: {:?}",
-                self.simplify_worklist,
-                self.worklist_moves,
-                self.freeze_worklist,
-                self.spill_worklist,
-            );
+        "Finished making initial worklist for register allocation. simplify_worklist: {:?}, worklist_moves: {:?}, freeze_worklist: {:?}, spill_worklist: {:?}",
+        self.simplify_worklist,
+        self.worklist_moves,
+        self.freeze_worklist,
+        self.spill_worklist,
+      );
 
       // Main loop(The state machine).
       loop {
@@ -973,14 +979,14 @@ impl Allocator<'_> {
       }
       #[cfg(feature = "debug")]
       yachiyo::debug::info!(
-                "Finished main loop of register allocation. simplify_worklist: {:?}, worklist_moves: {:?}, freeze_worklist: {:?}, spill_worklist: {:?}, \nselect_stack: {:?}, \ncoalesced_nodes: {:?}",
-                self.simplify_worklist,
-                self.worklist_moves,
-                self.freeze_worklist,
-                self.spill_worklist,
-                self.select_stack,
-                self.coalesced_nodes
-            );
+        "Finished main loop of register allocation. simplify_worklist: {:?}, worklist_moves: {:?}, freeze_worklist: {:?}, spill_worklist: {:?}, \nselect_stack: {:?}, \ncoalesced_nodes: {:?}",
+        self.simplify_worklist,
+        self.worklist_moves,
+        self.freeze_worklist,
+        self.spill_worklist,
+        self.select_stack,
+        self.coalesced_nodes
+      );
       // Assign colors to the nodes.
       self.assign_colors();
       #[cfg(feature = "debug")]
