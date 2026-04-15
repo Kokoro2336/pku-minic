@@ -4,6 +4,7 @@ use super::{BType, Reg};
 #[cfg(feature = "debug")]
 use crate::debug::info;
 use crate::ir::back::{LOpData, MOpData, XReg};
+use crate::config::{RESERVED_REG};
 use crate::utils::arena::*;
 use crate::utils::r#match::{match_rd, match_src};
 
@@ -160,6 +161,8 @@ impl BOperand {
         | BOperand::Reg(Reg::X(XReg::Sp))
         | BOperand::Reg(Reg::X(XReg::Gp))
         | BOperand::Reg(Reg::X(XReg::Tp))
+        // Reserved register can't be involved in coalescing.
+        | BOperand::Reg(Reg::X(RESERVED_REG))
     )
   }
 }
