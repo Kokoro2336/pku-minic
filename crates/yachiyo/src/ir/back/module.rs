@@ -514,7 +514,7 @@ impl BackIR {
               Addiw,
               Xor, Xori,
               FaddS, FsubS, FmulS, FdivS,
-              FeqS, FltS, FleS, 
+              FeqS, FltS, FleS,
               FcvtWS, FcvtSW, FmvWX, FmvXW,
               Lw, Flw, Ld, Fld
           ],
