@@ -438,7 +438,7 @@ impl AsmFormatCtx<'_> {
           self.format_operand(rs2)
         ),
         MOpData::FcvtWS { rd, rs } => format!(
-          "fcvt.w.s {}, {}",
+          "fcvt.w.s {}, {}, rtz",
           self.format_operand(rd),
           self.format_operand(rs)
         ),
