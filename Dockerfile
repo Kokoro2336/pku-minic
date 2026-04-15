@@ -5,6 +5,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         gcc-riscv64-linux-gnu \
+        gdb-multiarch \
         libc6-riscv64-cross \
         libc6-dev-riscv64-cross \
         qemu-user \

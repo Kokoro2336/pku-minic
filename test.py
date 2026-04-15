@@ -215,6 +215,75 @@ def run_qemu_runtime(
     merged_stderr = gcc_result.stderr + run_result.stderr
     return run_result.returncode, merged_stdout, merged_stderr, runtime_with_ret, runtime_raw
 
+def run_qemu_gdb_debug(
+    container_name: str,
+    repo_root: str,
+    asm_path: str,
+    elf_path: str,
+    gdb_port: int = 1234,
+):
+    asm_in_container = to_container_path(asm_path, repo_root)
+    elf_in_container = to_container_path(elf_path, repo_root)
+    sylib_in_container = "/workspace/sylib/sylib.c"
+
+    gcc_cmd = (
+        "riscv-gcc -O2 -g -static "
+        f"-x assembler {shlex.quote(asm_in_container)} "
+        f"-x c {shlex.quote(sylib_in_container)} "
+        f"-o {shlex.quote(elf_in_container)}"
+    )
+    gcc_result = subprocess.run(["docker", "exec", container_name, "bash", "-lc", gcc_cmd])
+    if gcc_result.returncode != 0:
+        return gcc_result.returncode
+
+    qemu_cmd = (
+        f"qemu-riscv -g {gdb_port} -L /usr/riscv64-linux-gnu "
+        f"{shlex.quote(elf_in_container)}"
+    )
+    qemu_proc = subprocess.Popen(["docker", "exec", container_name, "bash", "-lc", qemu_cmd])
+
+    # Prefer target-specific gdb, then multiarch, then generic gdb.
+    gdb_detect = subprocess.run(
+        [
+            "docker",
+            "exec",
+            container_name,
+            "bash",
+            "-lc",
+            "command -v riscv64-linux-gnu-gdb || command -v gdb-multiarch || command -v gdb",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    gdb_bin = gdb_detect.stdout.strip()
+    if gdb_detect.returncode != 0 or not gdb_bin:
+        print(
+            "[ERROR] No gdb binary found in qemu container. "
+            "Install riscv64-linux-gnu-gdb or gdb-multiarch, then rebuild image iroha-qemu-test."
+        )
+        return 127
+
+    gdb_cmd = (
+        f"{shlex.quote(gdb_bin)} -tui "
+        f"{shlex.quote(elf_in_container)} "
+        f"-ex 'target remote :{gdb_port}'"
+    )
+
+    try:
+        gdb_result = subprocess.run(
+            ["docker", "exec", "-it", container_name, "bash", "-lc", gdb_cmd]
+        )
+        return gdb_result.returncode
+    finally:
+        if qemu_proc.poll() is None:
+            qemu_proc.terminate()
+            try:
+                qemu_proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                qemu_proc.kill()
+                qemu_proc.wait(timeout=2)
+
 def resolve_asm_artifact(work_dir: str, target_dir: str, test_name: str):
     candidates = [
         os.path.join(target_dir, f"{test_name}.asm"),
@@ -306,6 +375,7 @@ def main():
     backend_group.add_argument('--lli', action='store_true', help='Use lli to interpret linked .ll')
     backend_group.add_argument('--llc', action='store_true', help='Use llc to compile linked .ll into executable and run it')
     backend_group.add_argument('--qemu', action='store_true', help='Compile on host, then run asm via riscv-gcc + qemu-riscv in docker (single container)')
+    backend_group.add_argument('--qemu-debug', '--qemu-gdb', dest='qemu_debug', action='store_true', help='Compile on host, then launch qemu gdb-stub and open interactive riscv gdb (-tui) in docker')
     args = parser.parse_args()
 
     if args.exclude:
@@ -326,6 +396,8 @@ def main():
         exec_mode = 'llc'
     elif args.qemu:
         exec_mode = 'qemu'
+    elif args.qemu_debug:
+        exec_mode = 'qemu_debug'
     else:
         exec_mode = 'compiler'
 
@@ -359,9 +431,9 @@ def main():
     qemu_container_name = f"iroha-qemu-{uuid.uuid4().hex[:8]}"
     qemu_cases = []
 
-    if args.qemu:
+    if args.qemu or args.qemu_debug:
         if shutil.which("docker") is None:
-            print("--qemu requested but docker was not found in PATH.")
+            print("--qemu/--qemu-debug requested but docker was not found in PATH.")
             sys.exit(1)
 
         dockerfile_path = os.path.join(repo_root, "Dockerfile")
@@ -461,12 +533,18 @@ def main():
     if debugger_tool is not None:
         if args.qemu:
             parser.error("--qemu does not support debugger mode")
+        if args.qemu_debug:
+            parser.error("--qemu-debug already provides an interactive debugger")
         if shutil.which(debugger_tool) is None:
             print(f"{debugger_flag} requested but {debugger_tool} was not found in PATH.")
             sys.exit(1)
         if len(test_files) != 1:
             print(f"{debugger_flag} supports exactly one test. Please use --test <name>.")
             sys.exit(1)
+
+    if args.qemu_debug:
+        if len(test_files) != 1:
+            parser.error("--qemu-debug supports exactly one test. Please use --test <name>.")
 
     # Directories to manage
     logs_dir = "./logs"
@@ -801,6 +879,38 @@ def main():
                     else:
                         print(f"  [HOST COMPILATION PASSED] {name_no_ext}")
                     continue
+
+                if args.qemu_debug and final_returncode == 0:
+                    asm_host_path = resolve_asm_artifact(work_test_output_dir, target_dir, name_no_ext)
+                    if asm_host_path is None:
+                        final_returncode = 1
+                        with open(os.path.join(work_test_output_dir, "stderr.txt"), "ab") as f_err:
+                            f_err.write(
+                                f"\n[ERROR] Asm artifact not found for {name_no_ext}\n".encode()
+                            )
+                    else:
+                        elf_host_path = os.path.join(target_dir, f"{name_no_ext}.elf")
+                        print("  [QEMU DEBUG] Starting interactive gdb session (-tui) via gdb stub...")
+                        start_result = start_qemu_container(qemu_image, qemu_container_name, repo_root)
+                        if start_result.returncode != 0:
+                            final_returncode = 1
+                            with open(os.path.join(work_test_output_dir, "stderr.txt"), "ab") as f_err:
+                                f_err.write(
+                                    b"\n[ERROR] Failed to start qemu docker container for debug session\n"
+                                )
+                                f_err.write(start_result.stderr)
+                        else:
+                            try:
+                                debug_code = run_qemu_gdb_debug(
+                                    qemu_container_name,
+                                    repo_root,
+                                    asm_host_path,
+                                    elf_host_path,
+                                )
+                                if debug_code != 0:
+                                    final_returncode = debug_code
+                            finally:
+                                stop_qemu_container(qemu_container_name)
 
                 shutil.move(work_test_output_dir, test_output_dir)
 

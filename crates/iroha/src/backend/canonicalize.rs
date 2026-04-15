@@ -360,12 +360,14 @@ impl Canonicalize<'_> {
                   LOpData::Sar { rd, lhs: imm, rhs } =>
                     LOpData::Sar { rd, lhs: self.legalize(imm, LegalizeOption::ForceImmLoad), rhs: self.legalize(rhs, LegalizeOption::Default) },
 
-                  LOpData::AddF { rd, lhs: imm, rhs } =>
-                    LOpData::AddF { rd, lhs: self.legalize(rhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
+                  // Mul's operands can be swapped, but we still have to load the literal even if it's on the right side.
                   LOpData::MulI { rd, lhs: imm, rhs } =>
-                    LOpData::MulI { rd, lhs: self.legalize(rhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
+                    LOpData::MulI { rd, lhs: self.legalize(rhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::ForceImmLoad) },
                   LOpData::MulF { rd, lhs: imm, rhs } =>
                     LOpData::MulF { rd, lhs: self.legalize(rhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
+
+                  LOpData::AddF { rd, lhs: imm, rhs } =>
+                    LOpData::AddF { rd, lhs: self.legalize(rhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
                   LOpData::SNe { rd, lhs: imm, rhs } =>
                     LOpData::SNe { rd, lhs: self.legalize(rhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
                   LOpData::SEq { rd, lhs: imm, rhs } =>
@@ -481,11 +483,14 @@ impl Canonicalize<'_> {
                   LOpData::OLe { rd, .. } => LOpData::OLe { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::AddF { rd, .. } => LOpData::AddF { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::SubF { rd, .. } => LOpData::SubF { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+
+                  // No literal, no ForceImmLoad.
                   LOpData::MulI { rd, .. } => LOpData::MulI { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::MulF { rd, .. } => LOpData::MulF { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::DivI { rd, .. } => LOpData::DivI { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::DivF { rd, .. } => LOpData::DivF { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::ModI { rd, .. } => LOpData::ModI { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+
                   LOpData::SNe { rd, .. } => LOpData::SNe { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::SEq { rd, .. } => LOpData::SEq { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::OEq { rd, .. } => LOpData::OEq { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },

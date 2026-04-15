@@ -629,18 +629,16 @@ impl Lowering {
                     Type::Pointer { base } => (**base).clone(),
                     _ => unreachable!("Only array type can be the base of GEP"),
                 };
-                // Truncate the first index of indices
-                let indices = if indices.len() > 1 {
-                    indices[1..].to_vec()
-                } else {
-                    vec![]
-                };
 
                 // Initialize the current base address with the base pointer.
                 let mut current_lop_vreg_id = self.get(base.clone());
                 for (dim, index) in indices.iter().enumerate() {
                     match &base_typ {
                         Type::Array { .. } => {
+                            // Truncate the first index of indices
+                            if dim == 0 {
+                                continue;
+                            }
                             let index = self.get(index.clone());
                             let mul_lop_id = self.create(BOp::new(
                                 BType::U64,
@@ -648,7 +646,7 @@ impl Lowering {
                                 LOpData::MulI {
                                     rd: BOperand::Undef,
                                     lhs: index,
-                                    rhs: BOperand::IntImm(base_typ.subarr_size(dim + 1) as i32),
+                                    rhs: BOperand::IntImm(base_typ.subarr_size(dim) as i32),
                                 }
                                 .into(),
                             ));
@@ -679,9 +677,8 @@ impl Lowering {
                             }
                         }
                         _ => {
-                            let rhs = self.get(
-                              index.clone(),
-                            );
+                            // CRITICAL: Do not truncate the first index of non-array type.
+                            let rhs = self.get(index.clone());
                             let mul_op = self.create(
                                 BOp::new(
                                     BType::U64,
@@ -894,7 +891,7 @@ impl Lowering {
       if !changed && !move_lop_ids.is_empty() {
         // If there is a cycle, we can break it by inserting a temporary move.
         // Choose the last edge in the cycle to break.
-        let move_lop_id = move_lop_ids.pop().unwrap();
+        let move_lop_id = *move_lop_ids.last().unwrap();
         let move_bop =
           &self.lower_ir.funcs[self.builder.current_function.unwrap()].dfg[move_lop_id];
         let (move_lop_data, typ): (LOpData, BType) =
