@@ -232,7 +232,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
                   Sllw, Srlw, Sraw,
                   Slt, Sltu, Xor,
                   FaddS, FsubS, FmulS, FdivS,
-                  FeqS, FltS, FleS, FneS, FgtS, FgeS
+                  FeqS, FltS, FleS, 
               ],
               bin_arm: MOpData { rs1, rs2 } => {
                   check(self, rs1);

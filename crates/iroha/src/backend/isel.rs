@@ -360,15 +360,51 @@ impl ISel<'_> {
                                     )
                                 );
                                 let xor_vreg_id = self.get_vreg_id(xor_mop_id);
+                                // Truncate the higher bits. Xor in SysY is only 32-bits.
                                 MOpData::Addw { rd: BOperand::Undef, rs1: xor_vreg_id, rs2: BOperand::Reg(Reg::X(XReg::Zero)) }
                             }
 
                             // For relational ops with Float, we use the pseudo ops.
-                            LOpData::ONe { .. } => MOpData::FneS { rd: BOperand::Undef, rs1, rs2 },
+                            LOpData::ONe { .. } => {
+                                // Create feq first.
+                                let feq_mop_id = self.create(
+                                    BOp::new(
+                                        typ.clone(),
+                                        vec![],
+                                        MOpData::FeqS { rd: BOperand::Undef, rs1, rs2 }.into(),
+                                    )
+                                );
+                                let feq_vreg_id = self.get_vreg_id(feq_mop_id);
+                                // Create xori to flip the result.
+                                MOpData::Xori { rd: BOperand::Undef, rs1: feq_vreg_id, imm: BOperand::IntImm(1) }
+                            }
+                            LOpData::OGt { .. } => {
+                                // Create fle first.
+                                let fle_mop_id = self.create(
+                                    BOp::new(
+                                        typ.clone(),
+                                        vec![],
+                                        MOpData::FleS { rd: BOperand::Undef, rs1, rs2 }.into(),
+                                    )
+                                );
+                                let fle_vreg_id = self.get_vreg_id(fle_mop_id);
+                                MOpData::Xori { rd: BOperand::Undef, rs1: fle_vreg_id, imm: BOperand::IntImm(1) }
+                            }
+                            LOpData::OGe { .. } => {
+                                // Create flt first.
+                                let flt_mop_id = self.create(
+                                    BOp::new(
+                                        typ.clone(),
+                                        vec![],
+                                        MOpData::FltS { rd: BOperand::Undef, rs1, rs2 }.into(),
+                                    )
+                                );
+                                let flt_vreg_id = self.get_vreg_id(flt_mop_id);
+                                MOpData::Xori { rd: BOperand::Undef, rs1: flt_vreg_id, imm: BOperand::IntImm(1) }
+                            }
+
                             LOpData::OEq { .. } => MOpData::FeqS { rd: BOperand::Undef, rs1, rs2 },
-                            LOpData::OGt { .. } => MOpData::FgtS { rd: BOperand::Undef, rs1, rs2 },
                             LOpData::OLt { .. } => MOpData::FltS { rd: BOperand::Undef, rs1, rs2 },
-                            LOpData::OGe { .. } => MOpData::FgeS { rd: BOperand::Undef, rs1, rs2 },
                             LOpData::OLe { .. } => MOpData::FleS { rd: BOperand::Undef, rs1, rs2 },
                         },
                         uni_ops: [Sitofp, Fptosi, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, LoadAddress, Ret],

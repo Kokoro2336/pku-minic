@@ -276,7 +276,7 @@ impl BDFG {
               Addiw,
               Xor, Xori,
               FaddS, FsubS, FmulS, FdivS,
-              FeqS, FltS, FleS, FneS, FgtS, FgeS,
+              FeqS, FltS, FleS,
               FcvtWS, FcvtSW, FmvWX, FmvXW,
               Lw, Flw, Ld, Fld
           ],
@@ -338,7 +338,7 @@ impl BDFG {
               Addiw,
               Xor, Xori,
               FaddS, FsubS, FmulS, FdivS,
-              FeqS, FltS, FleS, FneS, FgtS, FgeS,
+              FeqS, FltS, FleS,
               FcvtWS, FcvtSW, FmvWX, FmvXW,
               Lw, Flw, Ld, Fld
           ],
@@ -410,7 +410,7 @@ impl BDFG {
               Sllw, Srlw, Sraw,
               Slt, Sltu, Xor,
               FaddS, FsubS, FmulS, FdivS,
-              FeqS, FltS, FleS, FneS, FgtS, FgeS
+              FeqS, FltS, FleS,
           ],
           bin_arm: MOpData { rs1, rs2 } => {
               vec![(rs1, 1), (rs2, 2)]
@@ -507,7 +507,7 @@ impl BDFG {
               Sllw, Srlw, Sraw,
               Slt, Sltu, Xor,
               FaddS, FsubS, FmulS, FdivS,
-              FeqS, FltS, FleS, FneS, FgtS, FgeS
+              FeqS, FltS, FleS,
           ],
           bin_arm: MOpData { rs1, rs2 } => {
               vec![(rs1, 1), (rs2, 2)]

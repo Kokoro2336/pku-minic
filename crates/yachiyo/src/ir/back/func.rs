@@ -425,7 +425,7 @@ impl Arena<BFunction> for BCG {
                         BOpData::M(mop_data) => {
                             match_full_ops! {
                                 target: mop_data,
-                            bin_ops: [Add, Sub, Addw, Subw, Mulw, Divw, Remw, Sllw, Srlw, Sraw, Slt, Sltu, Xor, FaddS, FsubS, FmulS, FdivS, FeqS, FneS, FltS, FgeS, FleS, FgtS],
+                            bin_ops: [Add, Sub, Addw, Subw, Mulw, Divw, Remw, Sllw, Srlw, Sraw, Slt, Sltu, Xor, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS],
                                 bin_arm: MOpData { rd, rs1, rs2 } => {
                                     if rd.is_virt() {
                                         remap_with_vregs(rd, &old_arena_vregs);

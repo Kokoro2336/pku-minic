@@ -167,23 +167,6 @@ pub enum MOpData {
     rs2: BOperand,
   },
 
-  // Pesudo relational ops
-  FneS {
-    rd: BOperand,
-    rs1: BOperand,
-    rs2: BOperand,
-  },
-  FgtS {
-    rd: BOperand,
-    rs1: BOperand,
-    rs2: BOperand,
-  },
-  FgeS {
-    rd: BOperand,
-    rs1: BOperand,
-    rs2: BOperand,
-  },
-
   /// Float to Int conversion.
   /// Matches SysY semantic: truncate/round towards zero (RTZ).
   FcvtWS { rd: BOperand, rs: BOperand },
