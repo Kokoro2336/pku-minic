@@ -363,41 +363,47 @@ impl Allocator<'_> {
         }
 
         let op = &self.get_func(func_id).dfg[*inst_id];
-        if let Some(rd) = rd {
-          let mut rds = array_set![rd];
-          // Special handling for call instruction: add all clobbered registers to rd, since they are all defined by the call instruction.
-          if op.attrs.contains(&BAttr::Clobber) {
-            rds = rds.union(
-              &get_clobbered::<ArraySet<Reg>>()
-                .into_iter()
-                .map(BOperand::Reg)
-                // In allocator, we only care about target nodes, so we filter out non-target nodes here.
-                .filter(|reg| self.is_target(*reg))
-                .collect::<ArraySet<BOperand>>(),
-            );
-          }
-          op.attrs
-            .iter()
-            .find(|attr| matches!(attr, BAttr::ImplicitDef(_)))
-            .and_then(|attr| {
-              if let BAttr::ImplicitDef(implicit_rd) = attr {
-                rds.insert(*implicit_rd);
-                Some(())
-              } else {
-                None
-              }
-            });
-
-          for rd in rds.iter() {
-            // Add interference edges between rd and all live-out nodes.
-            // All of the current live nodes are included, but we'll filter out non-target nodes in add_edge function.
-            for live_var in live.iter() {
-              self.add_edge(*rd, *live_var);
-            }
-          }
-          // Remove def from live set
-          live = live.difference(&rds);
+        let mut rds = array_set![];
+        // Special handling for call instruction: add all clobbered registers to rd, since they are all defined by the call instruction.
+        if op.attrs.contains(&BAttr::Clobber) {
+          rds = rds.union(
+            &get_clobbered::<ArraySet<Reg>>()
+              .into_iter()
+              .map(BOperand::Reg)
+              // In allocator, we only care about target nodes, so we filter out non-target nodes here.
+              .filter(|reg| self.is_target(*reg))
+              .collect::<ArraySet<BOperand>>(),
+          );
         }
+        op.attrs
+          .iter()
+          .find(|attr| matches!(attr, BAttr::ImplicitDef(_)))
+          .and_then(|attr| {
+            if let BAttr::ImplicitDef(implicit_rd) = attr {
+              rds.insert(*implicit_rd);
+              Some(())
+            } else {
+              None
+            }
+          });
+
+        if let Some(rd) = rd {
+          rds.insert(rd);
+        }
+
+        // Add rds to live first.
+        live = live.union(&rds);
+
+        for rd in rds.iter() {
+          // Add interference edges between rd and all live-out nodes.
+          // All of the current live nodes are included, but we'll filter out non-target nodes in add_edge function.
+          for live_var in live.iter() {
+            self.add_edge(*rd, *live_var);
+          }
+        }
+
+        // Remove def from live set
+        live = live.difference(&rds);
 
         // Retrieve src
         for s in src {
