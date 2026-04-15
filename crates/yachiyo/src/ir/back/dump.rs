@@ -419,26 +419,8 @@ impl AsmFormatCtx<'_> {
           self.format_operand(rs1),
           self.format_operand(rs2)
         ),
-        MOpData::FneS { rd, rs1, rs2 } => format!(
-          "fne.s {}, {}, {}",
-          self.format_operand(rd),
-          self.format_operand(rs1),
-          self.format_operand(rs2)
-        ),
-        MOpData::FgtS { rd, rs1, rs2 } => format!(
-          "fgt.s {}, {}, {}",
-          self.format_operand(rd),
-          self.format_operand(rs1),
-          self.format_operand(rs2)
-        ),
-        MOpData::FgeS { rd, rs1, rs2 } => format!(
-          "fge.s {}, {}, {}",
-          self.format_operand(rd),
-          self.format_operand(rs1),
-          self.format_operand(rs2)
-        ),
         MOpData::FcvtWS { rd, rs } => format!(
-          "fcvt.w.s {}, {}",
+          "fcvt.w.s {}, {}, rtz",
           self.format_operand(rd),
           self.format_operand(rs)
         ),
@@ -489,6 +471,18 @@ impl AsmFormatCtx<'_> {
         ),
         MOpData::Sd { rs, base, offset } => format!(
           "sd {}, {}({})",
+          self.format_operand(rs),
+          self.format_operand(offset),
+          self.format_operand(base)
+        ),
+        MOpData::Fld { rd, base, offset } => format!(
+          "fld {}, {}({})",
+          self.format_operand(rd),
+          self.format_operand(offset),
+          self.format_operand(base)
+        ),
+        MOpData::Fsd { rs, base, offset } => format!(
+          "fsd {}, {}({})",
           self.format_operand(rs),
           self.format_operand(offset),
           self.format_operand(base)

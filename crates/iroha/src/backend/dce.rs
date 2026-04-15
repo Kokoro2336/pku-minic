@@ -202,7 +202,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
                   check(self, value);
               },
               fallback: {
-                  LOpData::Store { addr, value } => {
+                  LOpData::Store { addr, value, .. } => {
                       check(self, addr);
                       check(self, value);
                   }
@@ -232,7 +232,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
                   Sllw, Srlw, Sraw,
                   Slt, Sltu, Xor,
                   FaddS, FsubS, FmulS, FdivS,
-                  FeqS, FltS, FleS, FneS, FgtS, FgeS
+                  FeqS, FltS, FleS, 
               ],
               bin_arm: MOpData { rs1, rs2 } => {
                   check(self, rs1);
@@ -256,13 +256,15 @@ impl<'a> BPass<'a> for BDCE<'a> {
                   }
                   MOpData::Lw { base, offset, .. }
                   | MOpData::Flw { base, offset, .. }
-                  | MOpData::Ld { base, offset, .. } => {
+                  | MOpData::Ld { base, offset, .. }
+                  | MOpData::Fld { base, offset, .. } => {
                       check(self, base);
                       check(self, offset);
                   }
                   MOpData::Sw { rs, base, offset }
                   | MOpData::Fsw { rs, base, offset }
-                  | MOpData::Sd { rs, base, offset } => {
+                  | MOpData::Sd { rs, base, offset }
+                  | MOpData::Fsd { rs, base, offset } => {
                       check(self, rs);
                       check(self, base);
                       check(self, offset);

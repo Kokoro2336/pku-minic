@@ -26,6 +26,8 @@ pub const CALLER_SAVED_XREGS: &[XReg] = &[
   XReg::A5,
   XReg::A6,
   XReg::A7,
+  // Though XReg::Ra is caller-saved, we save it at the beginning of each function and restore it at the end,
+  // so we treat it as callee-saved in register allocation.
 ];
 pub const CALLEE_SAVED_XREGS: &[XReg] = &[
   XReg::S0,

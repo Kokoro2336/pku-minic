@@ -1,10 +1,10 @@
 //! Instruction defintion of BackIR.
 
 use super::{BType, Reg};
+use crate::config::RESERVED_REG;
 #[cfg(feature = "debug")]
 use crate::debug::info;
-use crate::ir::back::LOpData;
-use crate::ir::back::MOpData;
+use crate::ir::back::{LOpData, MOpData, XReg};
 use crate::utils::arena::*;
 use crate::utils::r#match::{match_rd, match_src};
 
@@ -152,6 +152,19 @@ impl BOperand {
   pub fn is_virt(&self) -> bool {
     matches!(self, BOperand::Reg(Reg::Virt(_)))
   }
+  #[inline(always)]
+  pub fn uncombinable(&self) -> bool {
+    matches!(
+      self,
+      BOperand::Reg(Reg::X(XReg::Zero))
+        | BOperand::Reg(Reg::X(XReg::Ra))
+        | BOperand::Reg(Reg::X(XReg::Sp))
+        | BOperand::Reg(Reg::X(XReg::Gp))
+        | BOperand::Reg(Reg::X(XReg::Tp))
+        // Reserved register can't be involved in coalescing.
+        | BOperand::Reg(Reg::X(RESERVED_REG))
+    )
+  }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -263,9 +276,9 @@ impl BDFG {
               Addiw,
               Xor, Xori,
               FaddS, FsubS, FmulS, FdivS,
-              FeqS, FltS, FleS, FneS, FgtS, FgeS,
+              FeqS, FltS, FleS,
               FcvtWS, FcvtSW, FmvWX, FmvXW,
-              Lw, Flw, Ld
+              Lw, Flw, Ld, Fld
           ],
           rd_arm: MOpData(rd) => {
               Some((rd, 0))
@@ -275,6 +288,7 @@ impl BDFG {
               MOpData::Sw {..}
               | MOpData::Fsw {..}
               | MOpData::Sd {..}
+              | MOpData::Fsd {..}
               | MOpData::J {..}
               | MOpData::Bnez {..}
               | MOpData::Call {..}
@@ -324,9 +338,9 @@ impl BDFG {
               Addiw,
               Xor, Xori,
               FaddS, FsubS, FmulS, FdivS,
-              FeqS, FltS, FleS, FneS, FgtS, FgeS,
+              FeqS, FltS, FleS,
               FcvtWS, FcvtSW, FmvWX, FmvXW,
-              Lw, Flw, Ld
+              Lw, Flw, Ld, Fld
           ],
           rd_arm: MOpData(rd) => {
               Some((rd, 0))
@@ -336,6 +350,7 @@ impl BDFG {
               MOpData::Sw {..}
               | MOpData::Fsw {..}
               | MOpData::Sd {..}
+              | MOpData::Fsd {..}
               | MOpData::J {..}
               | MOpData::Bnez {..}
               | MOpData::Call {..}
@@ -376,7 +391,7 @@ impl BDFG {
               vec![(value, 1)]
           },
           fallback: {
-              LOpData::Store { addr, value } => vec![(addr, 0), (value, 1)],
+              LOpData::Store { addr, value, .. } => vec![(addr, 0), (value, 1)],
               LOpData::Load { addr, .. } => vec![(addr, 1)],
               LOpData::Move { src, .. } => vec![(src, 1)],
               LOpData::Br { cond, .. } => vec![(cond, 0)],
@@ -395,7 +410,7 @@ impl BDFG {
               Sllw, Srlw, Sraw,
               Slt, Sltu, Xor,
               FaddS, FsubS, FmulS, FdivS,
-              FeqS, FltS, FleS, FneS, FgtS, FgeS
+              FeqS, FltS, FleS,
           ],
           bin_arm: MOpData { rs1, rs2 } => {
               vec![(rs1, 1), (rs2, 2)]
@@ -416,11 +431,13 @@ impl BDFG {
 
               MOpData::Lw { base, offset, .. }
               | MOpData::Flw { base, offset, .. }
-              | MOpData::Ld { base, offset, .. } => vec![(base, 1), (offset, 2)],
+              | MOpData::Ld { base, offset, .. }
+              | MOpData::Fld { base, offset, .. } => vec![(base, 1), (offset, 2)],
 
               MOpData::Sw { rs, base, offset }
               | MOpData::Fsw { rs, base, offset }
-              | MOpData::Sd { rs, base, offset } => vec![(rs, 0), (base, 1), (offset, 2)],
+              | MOpData::Sd { rs, base, offset }
+              | MOpData::Fsd { rs, base, offset } => vec![(rs, 0), (base, 1), (offset, 2)],
 
               MOpData::Beq { rs1, rs2, offset }
               | MOpData::Bne { rs1, rs2, offset }
@@ -470,7 +487,7 @@ impl BDFG {
               vec![(value, 1)]
           },
           fallback: {
-              LOpData::Store { addr, value } => vec![(addr, 0), (value, 1)],
+              LOpData::Store { addr, value, .. } => vec![(addr, 0), (value, 1)],
               LOpData::Load { addr, .. } => vec![(addr, 1)],
               LOpData::Move { src, .. } => vec![(src, 1)],
               LOpData::Br { cond, .. } => vec![(cond, 0)],
@@ -490,7 +507,7 @@ impl BDFG {
               Sllw, Srlw, Sraw,
               Slt, Sltu, Xor,
               FaddS, FsubS, FmulS, FdivS,
-              FeqS, FltS, FleS, FneS, FgtS, FgeS
+              FeqS, FltS, FleS,
           ],
           bin_arm: MOpData { rs1, rs2 } => {
               vec![(rs1, 1), (rs2, 2)]
@@ -511,11 +528,13 @@ impl BDFG {
 
               MOpData::Lw { base, offset, .. }
               | MOpData::Flw { base, offset, .. }
-              | MOpData::Ld { base, offset, .. } => vec![(base, 1), (offset, 2)],
+              | MOpData::Ld { base, offset, .. }
+              | MOpData::Fld { base, offset, .. } => vec![(base, 1), (offset, 2)],
 
               MOpData::Sw { rs, base, offset }
               | MOpData::Fsw { rs, base, offset }
-              | MOpData::Sd { rs, base, offset } => vec![(rs, 0), (base, 1), (offset, 2)],
+              | MOpData::Sd { rs, base, offset }
+              | MOpData::Fsd { rs, base, offset } => vec![(rs, 0), (base, 1), (offset, 2)],
 
               MOpData::Li { .. } | MOpData::La { .. } => vec![],
 

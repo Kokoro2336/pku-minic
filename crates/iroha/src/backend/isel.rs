@@ -35,10 +35,7 @@ impl ISel<'_> {
 
   #[inline(always)]
   fn get_vreg_id(&self, op_id: BOperand) -> BOperand {
-    let func_id = self
-      .builder
-      .current_function
-      .unwrap();
+    let func_id = self.builder.current_function.unwrap();
     self
       .ir
       .as_ref()
@@ -81,10 +78,7 @@ impl ISel<'_> {
   }
 
   pub fn select(&mut self, lop_id: BOperand) {
-    let func_id = self
-      .builder
-      .current_function
-      .unwrap();
+    let func_id = self.builder.current_function.unwrap();
     let func = &self.ir.as_ref().unwrap().funcs[func_id];
     let bop = &func.dfg[lop_id];
     let (lop_data, attrs, typ) = (bop.data.clone().into(), bop.attrs.clone(), bop.typ.clone());
@@ -334,7 +328,7 @@ impl ISel<'_> {
                                     BOp::new(
                                         typ.clone(),
                                         vec![],
-                                        MOpData::Slt { rd: BOperand::Undef, rs1: rs2, rs2: rs1 }.into(),
+                                        MOpData::Slt { rd: BOperand::Undef, rs1, rs2 }.into(),
                                     )
                                 );
                                 let slt_vreg_id = self.get_vreg_id(slt_mop_id);
@@ -366,15 +360,51 @@ impl ISel<'_> {
                                     )
                                 );
                                 let xor_vreg_id = self.get_vreg_id(xor_mop_id);
+                                // Truncate the higher bits. Xor in SysY is only 32-bits.
                                 MOpData::Addw { rd: BOperand::Undef, rs1: xor_vreg_id, rs2: BOperand::Reg(Reg::X(XReg::Zero)) }
                             }
 
                             // For relational ops with Float, we use the pseudo ops.
-                            LOpData::ONe { .. } => MOpData::FneS { rd: BOperand::Undef, rs1, rs2 },
+                            LOpData::ONe { .. } => {
+                                // Create feq first.
+                                let feq_mop_id = self.create(
+                                    BOp::new(
+                                        typ.clone(),
+                                        vec![],
+                                        MOpData::FeqS { rd: BOperand::Undef, rs1, rs2 }.into(),
+                                    )
+                                );
+                                let feq_vreg_id = self.get_vreg_id(feq_mop_id);
+                                // Create xori to flip the result.
+                                MOpData::Xori { rd: BOperand::Undef, rs1: feq_vreg_id, imm: BOperand::IntImm(1) }
+                            }
+                            LOpData::OGt { .. } => {
+                                // Create fle first.
+                                let fle_mop_id = self.create(
+                                    BOp::new(
+                                        typ.clone(),
+                                        vec![],
+                                        MOpData::FleS { rd: BOperand::Undef, rs1, rs2 }.into(),
+                                    )
+                                );
+                                let fle_vreg_id = self.get_vreg_id(fle_mop_id);
+                                MOpData::Xori { rd: BOperand::Undef, rs1: fle_vreg_id, imm: BOperand::IntImm(1) }
+                            }
+                            LOpData::OGe { .. } => {
+                                // Create flt first.
+                                let flt_mop_id = self.create(
+                                    BOp::new(
+                                        typ.clone(),
+                                        vec![],
+                                        MOpData::FltS { rd: BOperand::Undef, rs1, rs2 }.into(),
+                                    )
+                                );
+                                let flt_vreg_id = self.get_vreg_id(flt_mop_id);
+                                MOpData::Xori { rd: BOperand::Undef, rs1: flt_vreg_id, imm: BOperand::IntImm(1) }
+                            }
+
                             LOpData::OEq { .. } => MOpData::FeqS { rd: BOperand::Undef, rs1, rs2 },
-                            LOpData::OGt { .. } => MOpData::FgtS { rd: BOperand::Undef, rs1, rs2 },
                             LOpData::OLt { .. } => MOpData::FltS { rd: BOperand::Undef, rs1, rs2 },
-                            LOpData::OGe { .. } => MOpData::FgeS { rd: BOperand::Undef, rs1, rs2 },
                             LOpData::OLe { .. } => MOpData::FleS { rd: BOperand::Undef, rs1, rs2 },
                         },
                         uni_ops: [Sitofp, Fptosi, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, LoadAddress, Ret],
@@ -459,7 +489,7 @@ impl ISel<'_> {
                             | BType::U64
                             | BType::Array { .. } => MOpData::Mv { rd: *rd, rs: *src },
                             BType::F32 => MOpData::FmvS { rd: *rd, rs: *src },
-                            BType::Void => unreachable!("Move with void type doesn't make sense"),
+                            BType::Void | BType::F64 => unreachable!("Move with void type doesn't make sense"),
                         };
                         self.replace_op_no_rauw(
                             lop_id,
@@ -479,7 +509,7 @@ impl ISel<'_> {
                             | BType::U64
                             | BType::Array { .. } => MOpData::Mv { rd, rs: *src },
                             BType::F32 => MOpData::FmvS { rd, rs: *src },
-                            BType::Void => unreachable!("Move with void type doesn't make sense"),
+                            BType::Void | BType::F64 => unreachable!("Move with void type doesn't make sense"),
                         };
                         if attrs.contains(&BAttr::PhiMove) {
                             self.replace_op_no_rauw(

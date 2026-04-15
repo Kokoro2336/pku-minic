@@ -376,7 +376,7 @@ impl Arena<BFunction> for BCG {
                                     }
                                 },
                                 fallback: {
-                                    LOpData::Store { addr, value } => {
+                                    LOpData::Store { addr, value, .. } => {
                                         if addr.is_virt() {
                                             remap_with_vregs(addr, &old_arena_vregs);
                                         }
@@ -425,7 +425,7 @@ impl Arena<BFunction> for BCG {
                         BOpData::M(mop_data) => {
                             match_full_ops! {
                                 target: mop_data,
-                            bin_ops: [Add, Sub, Addw, Subw, Mulw, Divw, Remw, Sllw, Srlw, Sraw, Slt, Sltu, Xor, FaddS, FsubS, FmulS, FdivS, FeqS, FneS, FltS, FgeS, FleS, FgtS],
+                            bin_ops: [Add, Sub, Addw, Subw, Mulw, Divw, Remw, Sllw, Srlw, Sraw, Slt, Sltu, Xor, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS],
                                 bin_arm: MOpData { rd, rs1, rs2 } => {
                                     if rd.is_virt() {
                                         remap_with_vregs(rd, &old_arena_vregs);
@@ -475,7 +475,8 @@ impl Arena<BFunction> for BCG {
                                     },
                                     MOpData::Lw { rd, base, .. }
                                     | MOpData::Ld { rd, base, .. }
-                                    | MOpData::Flw { rd, base, .. } => {
+                                    | MOpData::Flw { rd, base, .. }
+                                    | MOpData::Fld { rd, base, .. } => {
                                         if rd.is_virt() {
                                             remap_with_vregs(rd, &old_arena_vregs);
                                         }
@@ -485,7 +486,8 @@ impl Arena<BFunction> for BCG {
                                     },
                                     MOpData::Sw { rs, base, .. }
                                     | MOpData::Sd { rs, base, .. }
-                                    | MOpData::Fsw { rs, base, .. } => {
+                                    | MOpData::Fsw { rs, base, .. }
+                                    | MOpData::Fsd { rs, base, .. } => {
                                         if rs.is_virt() {
                                             remap_with_vregs(rs, &old_arena_vregs);
                                         }

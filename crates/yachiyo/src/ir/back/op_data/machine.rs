@@ -167,23 +167,6 @@ pub enum MOpData {
     rs2: BOperand,
   },
 
-  // Pesudo relational ops
-  FneS {
-    rd: BOperand,
-    rs1: BOperand,
-    rs2: BOperand,
-  },
-  FgtS {
-    rd: BOperand,
-    rs1: BOperand,
-    rs2: BOperand,
-  },
-  FgeS {
-    rd: BOperand,
-    rs1: BOperand,
-    rs2: BOperand,
-  },
-
   /// Float to Int conversion.
   /// Matches SysY semantic: truncate/round towards zero (RTZ).
   FcvtWS { rd: BOperand, rs: BOperand },
@@ -218,14 +201,22 @@ pub enum MOpData {
     offset: BOperand,
   },
 
-  /// Load/Store 64-bit doubleword.
-  /// ONLY used for Pointers (e.g., array base addresses) or Stack Frame management in RV64.
   Ld {
     rd: BOperand,
     base: BOperand,
     offset: BOperand,
   },
   Sd {
+    rs: BOperand,
+    base: BOperand,
+    offset: BOperand,
+  },
+  Fld {
+    rd: BOperand,
+    base: BOperand,
+    offset: BOperand,
+  },
+  Fsd {
     rs: BOperand,
     base: BOperand,
     offset: BOperand,
