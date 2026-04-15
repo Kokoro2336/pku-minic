@@ -630,89 +630,61 @@ impl Lowering {
 
                 // Initialize the current base address with the base pointer.
                 let mut current_lop_vreg_id = self.get(base.clone());
-                for (dim, index) in indices.iter().enumerate() {
-                    match &pointee_typ {
-                        Type::Array { .. } => {
-                            // Truncate the first index of indices
-                            if dim == 0 {
-                              continue;
-                            }
-                            let index = self.get(index.clone());
-                            let mul_lop_id = self.create(BOp::new(
-                                BType::U64,
-                                vec![],
-                                LOpData::MulI {
-                                    rd: BOperand::Undef,
-                                    lhs: index,
-                                    rhs: BOperand::IntImm(pointee_typ.subarr_size(dim) as i32),
-                                }
-                                .into(),
-                            ));
-
-                            let add_lop = BOp::new(
-                                BType::U64,
-                                vec![BAttr::PtrArith],
-                                LOpData::AddI {
-                                    rd: BOperand::Undef,
-                                    lhs: self.get_rd(mul_lop_id).unwrap(),
-                                    // Always place base on rhs for the convenience of slot unrolling in post-ra.
-                                    rhs: current_lop_vreg_id,
-                                }
-                                .into(),
-                            );
-
-                            // If the end of loop reached, bind the VReg of GEP to the current instruction.
-                            if dim == indices.len() - 1 {
-                                self.create_and_map_lop(
-                                    op_id.clone(), add_lop
-                                );
-                            } else {
-                                let add_lop_id = self.create(add_lop);
-                                // Update current base address.
-                                current_lop_vreg_id = self.get_rd(add_lop_id).unwrap();
-                            }
+                // If indices are empty, we can map GEP to the base pointer directly.
+                if indices.is_empty() {
+                  self.set(op_id, current_lop_vreg_id);
+                } else {
+                  for (dim, index) in indices.iter().enumerate() {
+                    // Compute step size for each index. For array pointee, each dim uses a shrinking subarray size.
+                    // For non-array pointee, only the first index is valid and it uses pointee size.
+                    let step_size = match &pointee_typ {
+                      Type::Array { dims, .. } => {
+                        if dim > dims.len() {
+                          unreachable!("GEP index out of bounds for array type")
                         }
-                        _ => {
-                            // CRITICAL: Do not truncate the first index of non-array type.
-                            let rhs = self.get(index.clone());
-                            let mul_op = self.create(
-                                BOp::new(
-                                    BType::U64,
-                                    vec![],
-                                    LOpData::MulI {
-                                        rd: BOperand::Undef,
-                                        lhs: BOperand::IntImm(pointee_typ.size() as i32),
-                                        rhs,
-                                    }
-                                    .into(),
-                                ),
-                            );
-
-                            // If the pointee is scalar, the iteration will only has one step.
-                            // We don't need to update current_lop_id, and we can directly bind the vreg of GEP to the Add.
-                            let mul_op_vreg_id = self.get_rd(mul_op).expect("Mul should produce a value");
-                            self.create_and_map_lop(
-                                op_id.clone(),
-                                BOp::new(
-                                    BType::U64,
-                                    vec![BAttr::PtrArith],
-                                    LOpData::AddI {
-                                        rd: BOperand::Undef,
-                                        lhs: mul_op_vreg_id,
-                                        rhs: current_lop_vreg_id,
-                                    }
-                                    .into(),
-                                ),
-                            );
+                        pointee_typ.subarr_size(dim)
+                      }
+                      _ => {
+                        if dim > 0 {
+                          unreachable!("Non-array GEP base only supports a single index")
                         }
+                        pointee_typ.size()
+                      }
+                    };
+
+                    let index = self.get(index.clone());
+                    let mul_lop_id = self.create(BOp::new(
+                      BType::U64,
+                      vec![],
+                      LOpData::MulI {
+                        rd: BOperand::Undef,
+                        lhs: index,
+                        rhs: BOperand::IntImm(step_size as i32),
+                      }
+                      .into(),
+                    ));
+
+                    let add_lop = BOp::new(
+                      BType::U64,
+                      vec![BAttr::PtrArith],
+                      LOpData::AddI {
+                        rd: BOperand::Undef,
+                        lhs: self.get_rd(mul_lop_id).unwrap(),
+                        // Always place base on rhs for the convenience of slot unrolling in post-ra.
+                        rhs: current_lop_vreg_id,
+                      }
+                      .into(),
+                    );
+
+                    // If the end of loop reached, bind the VReg of GEP to the current instruction.
+                    if dim == indices.len() - 1 {
+                      self.create_and_map_lop(op_id.clone(), add_lop);
+                    } else {
+                      let add_lop_id = self.create(add_lop);
+                      // Update current base address.
+                      current_lop_vreg_id = self.get_rd(add_lop_id).unwrap();
                     }
-                }
-
-                // If the truncated indices is empty, we need to map the GEP to the base pointer's LOp InstId directly.
-                // TODO: The edge case is totally in a mess. We might refacor it.
-                if indices.is_empty() || (indices.len() == 1 && matches!(pointee_typ, Type::Array { .. })) {
-                  let target_id = self.get(base.clone());
-                  self.set(op_id, target_id);
+                  }
                 }
             }
             OpData::Ret { value } => {
