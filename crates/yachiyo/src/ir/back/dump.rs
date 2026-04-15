@@ -493,6 +493,18 @@ impl AsmFormatCtx<'_> {
           self.format_operand(offset),
           self.format_operand(base)
         ),
+        MOpData::Fld { rd, base, offset } => format!(
+          "fld {}, {}({})",
+          self.format_operand(rd),
+          self.format_operand(offset),
+          self.format_operand(base)
+        ),
+        MOpData::Fsd { rs, base, offset } => format!(
+          "fsd {}, {}({})",
+          self.format_operand(rs),
+          self.format_operand(offset),
+          self.format_operand(base)
+        ),
         MOpData::J { target } => format!("j {}", self.format_operand(target)),
         MOpData::Call { target } => format!("call {}", self.format_operand(target)),
         MOpData::Ret => "ret".to_string(),

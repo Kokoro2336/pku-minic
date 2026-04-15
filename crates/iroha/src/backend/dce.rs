@@ -256,13 +256,15 @@ impl<'a> BPass<'a> for BDCE<'a> {
                   }
                   MOpData::Lw { base, offset, .. }
                   | MOpData::Flw { base, offset, .. }
-                  | MOpData::Ld { base, offset, .. } => {
+                  | MOpData::Ld { base, offset, .. }
+                  | MOpData::Fld { base, offset, .. } => {
                       check(self, base);
                       check(self, offset);
                   }
                   MOpData::Sw { rs, base, offset }
                   | MOpData::Fsw { rs, base, offset }
-                  | MOpData::Sd { rs, base, offset } => {
+                  | MOpData::Sd { rs, base, offset }
+                  | MOpData::Fsd { rs, base, offset } => {
                       check(self, rs);
                       check(self, base);
                       check(self, offset);

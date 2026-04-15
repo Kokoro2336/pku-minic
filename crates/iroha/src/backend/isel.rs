@@ -453,7 +453,7 @@ impl ISel<'_> {
                             | BType::U64
                             | BType::Array { .. } => MOpData::Mv { rd: *rd, rs: *src },
                             BType::F32 => MOpData::FmvS { rd: *rd, rs: *src },
-                            BType::Void => unreachable!("Move with void type doesn't make sense"),
+                            BType::Void | BType::F64 => unreachable!("Move with void type doesn't make sense"),
                         };
                         self.replace_op_no_rauw(
                             lop_id,
@@ -473,7 +473,7 @@ impl ISel<'_> {
                             | BType::U64
                             | BType::Array { .. } => MOpData::Mv { rd, rs: *src },
                             BType::F32 => MOpData::FmvS { rd, rs: *src },
-                            BType::Void => unreachable!("Move with void type doesn't make sense"),
+                            BType::Void | BType::F64 => unreachable!("Move with void type doesn't make sense"),
                         };
                         if attrs.contains(&BAttr::PhiMove) {
                             self.replace_op_no_rauw(

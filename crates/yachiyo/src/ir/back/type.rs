@@ -8,6 +8,8 @@ pub enum BType {
   Void,
   I32,
   F32,
+  // For saving of fp registers.
+  F64,
   // For pointer
   U64,
   // For array
@@ -21,6 +23,7 @@ impl BType {
       BType::Void => 1, // align to 1 byte for void type
       BType::I32 => 4,
       BType::F32 => 4,
+      BType::F64 => RISCV_BITS / 8,
       BType::U64 => RISCV_BITS / 8,
       BType::Array { base, num } => base.size() * num,
     }
@@ -31,6 +34,7 @@ impl BType {
       BType::Void => 1,
       BType::I32 => 4,
       BType::F32 => 4,
+      BType::F64 => RISCV_BITS / 8,
       BType::U64 => RISCV_BITS / 8,
       BType::Array { base, .. } => base.align(),
     }

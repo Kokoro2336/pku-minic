@@ -475,7 +475,8 @@ impl Arena<BFunction> for BCG {
                                     },
                                     MOpData::Lw { rd, base, .. }
                                     | MOpData::Ld { rd, base, .. }
-                                    | MOpData::Flw { rd, base, .. } => {
+                                    | MOpData::Flw { rd, base, .. }
+                                    | MOpData::Fld { rd, base, .. } => {
                                         if rd.is_virt() {
                                             remap_with_vregs(rd, &old_arena_vregs);
                                         }
@@ -485,7 +486,8 @@ impl Arena<BFunction> for BCG {
                                     },
                                     MOpData::Sw { rs, base, .. }
                                     | MOpData::Sd { rs, base, .. }
-                                    | MOpData::Fsw { rs, base, .. } => {
+                                    | MOpData::Fsw { rs, base, .. }
+                                    | MOpData::Fsd { rs, base, .. } => {
                                         if rs.is_virt() {
                                             remap_with_vregs(rs, &old_arena_vregs);
                                         }

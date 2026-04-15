@@ -245,7 +245,7 @@ impl Canonicalize<'_> {
                     LOpData::Xor { .. } => BOperand::IntImm(l ^ r),
                     LOpData::Shl { .. } => BOperand::IntImm(l << r),
                     LOpData::Shr { .. } => BOperand::IntImm(l >> r),
-                    LOpData::Sar { .. } => BOperand::IntImm(l >> r),
+                    LOpData::Sar { .. } => BOperand::IntImm(((l as i64) >> r) as i32),
                     _ => unreachable!("{:?} doesn't support int immediate folding", lop_data),
                 }
             } else if let (BOperand::FloatImm(l), BOperand::FloatImm(r)) = (*lhs, *rhs) {

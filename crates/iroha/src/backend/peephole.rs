@@ -74,7 +74,7 @@ impl Peephole<'_> {
                       }
                   }
               },
-                uni_ops: [Li, La, Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw, Sllw, Sraw, Srlw, Slt, Slti, Sltu, Sltiu, Addiw, Slliw, Srliw, Sraiw, Xor, FmvS, FaddS, FsubS, FmulS, FdivS, FeqS, Xori, FltS, FleS, FneS, FgtS, FgeS, FcvtSW, FcvtWS, FmvWX, FmvXW, Lw, Sw, Flw, Ld, Sd, Fsw, J, Bnez, Ret, Bne, Beq, Blt, Bge, Bltu, Bgeu, Call],
+                uni_ops: [Li, La, Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw, Sllw, Sraw, Srlw, Slt, Slti, Sltu, Sltiu, Addiw, Slliw, Srliw, Sraiw, Xor, FmvS, FaddS, FsubS, FmulS, FdivS, FeqS, Xori, FltS, FleS, FneS, FgtS, FgeS, FcvtSW, FcvtWS, FmvWX, FmvXW, Lw, Sw, Flw, Ld, Sd, Fld, Fsd, Fsw, J, Bnez, Ret, Bne, Beq, Blt, Bge, Bltu, Bgeu, Call],
               uni_arm: {}
           },
         }

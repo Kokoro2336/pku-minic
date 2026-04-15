@@ -278,7 +278,7 @@ impl BDFG {
               FaddS, FsubS, FmulS, FdivS,
               FeqS, FltS, FleS, FneS, FgtS, FgeS,
               FcvtWS, FcvtSW, FmvWX, FmvXW,
-              Lw, Flw, Ld
+              Lw, Flw, Ld, Fld
           ],
           rd_arm: MOpData(rd) => {
               Some((rd, 0))
@@ -288,6 +288,7 @@ impl BDFG {
               MOpData::Sw {..}
               | MOpData::Fsw {..}
               | MOpData::Sd {..}
+              | MOpData::Fsd {..}
               | MOpData::J {..}
               | MOpData::Bnez {..}
               | MOpData::Call {..}
@@ -339,7 +340,7 @@ impl BDFG {
               FaddS, FsubS, FmulS, FdivS,
               FeqS, FltS, FleS, FneS, FgtS, FgeS,
               FcvtWS, FcvtSW, FmvWX, FmvXW,
-              Lw, Flw, Ld
+              Lw, Flw, Ld, Fld
           ],
           rd_arm: MOpData(rd) => {
               Some((rd, 0))
@@ -349,6 +350,7 @@ impl BDFG {
               MOpData::Sw {..}
               | MOpData::Fsw {..}
               | MOpData::Sd {..}
+              | MOpData::Fsd {..}
               | MOpData::J {..}
               | MOpData::Bnez {..}
               | MOpData::Call {..}
@@ -429,11 +431,13 @@ impl BDFG {
 
               MOpData::Lw { base, offset, .. }
               | MOpData::Flw { base, offset, .. }
-              | MOpData::Ld { base, offset, .. } => vec![(base, 1), (offset, 2)],
+              | MOpData::Ld { base, offset, .. }
+              | MOpData::Fld { base, offset, .. } => vec![(base, 1), (offset, 2)],
 
               MOpData::Sw { rs, base, offset }
               | MOpData::Fsw { rs, base, offset }
-              | MOpData::Sd { rs, base, offset } => vec![(rs, 0), (base, 1), (offset, 2)],
+              | MOpData::Sd { rs, base, offset }
+              | MOpData::Fsd { rs, base, offset } => vec![(rs, 0), (base, 1), (offset, 2)],
 
               MOpData::Beq { rs1, rs2, offset }
               | MOpData::Bne { rs1, rs2, offset }
@@ -524,11 +528,13 @@ impl BDFG {
 
               MOpData::Lw { base, offset, .. }
               | MOpData::Flw { base, offset, .. }
-              | MOpData::Ld { base, offset, .. } => vec![(base, 1), (offset, 2)],
+              | MOpData::Ld { base, offset, .. }
+              | MOpData::Fld { base, offset, .. } => vec![(base, 1), (offset, 2)],
 
               MOpData::Sw { rs, base, offset }
               | MOpData::Fsw { rs, base, offset }
-              | MOpData::Sd { rs, base, offset } => vec![(rs, 0), (base, 1), (offset, 2)],
+              | MOpData::Sd { rs, base, offset }
+              | MOpData::Fsd { rs, base, offset } => vec![(rs, 0), (base, 1), (offset, 2)],
 
               MOpData::Li { .. } | MOpData::La { .. } => vec![],
 
