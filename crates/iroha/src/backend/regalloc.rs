@@ -535,7 +535,12 @@ impl Allocator<'_> {
     if u == v {
       self.coalesced_moves.insert(m.into());
       self.add_worklist(u);
-    } else if v.is_phys() || self.adj_set.contains(&(u, v)) {
+    } else if v.is_phys()
+      || self.adj_set.contains(&(u, v))
+      // CRITICAL: x0 can't be coalesced with any other registers, so we freeze the move.
+      // mv x0, x0(which will be removed in peephole).
+      || u.uncombinable()
+    {
       // In ideal case, u can't interfere with v, since v was removed during the interference graph building of u.
       // If this edge is found, then v must interfere with u in some other place, so we can't coalesce them.
       self.frozen_moves.insert(m.into());
@@ -578,9 +583,9 @@ impl Allocator<'_> {
         self.decrement_degree(t);
       }
     }
-    if let BOperand::Reg(Reg::Virt(u_id)) = u {
+    if let BOperand::Reg(Reg::Virt(_)) = u {
       // u can't be in simplify_worklist now.
-      if self.degree[u_id] >= self.get_colors_num() && self.freeze_worklist.contains(&u) {
+      if self.get_degree(u) >= self.get_colors_num() && self.freeze_worklist.contains(&u) {
         self.freeze_worklist.remove(&u);
         self.spill_worklist.push_back(u);
       }
@@ -1081,108 +1086,266 @@ impl RegAlloc<'_> {
   }
 
   /// typ: The type of rs.
-  fn select_store(&mut self, typ: BType, attrs: Vec<BAttr>, rs: BOperand, base: BOperand, offset: Option<BOperand>) -> BOp {
+  fn select_store(
+    &mut self,
+    typ: BType,
+    attrs: Vec<BAttr>,
+    rs: BOperand,
+    base: BOperand,
+    offset: Option<BOperand>,
+  ) -> BOp {
     if let Some(offset) = offset {
       // if offset is a reg, create individual add instruction.
       if !offset.is_literal() {
         self.create(BOp::new(
-            BType::U64,
-            vec![],
-            MOpData::Add { rd: RESERVED_REG_BOPRD, rs1: base, rs2: offset }.into()
+          BType::U64,
+          vec![],
+          MOpData::Add {
+            rd: RESERVED_REG_BOPRD,
+            rs1: base,
+            rs2: offset,
+          }
+          .into(),
         ));
       }
     };
     match typ {
-      BType::I32 | BType::U64 | BType::Array { .. } => if let Some(offset) = offset {
-        if offset.is_literal() {
-          BOp::new(BType::Void, attrs, MOpData::Sw { rs, base, offset }.into())
+      BType::I32 | BType::U64 | BType::Array { .. } => {
+        if let Some(offset) = offset {
+          if offset.is_literal() {
+            BOp::new(BType::Void, attrs, MOpData::Sw { rs, base, offset }.into())
+          } else {
+            BOp::new(
+              BType::Void,
+              attrs,
+              MOpData::Sw {
+                rs,
+                base: RESERVED_REG_BOPRD,
+                offset: BOperand::IntImm(0),
+              }
+              .into(),
+            )
+          }
         } else {
-          BOp::new(BType::Void, attrs, MOpData::Sw { rs, base: RESERVED_REG_BOPRD, offset: BOperand::IntImm(0) }.into())
+          BOp::new(
+            BType::Void,
+            attrs,
+            MOpData::Sw {
+              rs,
+              base,
+              offset: BOperand::IntImm(0),
+            }
+            .into(),
+          )
         }
-      } else {
-        BOp::new(BType::Void, attrs, MOpData::Sw { rs, base, offset: BOperand::IntImm(0) }.into())
-      },
-      BType::F32 => if let Some(offset) = offset {
-        if offset.is_literal() {
-          BOp::new(BType::Void, attrs, MOpData::Fsw { rs, base, offset }.into())
+      }
+      BType::F32 => {
+        if let Some(offset) = offset {
+          if offset.is_literal() {
+            BOp::new(BType::Void, attrs, MOpData::Fsw { rs, base, offset }.into())
+          } else {
+            BOp::new(
+              BType::Void,
+              attrs,
+              MOpData::Fsw {
+                rs,
+                base: RESERVED_REG_BOPRD,
+                offset: BOperand::IntImm(0),
+              }
+              .into(),
+            )
+          }
         } else {
-          BOp::new(BType::Void, attrs, MOpData::Fsw { rs, base: RESERVED_REG_BOPRD, offset: BOperand::IntImm(0) }.into())
+          BOp::new(
+            BType::Void,
+            attrs,
+            MOpData::Fsw {
+              rs,
+              base,
+              offset: BOperand::IntImm(0),
+            }
+            .into(),
+          )
         }
-      } else {
-        BOp::new(BType::Void, attrs, MOpData::Fsw { rs, base, offset: BOperand::IntImm(0) }.into())
-      },
+      }
       BType::Void => unreachable!(),
     }
   }
   /// typ: The type of rd.
-  fn select_load(&mut self, typ: BType, attrs: Vec<BAttr>, rd: BOperand, base: BOperand, offset: Option<BOperand>) -> BOp {
+  fn select_load(
+    &mut self,
+    typ: BType,
+    attrs: Vec<BAttr>,
+    rd: BOperand,
+    base: BOperand,
+    offset: Option<BOperand>,
+  ) -> BOp {
     if let Some(offset) = offset {
       // if offset is a reg, create individual add instruction.
       if !offset.is_literal() {
         self.create(BOp::new(
-            BType::U64,
-            vec![],
-            MOpData::Add { rd: RESERVED_REG_BOPRD, rs1: base, rs2: offset }.into()
+          BType::U64,
+          vec![],
+          MOpData::Add {
+            rd: RESERVED_REG_BOPRD,
+            rs1: base,
+            rs2: offset,
+          }
+          .into(),
         ));
       }
     };
     match typ {
-      BType::I32 | BType::U64 | BType::Array { .. } => if let Some(offset) = offset {
-        if offset.is_literal() {
-          BOp::new(BType::Void, attrs, MOpData::Lw { rd, base, offset }.into())
+      BType::I32 | BType::U64 | BType::Array { .. } => {
+        if let Some(offset) = offset {
+          if offset.is_literal() {
+            BOp::new(BType::Void, attrs, MOpData::Lw { rd, base, offset }.into())
+          } else {
+            // Don't use x0 here, which could introduce extra instruction.
+            BOp::new(
+              BType::Void,
+              attrs,
+              MOpData::Lw {
+                rd,
+                base: RESERVED_REG_BOPRD,
+                offset: BOperand::IntImm(0),
+              }
+              .into(),
+            )
+          }
         } else {
-          // Don't use x0 here, which could introduce extra instruction.
-          BOp::new(BType::Void, attrs, MOpData::Lw { rd, base: RESERVED_REG_BOPRD, offset: BOperand::IntImm(0) }.into())
+          BOp::new(
+            BType::Void,
+            attrs,
+            MOpData::Lw {
+              rd,
+              base,
+              offset: BOperand::IntImm(0),
+            }
+            .into(),
+          )
         }
-      } else {
-        BOp::new(BType::Void, attrs, MOpData::Lw { rd, base, offset: BOperand::IntImm(0) }.into())
-      },
-      BType::F32 => if let Some(offset) = offset {
-        if offset.is_literal() {
-          BOp::new(BType::Void, attrs, MOpData::Flw { rd, base, offset }.into())
+      }
+      BType::F32 => {
+        if let Some(offset) = offset {
+          if offset.is_literal() {
+            BOp::new(BType::Void, attrs, MOpData::Flw { rd, base, offset }.into())
+          } else {
+            BOp::new(
+              BType::Void,
+              attrs,
+              MOpData::Flw {
+                rd,
+                base: RESERVED_REG_BOPRD,
+                offset: BOperand::IntImm(0),
+              }
+              .into(),
+            )
+          }
         } else {
-          BOp::new(BType::Void, attrs, MOpData::Flw { rd, base: RESERVED_REG_BOPRD, offset: BOperand::IntImm(0) }.into())
+          BOp::new(
+            BType::Void,
+            attrs,
+            MOpData::Flw {
+              rd,
+              base,
+              offset: BOperand::IntImm(0),
+            }
+            .into(),
+          )
         }
-      } else {
-        BOp::new(BType::Void, attrs, MOpData::Flw { rd, base, offset: BOperand::IntImm(0) }.into())
-      },
+      }
       BType::Void => unreachable!(),
     }
   }
-  fn select_ptr_add(&mut self, typ: BType, attrs: Vec<BAttr>, rd: BOperand, rs1: BOperand, base: BOperand, offset: Option<BOperand>) -> BOp {
+  fn select_ptr_add(
+    &mut self,
+    typ: BType,
+    attrs: Vec<BAttr>,
+    rd: BOperand,
+    rs1: BOperand,
+    base: BOperand,
+    offset: Option<BOperand>,
+  ) -> BOp {
     let final_offset = if let Some(offset) = offset {
       self.create(BOp::new(
         typ.clone(),
         vec![],
         if offset.is_literal() {
-          MOpData::Addi { rd: RESERVED_REG_BOPRD, rs1: base, imm: offset }.into()
+          MOpData::Addi {
+            rd: RESERVED_REG_BOPRD,
+            rs1: base,
+            imm: offset,
+          }
+          .into()
         } else {
-          MOpData::Add { rd: RESERVED_REG_BOPRD, rs1: base, rs2: offset }.into()
-        }
+          MOpData::Add {
+            rd: RESERVED_REG_BOPRD,
+            rs1: base,
+            rs2: offset,
+          }
+          .into()
+        },
       ));
       RESERVED_REG_BOPRD
     } else {
       base
     };
-    BOp::new(typ, attrs, MOpData::Add { rd, rs1, rs2: final_offset }.into())
+    BOp::new(
+      typ,
+      attrs,
+      MOpData::Add {
+        rd,
+        rs1,
+        rs2: final_offset,
+      }
+      .into(),
+    )
   }
-  fn select_ptr_sub(&mut self, typ: BType, attrs: Vec<BAttr>, rd: BOperand, rs1: BOperand, base: BOperand, offset: Option<BOperand>) -> BOp {
+  fn select_ptr_sub(
+    &mut self,
+    typ: BType,
+    attrs: Vec<BAttr>,
+    rd: BOperand,
+    rs1: BOperand,
+    base: BOperand,
+    offset: Option<BOperand>,
+  ) -> BOp {
     let final_offset = if let Some(offset) = offset {
       self.create(BOp::new(
         typ.clone(),
         vec![],
         // TODO: really Add here?
         if offset.is_literal() {
-          MOpData::Addi { rd: RESERVED_REG_BOPRD, rs1: base, imm: offset }.into()
+          MOpData::Addi {
+            rd: RESERVED_REG_BOPRD,
+            rs1: base,
+            imm: offset,
+          }
+          .into()
         } else {
-          MOpData::Add { rd: RESERVED_REG_BOPRD, rs1: base, rs2: offset }.into()
-        }
+          MOpData::Add {
+            rd: RESERVED_REG_BOPRD,
+            rs1: base,
+            rs2: offset,
+          }
+          .into()
+        },
       ));
       RESERVED_REG_BOPRD
     } else {
       base
     };
-    BOp::new(typ, attrs, MOpData::Sub { rd, rs1, rs2: final_offset }.into())
+    BOp::new(
+      typ,
+      attrs,
+      MOpData::Sub {
+        rd,
+        rs1,
+        rs2: final_offset,
+      }
+      .into(),
+    )
   }
 
   #[inline(always)]

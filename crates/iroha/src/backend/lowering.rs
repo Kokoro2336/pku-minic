@@ -65,16 +65,20 @@ impl Lowering {
 
       // Legalize immediates when getting them.
       // For zero immediate, replace it with zero register.
-      Operand::Bool(imm) => if imm as i32 == 0 {
-        BOperand::Reg(Reg::X(XReg::Zero))
-      } else {
-        BOperand::IntImm(imm as i32)
+      Operand::Bool(imm) => {
+        if imm as i32 == 0 {
+          BOperand::Reg(Reg::X(XReg::Zero))
+        } else {
+          BOperand::IntImm(imm as i32)
+        }
       }
-      Operand::Int(imm) => if imm == 0 {
-        BOperand::Reg(Reg::X(XReg::Zero))
-      } else {
-        BOperand::IntImm(imm)
-      },
+      Operand::Int(imm) => {
+        if imm == 0 {
+          BOperand::Reg(Reg::X(XReg::Zero))
+        } else {
+          BOperand::IntImm(imm)
+        }
+      }
       Operand::Float(imm) => BOperand::FloatImm(imm),
       Operand::Undefined => BOperand::Undef,
     }
@@ -84,6 +88,24 @@ impl Lowering {
   fn get_rd(&mut self, bop_id: BOperand) -> Option<BOperand> {
     let func_id = self.builder.current_function.expect("No current function");
     self.lower_ir.get_rd(Some(func_id), bop_id).cloned()
+  }
+
+  #[inline(always)]
+  fn replace_src(&mut self, bop_id: BOperand, old_src: BOperand, new_src: BOperand) {
+    let func_id = self.builder.current_function;
+    let use_tuple = self
+      .lower_ir
+      .get_src_tuple(func_id, bop_id)
+      .into_iter()
+      .map(|(operand, idx)| (*operand, idx))
+      .collect::<Vec<_>>();
+    for (operand, idx) in use_tuple {
+      if operand == old_src {
+        self
+          .lower_ir
+          .replace_src(func_id, (bop_id, idx), old_src, new_src);
+      }
+    }
   }
 
   #[inline(always)]
@@ -822,9 +844,9 @@ impl Lowering {
   fn resort_moves(&mut self, mut move_lop_ids: Vec<BOperand>) -> Vec<(BOperand, BOperand)> {
     // Scheduled moves.
     let mut new = vec![];
-    // In degree of src in each move.
+    // out-degree of src in each move.
     let mut out_degree: FxHashMap<BOperand, usize> = FxHashMap::default();
-    let func_id = self.builder.current_function.expect("No current function");
+    let func_id = self.builder.current_function.unwrap();
 
     // Compute out-degree of each move.
     for move_lop_id in move_lop_ids.iter() {
@@ -835,7 +857,7 @@ impl Lowering {
         LOpData::Move { src, .. } => {
           *out_degree.entry(src).or_insert(0) += 1;
         }
-        _ => unreachable!("Only Move LOp should be in the move_lop_ids"),
+        _ => unreachable!("Expected Move, got {:?}", move_lop_data),
       };
     }
 
@@ -850,14 +872,11 @@ impl Lowering {
         // Schedule those moves whose rd's out-degree is 0.
         match move_lop_data {
           LOpData::Move { src, rd } => {
+            // If rd isn't in out_degree, that indicates rd is not the src of any move, we can also schedule this move too.
             if (out_degree.contains_key(&rd) && out_degree[&rd] == 0)
-                            // If rd isn't in out_degree, that indicates rd is not the src of any move, we can also schedule this move too.
-                            || !out_degree.contains_key(&rd)
+              || !out_degree.contains_key(&rd)
             {
-              new.push((
-                *move_lop_id,
-                self.builder.current_block.expect("No current block"),
-              ));
+              new.push((*move_lop_id, self.builder.current_block.unwrap()));
               // Decrease the out-degree of the src of this move.
               *out_degree.get_mut(&src).unwrap() -= 1;
               changed = true;
@@ -868,7 +887,7 @@ impl Lowering {
               true
             }
           }
-          _ => unreachable!("Only Move LOp should be in the move_lop_ids"),
+          _ => unreachable!("Expected Move, got {:?}", move_lop_data),
         }
       });
 
@@ -876,14 +895,13 @@ impl Lowering {
         // If there is a cycle, we can break it by inserting a temporary move.
         // Choose the last edge in the cycle to break.
         let move_lop_id = move_lop_ids.pop().unwrap();
-        let move_bop = &self.lower_ir.funcs
-          [self.builder.current_function.expect("No current function")]
-        .dfg[move_lop_id];
+        let move_bop =
+          &self.lower_ir.funcs[self.builder.current_function.unwrap()].dfg[move_lop_id];
         let (move_lop_data, typ): (LOpData, BType) =
           (move_bop.data.clone().into(), move_bop.typ.clone());
 
         match move_lop_data {
-          LOpData::Move { src, rd } => {
+          LOpData::Move { src, .. } => {
             // For now we don't care where it's created, we will move 'em to trampolines later.
             let src_temp_id = self.create(BOp::new(
               typ.clone(),
@@ -894,33 +912,16 @@ impl Lowering {
               }
               .into(),
             ));
-            let temp_vreg_id = self
-              .get_rd(src_temp_id)
-              .expect("Move should produce a value");
+            let temp_vreg_id = self.get_rd(src_temp_id).unwrap();
 
-            let temp_rd_id = self.create(BOp::new(
-              typ,
-              vec![],
-              LOpData::Move {
-                rd,
-                src: temp_vreg_id,
-              }
-              .into(),
-            ));
+            // Replace the src of the original move.
+            self.replace_src(move_lop_id, src, temp_vreg_id);
 
-            // Schedule the move from temp to rd first
-            new.push((
-              src_temp_id,
-              self.builder.current_block.expect("No current block"),
-            ));
-            *out_degree.entry(src).or_insert(0) -= 1;
-
-            // Update temp's out-degree
-            *out_degree.entry(temp_vreg_id).or_insert(0) += 1;
-            move_lop_ids.push(temp_rd_id);
-            // Schedule again.
+            // We don't update the out-degree of temp, letting it stay as 0.
+            move_lop_ids.push(src_temp_id);
+            // So that the new temp move will be scheduled in the next iterations.
           }
-          _ => unreachable!("Only Move LOp should be in the move_lop_ids"),
+          _ => unreachable!("Expected Move, got {:?}", move_lop_data),
         }
         // After breaking the cycle, we continue to schedule the moves in the next iteration.
       } else if move_lop_ids.is_empty() {
@@ -1171,7 +1172,7 @@ impl Lowering {
 
       // Pre-allocate basic blocks.
       let func = &self.ir.funcs[func_id.clone()];
-      let entry = func.cfg.entry.expect("No entry block");
+      let entry = func.cfg.entry.unwrap();
       for bb_id in func.cfg.ids() {
         self.alloc_and_map_block(Operand::BB(bb_id), BBasicBlock::default());
       }
@@ -1193,6 +1194,7 @@ impl Lowering {
       self.lower_bbs(func_id.clone());
 
       // Process phis.
+      // phi_moves: (from, to) -> Vec<LOpId>
       let mut phi_moves: FxHashMap<(Operand, Operand), Vec<BOperand>> = FxHashMap::default();
       for (phi_id, phi_bb_id) in std::mem::take(&mut self.phis) {
         let (typ, phi_op_data) = {
@@ -1247,7 +1249,7 @@ impl Lowering {
               .push(move_lop_id);
           }
         } else {
-          unreachable!("Only Phi should be in the phis map");
+          unreachable!("Expected Phi, got {:?}", phi_op_data);
         }
       }
 

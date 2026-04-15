@@ -3,8 +3,7 @@
 use super::{BType, Reg};
 #[cfg(feature = "debug")]
 use crate::debug::info;
-use crate::ir::back::LOpData;
-use crate::ir::back::MOpData;
+use crate::ir::back::{LOpData, MOpData, XReg};
 use crate::utils::arena::*;
 use crate::utils::r#match::{match_rd, match_src};
 
@@ -151,6 +150,17 @@ impl BOperand {
   #[inline(always)]
   pub fn is_virt(&self) -> bool {
     matches!(self, BOperand::Reg(Reg::Virt(_)))
+  }
+  #[inline(always)]
+  pub fn uncombinable(&self) -> bool {
+    matches!(
+      self,
+      BOperand::Reg(Reg::X(XReg::Zero))
+        | BOperand::Reg(Reg::X(XReg::Ra))
+        | BOperand::Reg(Reg::X(XReg::Sp))
+        | BOperand::Reg(Reg::X(XReg::Gp))
+        | BOperand::Reg(Reg::X(XReg::Tp))
+    )
   }
 }
 

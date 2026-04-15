@@ -35,10 +35,7 @@ impl ISel<'_> {
 
   #[inline(always)]
   fn get_vreg_id(&self, op_id: BOperand) -> BOperand {
-    let func_id = self
-      .builder
-      .current_function
-      .unwrap();
+    let func_id = self.builder.current_function.unwrap();
     self
       .ir
       .as_ref()
@@ -81,10 +78,7 @@ impl ISel<'_> {
   }
 
   pub fn select(&mut self, lop_id: BOperand) {
-    let func_id = self
-      .builder
-      .current_function
-      .unwrap();
+    let func_id = self.builder.current_function.unwrap();
     let func = &self.ir.as_ref().unwrap().funcs[func_id];
     let bop = &func.dfg[lop_id];
     let (lop_data, attrs, typ) = (bop.data.clone().into(), bop.attrs.clone(), bop.typ.clone());

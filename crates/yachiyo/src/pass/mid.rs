@@ -71,7 +71,7 @@ impl<'a> PassManager<'a> {
     }
 
     // If no pass specified, dump the LLVM IR after all optimizations.
-    if self.cli.emit_llvm && self.cli.dump_llvm_after.is_empty() {
+    if self.cli.dump_llvm_after.is_empty() {
       #[cfg(feature = "debug")]
       info!("Start Dumping LLVM IR.");
       let filename = self
@@ -88,7 +88,9 @@ impl<'a> PassManager<'a> {
       info!("Finish Dumping LLVM IR.");
       #[cfg(feature = "debug")]
       info!("Quit after dumping.");
-      std::process::exit(0)
+      if self.cli.emit_llvm {
+        std::process::exit(0)
+      }
     }
   }
 }
