@@ -328,7 +328,7 @@ impl ISel<'_> {
                                     BOp::new(
                                         typ.clone(),
                                         vec![],
-                                        MOpData::Slt { rd: BOperand::Undef, rs1: rs2, rs2: rs1 }.into(),
+                                        MOpData::Slt { rd: BOperand::Undef, rs1, rs2 }.into(),
                                     )
                                 );
                                 let slt_vreg_id = self.get_vreg_id(slt_mop_id);
