@@ -47,11 +47,8 @@ impl ISel<'_> {
 
   #[inline(always)]
   fn replace_op_rauw(&mut self, old_id: BOperand, new_op: BOp) -> BOperand {
-    let func_id = self
-      .builder
-      .current_function
-      .expect("ISel: not in a function");
-    let current_block = self.builder.current_block.expect("Not current block found");
+    let func_id = self.builder.current_function.unwrap();
+    let current_block = self.builder.current_block.unwrap();
     self.ir.as_mut().unwrap().replace_op_rauw(
       &mut self.builder,
       Some(func_id),
@@ -63,11 +60,8 @@ impl ISel<'_> {
 
   #[inline(always)]
   fn replace_op_no_rauw(&mut self, old_id: BOperand, new_op: BOp) -> BOperand {
-    let func_id = self
-      .builder
-      .current_function
-      .expect("ISel: not in a function");
-    let current_block = self.builder.current_block.expect("Not current block found");
+    let func_id = self.builder.current_function.unwrap();
+    let current_block = self.builder.current_block.unwrap();
     self.ir.as_mut().unwrap().replace_op_no_rauw(
       &mut self.builder,
       Some(func_id),

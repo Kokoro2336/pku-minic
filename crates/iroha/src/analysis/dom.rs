@@ -1,9 +1,10 @@
 //! Dominance Analysis based on Lengauer-Tarjan algorithm.
 //! Reference: https://dl.acm.org/doi/10.1145/357062.357071
 
-use yachiyo::analysis::Analysis;
 #[cfg(feature = "debug")]
 use yachiyo::debug::info;
+
+use yachiyo::analysis::Analysis;
 use yachiyo::ir::mid::{Operand, IR};
 use yachiyo::utils::set::BitSet;
 

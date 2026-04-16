@@ -43,15 +43,18 @@ impl<'a> BPassManager<'a> {
     while let Some(mut pass) = self.passes.pop_front() {
       #[cfg(feature = "debug")]
       info!("Running backend pass: {}", pass.name());
+
       // SAFETY: Passes run sequentially and each pass only borrows `ir` during this iteration.
       unsafe { pass.mount(&mut *ir_ptr) };
       pass.run();
+
       #[cfg(feature = "debug")]
       info!("Finished backend pass: {}", pass.name());
 
       if self.cli.dump_asm_after == pass.name() {
         #[cfg(feature = "debug")]
         info!("Dumping assembly after backend pass: {}", pass.name());
+
         let filename = self
           .cli
           .output
@@ -62,6 +65,7 @@ impl<'a> BPassManager<'a> {
         unsafe {
           DumpASM::new(&*ir_ptr, filename).run();
         }
+
         #[cfg(feature = "debug")]
         info!(
           "Finished dumping assembly after backend pass: {}",
@@ -69,13 +73,14 @@ impl<'a> BPassManager<'a> {
         );
         #[cfg(feature = "debug")]
         info!("Quit after dumping.");
+
         std::process::exit(0);
       }
     }
 
     #[cfg(feature = "debug")]
-
     info!("Start Dumping Assembly.");
+
     let asm_filename = self
       .cli
       .output
@@ -84,6 +89,7 @@ impl<'a> BPassManager<'a> {
       .to_string_lossy()
       .to_string();
     DumpASM::new(ir, asm_filename).run();
+
     #[cfg(feature = "debug")]
     info!("Finish Dumping Assembly.");
   }

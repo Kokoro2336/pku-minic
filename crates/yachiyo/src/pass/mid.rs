@@ -43,15 +43,18 @@ impl<'a> PassManager<'a> {
     while let Some(mut pass) = self.passes.pop_front() {
       #[cfg(feature = "debug")]
       info!("Running pass: {}", pass.name());
+
       // SAFETY: Passes run sequentially and each pass only borrows `ir` during this iteration.
       unsafe { pass.mount(&mut *ir_ptr) };
       pass.run();
+
       #[cfg(feature = "debug")]
       info!("Finished pass: {}", pass.name());
 
       if self.cli.emit_llvm && self.cli.dump_llvm_after == pass.name() {
         #[cfg(feature = "debug")]
         info!("Dumping IR after pass: {}", pass.name());
+
         let filename = self
           .cli
           .output
@@ -62,10 +65,12 @@ impl<'a> PassManager<'a> {
         unsafe {
           DumpLLVM::new(&mut *ir_ptr, filename).run();
         }
+
         #[cfg(feature = "debug")]
         info!("Finished dumping IR after pass: {}", pass.name());
         #[cfg(feature = "debug")]
         info!("Quit after dumping.");
+
         std::process::exit(0)
       }
     }
@@ -74,6 +79,7 @@ impl<'a> PassManager<'a> {
     if self.cli.dump_llvm_after.is_empty() {
       #[cfg(feature = "debug")]
       info!("Start Dumping LLVM IR.");
+
       let filename = self
         .cli
         .output
@@ -84,10 +90,12 @@ impl<'a> PassManager<'a> {
       unsafe {
         DumpLLVM::new(&mut *ir_ptr, filename).run();
       }
+
       #[cfg(feature = "debug")]
       info!("Finish Dumping LLVM IR.");
       #[cfg(feature = "debug")]
       info!("Quit after dumping.");
+
       if self.cli.emit_llvm {
         std::process::exit(0)
       }

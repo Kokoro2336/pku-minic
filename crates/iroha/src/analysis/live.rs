@@ -40,7 +40,7 @@ impl LiveAnalysis<'_> {
 
     self.visited.insert(bb_id.get_bb_id());
 
-    let bb = &self.func.expect("No current func").cfg[bb_id];
+    let bb = &self.func.unwrap().cfg[bb_id];
     for (succ, _) in &bb.succs {
       self.dfs(*succ);
     }
@@ -50,7 +50,7 @@ impl LiveAnalysis<'_> {
   }
 
   fn init(&mut self) {
-    let cfg_len = self.func.expect("No current func").cfg.len();
+    let cfg_len = self.func.unwrap().cfg.len();
 
     // Clear and resize live_ins and live_outs.
     self.live_ins.clear();
@@ -152,7 +152,7 @@ impl LiveAnalysis<'_> {
       .extend(self.live_outs[bb_id.get_bb_id()].iter().cloned());
 
     // Process instructions in reverse order.
-    let bb = &self.func.expect("No current function").cfg[bb_id];
+    let bb = &self.func.unwrap().cfg[bb_id];
     for op_id in bb.cur.iter().rev() {
       // Process defs first, then uses.
       self.process_def(*op_id);
@@ -175,12 +175,7 @@ impl<'a> Analysis<'a> for LiveAnalysis<'a> {
 
   fn run(&mut self) -> Self::Output {
     self.init();
-    let entry = self
-      .func
-      .unwrap()
-      .cfg
-      .entry
-      .expect("No entry for current function.");
+    let entry = self.func.unwrap().cfg.entry.unwrap();
     self.dfs(BOperand::BB(entry));
 
     // Run main loop
@@ -188,7 +183,7 @@ impl<'a> Analysis<'a> for LiveAnalysis<'a> {
       let old_live_in_len = self.live_ins[bb_id.get_bb_id()].len();
 
       // Update live_outs of the block based on live_ins of its successors.
-      let bb = &self.func.expect("No current function").cfg[bb_id];
+      let bb = &self.func.unwrap().cfg[bb_id];
       for (succ, _) in &bb.succs {
         let succ_live_in = &self.live_ins[succ.get_bb_id()];
         // Get the union of live_outs of the block and live_ins of its successor.
@@ -203,7 +198,7 @@ impl<'a> Analysis<'a> for LiveAnalysis<'a> {
 
       // If the live-in set changes, we need to reprocess the predecessors.
       if old_live_in_len != self.live_ins[bb_id.get_bb_id()].len() {
-        let bb = &self.func.expect("No current function").cfg[bb_id];
+        let bb = &self.func.unwrap().cfg[bb_id];
         for (pred, _) in &bb.preds {
           self.dfs_post_order.push_back(*pred);
         }
