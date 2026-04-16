@@ -806,8 +806,9 @@ impl Lowering {
     }
   }
 
-  /// Return (LOpId, BBId)
-  fn resort_moves(&mut self, mut move_lop_ids: Vec<BOperand>) -> Vec<(BOperand, BOperand)> {
+  /// # Return
+  /// - Vec<(LOpId, BBId)>
+  fn schedule_moves(&mut self, mut move_lop_ids: Vec<BOperand>) -> Vec<(BOperand, BOperand)> {
     // Scheduled moves.
     let mut new = vec![];
     // out-degree of src in each move.
@@ -1238,7 +1239,7 @@ impl Lowering {
         self.builder.set_current_inst(lterm_id);
 
         let move_lop_ids = phi_moves[&edge].clone();
-        let resorted_moves = self.resort_moves(move_lop_ids);
+        let resorted_moves = self.schedule_moves(move_lop_ids);
         self.create_trampoline(edge, resorted_moves);
       }
     }

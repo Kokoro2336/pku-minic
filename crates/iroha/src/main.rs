@@ -57,6 +57,7 @@ fn main() -> Result<()> {
     .spawn(move || {
       #[cfg(feature = "debug")]
       info!("Start Semantic Analysis.");
+
       let result = {
         match Semantic::new(result).run() {
           Ok(res) => res,
@@ -65,15 +66,17 @@ fn main() -> Result<()> {
           }
         }
       };
+
       #[cfg(feature = "debug")]
       info!("Finish Semantic Analysis.");
-
       #[cfg(feature = "debug")]
-
       info!("Start Emitting.");
+
       let ir = Emit::new(result).run();
+
       #[cfg(feature = "debug")]
       info!("Finish Emitting.");
+
       ir
     })?
     .join();
@@ -98,13 +101,16 @@ fn main() -> Result<()> {
   // Start Lowering
   #[cfg(feature = "debug")]
   info!("Start Lowering.");
+  
   let mut back_ir = Lowering::new(ir).run();
+
   #[cfg(feature = "debug")]
   info!("Finish Lowering.");
 
   if cli.dump_asm_after == "Lowering" {
     #[cfg(feature = "debug")]
     info!("Start Dumping Assembly.");
+
     let asm_filename = cli
       .output
       .file_stem()
@@ -112,8 +118,10 @@ fn main() -> Result<()> {
       .to_string_lossy()
       .to_string();
     DumpASM::new(&back_ir, asm_filename).run();
+
     #[cfg(feature = "debug")]
     info!("Finish Dumping Assembly.");
+
     std::process::exit(0);
   }
 

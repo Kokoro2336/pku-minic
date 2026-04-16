@@ -1,5 +1,6 @@
-mod parse;
+//! Frontend of the compiler.
 
+mod parse;
 mod emit;
 mod semantic;
 pub use emit::Emit;

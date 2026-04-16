@@ -1,7 +1,7 @@
-//! Canonicalization (and Legalization) , including:
+//! Canonicalization and Legalization , including:
 //! - Constant folding for binary operations with literal operands.
-//! - Reordering of operands to ensure literals are on the right side; adjusting the operator
-//! - Inserting LoadIntImm/LoadFloatImm instructions is necessary.
+//! - Reordering of operands to ensure literals are on the right side and adjusting the operator
+//! - Inserting LoadIntImm/LoadFloatImm instructions if necessary.
 
 use yachiyo::base::Type;
 use yachiyo::config::{INT_IMM_MAX, INT_IMM_MIN};
