@@ -175,12 +175,7 @@ impl<'a> Analysis<'a> for LiveAnalysis<'a> {
 
   fn run(&mut self) -> Self::Output {
     self.init();
-    let entry = self
-      .func
-      .unwrap()
-      .cfg
-      .entry
-      .unwrap();
+    let entry = self.func.unwrap().cfg.entry.unwrap();
     self.dfs(BOperand::BB(entry));
 
     // Run main loop

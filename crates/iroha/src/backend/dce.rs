@@ -22,10 +22,7 @@ pub struct BDCE<'a> {
 impl<'a> BDCE<'a> {
   #[inline(always)]
   fn current_func(&self) -> BOperand {
-    self
-      .builder
-      .current_function
-      .unwrap()
+    self.builder.current_function.unwrap()
   }
 
   #[inline(always)]
@@ -162,12 +159,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
       }
     }
 
-    let func_ids = self
-      .ir
-      .as_ref()
-      .unwrap()
-      .funcs
-      .collect_internal();
+    let func_ids = self.ir.as_ref().unwrap().funcs.collect_internal();
 
     for func_id in func_ids {
       self.init(BOperand::Func(func_id));
@@ -175,11 +167,11 @@ impl<'a> BPass<'a> for BDCE<'a> {
         let bb_id = self.op_to_bb[op_id.get_inst_id()];
         self.builder.set_current_block(bb_id);
 
-        let removed_op = self
-          .ir
-          .as_deref_mut()
-          .unwrap()
-          .remove_op(self.builder.current_function, op_id, Some(bb_id));
+        let removed_op = self.ir.as_deref_mut().unwrap().remove_op(
+          self.builder.current_function,
+          op_id,
+          Some(bb_id),
+        );
         self.op_to_bb[op_id.get_inst_id()] = BOperand::Undef;
 
         // Check the operands of the removed instruction

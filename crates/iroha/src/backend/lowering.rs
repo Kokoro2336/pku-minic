@@ -740,12 +740,7 @@ impl Lowering {
       }
       self.processed.insert(bb_id);
 
-      if bb_id
-        == self.ir.funcs[func_id.clone()]
-          .cfg
-          .entry
-          .unwrap()
-      {
+      if bb_id == self.ir.funcs[func_id.clone()].cfg.entry.unwrap() {
         let lentry = self.get(Operand::BB(bb_id));
 
         let func = &self.ir.funcs[func_id.clone()];
@@ -908,13 +903,9 @@ impl Lowering {
       .builder
       .create_new_block(&mut self.lower_ir, self.builder.current_function);
 
-    let from_bb = &mut self.lower_ir.funcs
-      [self.builder.current_function.unwrap()]
-    .cfg[from];
+    let from_bb = &mut self.lower_ir.funcs[self.builder.current_function.unwrap()].cfg[from];
     let from_term_id = *from_bb.cur.last().unwrap();
-    let from_term = &self.lower_ir.funcs
-      [self.builder.current_function.unwrap()]
-    .dfg[from_term_id];
+    let from_term = &self.lower_ir.funcs[self.builder.current_function.unwrap()].dfg[from_term_id];
 
     let from_term_data = match from_term.data.clone() {
       BOpData::L(l_op) => l_op,

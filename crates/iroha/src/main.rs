@@ -101,7 +101,7 @@ fn main() -> Result<()> {
   // Start Lowering
   #[cfg(feature = "debug")]
   info!("Start Lowering.");
-  
+
   let mut back_ir = Lowering::new(ir).run();
 
   #[cfg(feature = "debug")]

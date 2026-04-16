@@ -47,10 +47,7 @@ impl ISel<'_> {
 
   #[inline(always)]
   fn replace_op_rauw(&mut self, old_id: BOperand, new_op: BOp) -> BOperand {
-    let func_id = self
-      .builder
-      .current_function
-      .unwrap();
+    let func_id = self.builder.current_function.unwrap();
     let current_block = self.builder.current_block.unwrap();
     self.ir.as_mut().unwrap().replace_op_rauw(
       &mut self.builder,
@@ -63,10 +60,7 @@ impl ISel<'_> {
 
   #[inline(always)]
   fn replace_op_no_rauw(&mut self, old_id: BOperand, new_op: BOp) -> BOperand {
-    let func_id = self
-      .builder
-      .current_function
-      .unwrap();
+    let func_id = self.builder.current_function.unwrap();
     let current_block = self.builder.current_block.unwrap();
     self.ir.as_mut().unwrap().replace_op_no_rauw(
       &mut self.builder,
