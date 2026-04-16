@@ -2,8 +2,6 @@
 //! Based on Appel and George's paper Iterated Register Coalescing.
 //! Reference: https://dl.acm.org/doi/10.1145/229542.229546
 
-use std::ops::BitAndAssign;
-
 use crate::analysis::{LiveAnalysis, LiveOuts};
 use yachiyo::analysis::analyze;
 use yachiyo::config::{
@@ -21,6 +19,7 @@ use yachiyo::utils::set::{array_set, ArraySet, BitSet};
 use yachiyo::utils::worklist::{Worklist, WorklistTrait};
 
 use rustc_hash::FxHashSet;
+use std::ops::BitAndAssign;
 
 const RESERVED_REG_BOPRD: BOperand = BOperand::Reg(Reg::X(RESERVED_REG));
 const SP_BOPRD: BOperand = BOperand::Reg(Reg::X(XReg::Sp));
@@ -285,11 +284,11 @@ impl Allocator<'_> {
   /// Add an undirected edge between u and v in the interference graph.
   fn add_edge(&mut self, u: BOperand, v: BOperand) {
     if u == v
-            || self.adj_set.contains(&(u, v))
-            || self.adj_set.contains(&(v, u))
-            // To avoid interference between non-target nodes, we only add edges between target nodes.
-            || !self.is_target(u)
-            || !self.is_target(v)
+      || self.adj_set.contains(&(u, v))
+      || self.adj_set.contains(&(v, u))
+      // To avoid interference between non-target nodes, we only add edges between target nodes.
+      || !self.is_target(u)
+      || !self.is_target(v)
     {
       return;
     }
@@ -340,14 +339,14 @@ impl Allocator<'_> {
           });
 
         if op.data.is_move() {
-          let rd = rd.expect("Move instruction should have rd");
+          let rd = rd.unwrap();
           // Ignore move that is irrelevant to current allocator.
           if self.is_target(rd) {
             // Add the move instruction to src & rd's moveList.
             for s in src.iter() {
               if let BOperand::Reg(_) = s {
                 // To avoid interference between src and rd, we substract src from live set temporarily.
-                live = live.difference(&array_set![*s]);
+                live.remove(s);
                 // When s is a virtual register, we should alse add the move instruction to s's moveList.
                 if let BOperand::Reg(Reg::Virt(id)) = s {
                   self.move_list[*id].insert(*inst_id);
@@ -531,11 +530,11 @@ impl Allocator<'_> {
       let rd = self.get_rd(m).unwrap();
       let src = self.get_src(m);
       assert!(src.len() == 1);
-      (rd, src[0])
+      (*rd, *src[0])
     };
     // Get alias of x and y.
-    let x = self.get_alias(*x);
-    let y = self.get_alias(*y);
+    let x = self.get_alias(x);
+    let y = self.get_alias(y);
     // if y is precolored, swap x and y.
     let (u, v) = if y.is_phys() { (y, x) } else { (x, y) };
 
@@ -601,7 +600,6 @@ impl Allocator<'_> {
     }
   }
 
-  /// TODO: Briggs' conservative coalescing test.
   fn conservative(&self, adjacent_nodes: ArraySet<BOperand>) -> bool {
     let k = adjacent_nodes
       .iter()
@@ -632,10 +630,11 @@ impl Allocator<'_> {
     }
   }
 
-  fn get_alias(&self, n: BOperand) -> BOperand {
+  fn get_alias(&mut self, n: BOperand) -> BOperand {
     if let BOperand::Reg(Reg::Virt(id)) = n {
       if self.coalesced_nodes.contains(id) {
-        self.get_alias(self.alias[id])
+        self.alias[id] = self.get_alias(self.alias[id]);
+        self.alias[id]
       } else {
         n
       }
@@ -691,34 +690,36 @@ impl Allocator<'_> {
   fn assign_colors(&mut self) {
     while let Some(n) = self.select_stack.pop_back() {
       let mut ok_colors = self.get_colors::<Vec<Reg>>();
+      let adjacent_nodes = self.adj_list[n.get_virt_id()]
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
       // Use physical adjacent list rather than adjacent().
-      for w in self.adj_list[n.get_virt_id()].iter() {
+      for w in adjacent_nodes {
         if w.is_phys() {
           ok_colors.retain(|&color| {
             color
               != match w {
-                BOperand::Reg(Reg::F(r)) => Reg::F(*r),
-                BOperand::Reg(Reg::X(r)) => Reg::X(*r),
+                BOperand::Reg(Reg::F(r)) => Reg::F(r),
+                BOperand::Reg(Reg::X(r)) => Reg::X(r),
                 _ => unreachable!("Neighbor can't be non-reg"),
               }
           });
         } else if w.is_virt() {
-          let get_color = |reg: BOperand| -> Option<Reg> {
-            match reg {
-              BOperand::Reg(phys @ (Reg::F(_) | Reg::X(_))) => Some(phys),
-              BOperand::Reg(Reg::Virt(_)) => {
-                let alias = self.get_alias(reg);
-                match alias {
-                  BOperand::Reg(phys @ (Reg::F(_) | Reg::X(_))) => Some(phys),
-                  BOperand::Reg(Reg::Virt(id)) => self.color[id],
-                  _ => unreachable!("Unexpected alias: {:?}", alias),
-                }
+          let c = match w {
+            BOperand::Reg(phys @ (Reg::F(_) | Reg::X(_))) => Some(phys),
+            BOperand::Reg(Reg::Virt(_)) => {
+              let alias = self.get_alias(w);
+              match alias {
+                BOperand::Reg(phys @ (Reg::F(_) | Reg::X(_))) => Some(phys),
+                BOperand::Reg(Reg::Virt(id)) => self.color[id],
+                _ => unreachable!("Unexpected alias: {:?}", alias),
               }
-              _ => unreachable!("Unexpected reg: {:?}", reg),
             }
+            _ => unreachable!("Unexpected reg: {:?}", w),
           };
 
-          if let Some(c) = get_color(*w) {
+          if let Some(c) = c {
             ok_colors.retain(|&color| color != c);
           }
         } else {
@@ -734,10 +735,11 @@ impl Allocator<'_> {
       }
     }
     // For coalesced nodes, we just assign them the color of their alias.
-    for n in self.coalesced_nodes.iter() {
+    let coalesced_nodes = self.coalesced_nodes.iter().collect::<Vec<_>>();
+    for n in coalesced_nodes {
       let alias = self.get_alias(BOperand::Reg(Reg::Virt(n)));
       if alias.is_virt() {
-        let alias_color = self.color[self.get_alias(BOperand::Reg(Reg::Virt(n))).get_virt_id()];
+        let alias_color = self.color[alias.get_virt_id()];
         self.color[n] = alias_color;
       } else if alias.is_phys() {
         self.color[n] = match alias {
