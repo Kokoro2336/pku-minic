@@ -273,9 +273,9 @@ impl MOpData {
     matches!(
       self,
       MOpData::Sw { .. }
-        | MOpData::Flw { .. }
         | MOpData::Fsw { .. }
         | MOpData::Sd { .. }
+        | MOpData::Fsd { .. }
         | MOpData::J { .. }
         | MOpData::Call { .. }
         | MOpData::Bnez { .. }
