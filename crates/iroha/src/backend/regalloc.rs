@@ -524,8 +524,8 @@ impl Allocator<'_> {
     // If the degree of n drops below the number of colors, we can enable n and its adjacent nodes m.
     if d == self.get_colors_num() {
       // Enable n and its adjacent nodes m.
-      let nodes = array_set![n];
-      nodes.union(&self.adjacent(n));
+      let mut nodes = array_set![n];
+      nodes = nodes.union(&self.adjacent(n));
       for m in nodes {
         self.enable_moves(m);
       }
