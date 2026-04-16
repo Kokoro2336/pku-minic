@@ -42,7 +42,7 @@ impl Canonicalize<'_> {
 
   #[inline(always)]
   fn get_rd(&self, bop_id: BOperand) -> Option<&BOperand> {
-    let func_id = self.builder.current_function.expect("No current function");
+    let func_id = self.builder.current_function.unwrap();
     self.ir.as_ref().unwrap().get_rd(Some(func_id), bop_id)
   }
 
@@ -83,8 +83,8 @@ impl Canonicalize<'_> {
     let func_id = self
       .builder
       .current_function
-      .expect("ISel: not in a function");
-    let current_block = self.builder.current_block.expect("Not current block found");
+      .unwrap();
+    let current_block = self.builder.current_block.unwrap();
     self.ir.as_mut().unwrap().replace_op_rauw(
       &mut self.builder,
       Some(func_id),
@@ -99,8 +99,8 @@ impl Canonicalize<'_> {
     let func_id = self
       .builder
       .current_function
-      .expect("ISel: not in a function");
-    let current_block = self.builder.current_block.expect("Not current block found");
+      .unwrap();
+    let current_block = self.builder.current_block.unwrap();
     self.ir.as_mut().unwrap().replace_op_no_rauw(
       &mut self.builder,
       Some(func_id),

@@ -86,7 +86,7 @@ impl Lowering {
 
   #[inline(always)]
   fn get_rd(&mut self, bop_id: BOperand) -> Option<BOperand> {
-    let func_id = self.builder.current_function.expect("No current function");
+    let func_id = self.builder.current_function.unwrap();
     self.lower_ir.get_rd(Some(func_id), bop_id).cloned()
   }
 
@@ -115,14 +115,14 @@ impl Lowering {
     callee_func_typ: &Type,
   ) -> Vec<BOperand> {
     // We should update the slots in caller's frame info.
-    let lfunc_id = self.builder.current_function.expect("No current function");
+    let lfunc_id = self.builder.current_function.unwrap();
     self.lower_ir.funcs[lfunc_id]
       .frame_info
       .get_spilled_arg_offsets(callee_func_id, callee_func_typ)
   }
 
   fn get_current_func(&self) -> Operand {
-    let lfunc_id = self.builder.current_function.expect("No current function");
+    let lfunc_id = self.builder.current_function.unwrap();
 
     self
       .func_map
@@ -133,7 +133,7 @@ impl Lowering {
         _ => false,
       })
       .map(|(i, _)| Operand::Func(i))
-      .expect("Current function not found in func_map")
+      .unwrap()
   }
 
   fn get_op_type(&self, operand: Operand) -> Type {
@@ -247,7 +247,7 @@ impl Lowering {
 
   #[inline(always)]
   fn alloc_and_map_slot(&mut self, alloc_id: Operand, slot: Slot) -> BOperand {
-    let func_id = self.builder.current_function.expect("No current function");
+    let func_id = self.builder.current_function.unwrap();
 
     let lfunc = &mut self.lower_ir.funcs[func_id];
     let slot_id = lfunc.frame_info.alloc(slot);
@@ -257,7 +257,7 @@ impl Lowering {
 
   #[inline(always)]
   fn alloc_and_map_block(&mut self, bb_id: Operand, lbb: BBasicBlock) -> BOperand {
-    let func_id = self.builder.current_function.expect("No current function");
+    let func_id = self.builder.current_function.unwrap();
     let lbb_id = self.lower_ir.funcs[func_id].cfg.alloc(lbb);
     self.set(bb_id, BOperand::BB(lbb_id));
     BOperand::BB(lbb_id)
@@ -277,7 +277,7 @@ impl Lowering {
   #[inline(always)]
   fn create_and_map_param(&mut self, param_idx: usize, lop: BOp) -> BOperand {
     let lop_id = self.create(lop);
-    let lop_rd = self.get_rd(lop_id).expect("Param should produce a value");
+    let lop_rd = self.get_rd(lop_id).unwrap();
     self.param_map[param_idx] = lop_rd;
     lop_id
   }
@@ -296,14 +296,14 @@ impl Lowering {
 
   #[inline(always)]
   fn alloc_slot(&mut self, slot: Slot) -> BOperand {
-    let func_id = self.builder.current_function.expect("No current function");
+    let func_id = self.builder.current_function.unwrap();
     let slot_id = self.lower_ir.funcs[func_id].frame_info.alloc(slot);
     BOperand::Slot(slot_id)
   }
 
   #[inline(always)]
   fn alloc_vreg(&mut self, vreg: VirtReg) -> BOperand {
-    let func_id = self.builder.current_function.expect("No current function");
+    let func_id = self.builder.current_function.unwrap();
     let vreg_id = self.lower_ir.funcs[func_id].vregs.alloc(vreg);
     BOperand::Reg(Reg::Virt(vreg_id))
   }
@@ -744,7 +744,7 @@ impl Lowering {
         == self.ir.funcs[func_id.clone()]
           .cfg
           .entry
-          .expect("No entry block")
+          .unwrap()
       {
         let lentry = self.get(Operand::BB(bb_id));
 
@@ -909,11 +909,11 @@ impl Lowering {
       .create_new_block(&mut self.lower_ir, self.builder.current_function);
 
     let from_bb = &mut self.lower_ir.funcs
-      [self.builder.current_function.expect("No current function")]
+      [self.builder.current_function.unwrap()]
     .cfg[from];
-    let from_term_id = *from_bb.cur.last().expect("No terminator in the from block");
+    let from_term_id = *from_bb.cur.last().unwrap();
     let from_term = &self.lower_ir.funcs
-      [self.builder.current_function.expect("No current function")]
+      [self.builder.current_function.unwrap()]
     .dfg[from_term_id];
 
     let from_term_data = match from_term.data.clone() {

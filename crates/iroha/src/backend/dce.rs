@@ -25,18 +25,18 @@ impl<'a> BDCE<'a> {
     self
       .builder
       .current_function
-      .expect("BDCE: not in a function")
+      .unwrap()
   }
 
   #[inline(always)]
   pub fn get_func(&self, func_id: BOperand) -> &BFunction {
-    let ir = self.ir.as_ref().expect("BDCE: ir is not mounted");
+    let ir = self.ir.as_ref().unwrap();
     &ir.funcs[func_id]
   }
 
   #[inline(always)]
   pub fn get_rd(&self, op_id: BOperand) -> Option<&BOperand> {
-    let ir = self.ir.as_ref().expect("BDCE: ir is not mounted");
+    let ir = self.ir.as_ref().unwrap();
     ir.get_rd(self.builder.current_function, op_id)
   }
 
@@ -73,7 +73,7 @@ impl<'a> BDCE<'a> {
 
   pub fn init(&mut self, func_id: BOperand) {
     self.builder.set_current_func(func_id);
-    let ir = self.ir.as_ref().expect("BDCE: ir is not mounted");
+    let ir = self.ir.as_ref().unwrap();
     let func = &ir.funcs[func_id];
     self.worklist.clear();
 
@@ -165,7 +165,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
     let func_ids = self
       .ir
       .as_ref()
-      .expect("BDCE: ir is not mounted")
+      .unwrap()
       .funcs
       .collect_internal();
 
@@ -178,7 +178,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
         let removed_op = self
           .ir
           .as_deref_mut()
-          .expect("BDCE: ir is not mounted")
+          .unwrap()
           .remove_op(self.builder.current_function, op_id, Some(bb_id));
         self.op_to_bb[op_id.get_inst_id()] = BOperand::Undef;
 
