@@ -95,6 +95,10 @@ struct Allocator<'a> {
   alias: Vec<BOperand>,
   /// Color assigned to each node.
   color: Vec<Option<Reg>>,
+
+  // ========== Ancillary Structures ==========
+  /// A map from op to the bb it belongs to, used for spill code insertion.
+  op_to_bb: Vec<Option<BOperand>>,
 }
 
 impl Allocator<'_> {
@@ -120,12 +124,23 @@ impl Allocator<'_> {
       move_list: Vec::new(),
       alias: Vec::new(),
       color: Vec::new(),
+      op_to_bb: Vec::new(),
     }
   }
 
-  #[inline(always)]
   fn init(&mut self, func_id: BOperand) {
     self.builder.set_current_func(func_id);
+
+    // Build a map op -> bb. This map will only be intialize for once during allocation of a function.
+    // It's incrementally updated when new instructions are created during spill code insertion.
+    self.op_to_bb.clear();
+    self.op_to_bb.resize(self.get_func(func_id).dfg.len(), None);
+    for bb_id in self.get_func(func_id).cfg.ids() {
+      let cur = self.get_func(func_id).cfg[bb_id].cur.clone();
+      for op_id in cur {
+        self.op_to_bb[op_id.get_inst_id()] = Some(BOperand::BB(bb_id));
+      }
+    }
   }
 
   fn reset(&mut self) {
@@ -249,7 +264,17 @@ impl Allocator<'_> {
   fn create(&mut self, op: BOp) -> BOperand {
     let func_id = self.builder.current_function;
     let ir = self.ir.as_mut().unwrap();
-    ir.create(&self.builder, func_id, op)
+    let op_id = ir.create(&self.builder, func_id, op);
+
+    // Update op_to_bb map
+    let bb_id = self.builder.current_block.unwrap();
+    let raw_inst_id = op_id.get_inst_id();
+    if raw_inst_id >= self.op_to_bb.len() {
+      self.op_to_bb.resize(raw_inst_id + 1, None);
+    }
+    self.op_to_bb[op_id.get_inst_id()] = Some(bb_id);
+
+    op_id
   }
 
   #[inline(always)]
@@ -754,22 +779,7 @@ impl Allocator<'_> {
     }
   }
 
-  fn insert_spills(&mut self) -> ArraySet<BOperand> {
-    // Build a map op -> bb
-    let op_to_bb = {
-      let func_id = self.builder.current_function.unwrap();
-      let mut map = vec![BOperand::Undef; self.get_func(func_id).dfg.len()];
-
-      for bb_id in self.get_func(func_id).cfg.ids() {
-        let cur = &self.get_func(func_id).cfg[bb_id].cur;
-        for op_id in cur.iter() {
-          map[op_id.get_inst_id()] = BOperand::BB(bb_id);
-        }
-      }
-      map
-    };
-    let mut new_temps = array_set![];
-
+  fn insert_spills(&mut self) {
     for spilled in std::mem::take(&mut self.spilled_nodes).iter() {
       let vreg_id = BOperand::Reg(Reg::Virt(spilled));
       let (typ, defs, uses) = {
@@ -785,7 +795,7 @@ impl Allocator<'_> {
 
       // Insert store after each definition of the spilled node.
       for def in defs {
-        let bb_id = op_to_bb[def.get_inst_id()];
+        let bb_id = self.op_to_bb[def.get_inst_id()].unwrap();
         self.builder.set_current_block(bb_id);
         self.builder.set_after_inst(
           self.ir.as_mut().unwrap(),
@@ -808,7 +818,7 @@ impl Allocator<'_> {
       }
 
       for (r#use, idx) in uses {
-        let bb_id = op_to_bb[r#use.get_inst_id()];
+        let bb_id = self.op_to_bb[r#use.get_inst_id()].unwrap();
         self.builder.set_current_block(bb_id);
         self.builder.set_before_inst(
           self.ir.as_mut().unwrap(),
@@ -828,7 +838,6 @@ impl Allocator<'_> {
 
         let load_id = self.create(load_op);
         let load_vreg_id = self.get_rd(load_id).cloned().unwrap();
-        new_temps.insert(load_vreg_id);
 
         let src = self.get_src(r#use).into_iter().cloned().collect::<Vec<_>>();
         for operand in src {
@@ -843,7 +852,6 @@ impl Allocator<'_> {
         }
       }
     }
-    new_temps
   }
 
   #[inline(always)]
