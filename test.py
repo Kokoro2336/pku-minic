@@ -54,6 +54,40 @@ def matches_test_id(test_path, test_id, h_functional_dir):
     target_name = search_prefix + ".sy"
     return basename == target_name or basename.startswith(search_prefix + "_")
 
+def collect_perf_tests(perf_dir, perf_selectors):
+    """Collects perf tests; selectors must be exact benchmark names without .sy."""
+    all_perf_sy = find_files(perf_dir, ".sy")
+    all_perf_sy.sort()
+
+    if len(perf_selectors) == 0 or "all" in perf_selectors:
+        return all_perf_sy, []
+
+    benchmark_to_files = {}
+    for test_file in all_perf_sy:
+        benchmark = os.path.splitext(os.path.basename(test_file))[0]
+        benchmark_to_files.setdefault(benchmark, []).append(test_file)
+
+    missing = []
+    selected = []
+    for benchmark in perf_selectors:
+        matched = benchmark_to_files.get(benchmark)
+        if matched:
+            selected.extend(matched)
+        else:
+            missing.append(benchmark)
+
+    if missing:
+        return None, missing
+
+    # Remove duplicates while preserving selector order.
+    deduped = []
+    seen = set()
+    for test_file in selected:
+        if test_file not in seen:
+            deduped.append(test_file)
+            seen.add(test_file)
+    return deduped, []
+
 def clean_directory(directory):
     """Removes all files in a directory."""
     if os.path.exists(directory):
@@ -355,6 +389,17 @@ def main():
         default=None,
         help='Test basic suites: no value means all; values can be multiple test ids (same style as --exclude), e.g. --basic 00 h29 82_long_func',
     )
+    group.add_argument(
+        '--perf',
+        nargs='*',
+        default=None,
+        help='Test perf suites: no value means all; values must be full benchmark names without .sy, e.g. --perf 2025-UHB-58 2025-OKA-1',
+    )
+    group.add_argument(
+        '--test-all',
+        action='store_true',
+        help='Run all basic and perf tests',
+    )
     parser.add_argument(
         '--exclude',
         nargs='+',
@@ -405,7 +450,7 @@ def main():
     need_emit_llvm = args.emit_llvm or args.lli or args.llc or args.graph or bool(args.dump_llvm_after)
     need_runtime_exec = args.lli or args.llc
 
-    if args.clean and not (args.test or args.basic is not None):
+    if args.clean and not (args.test or args.basic is not None or args.perf is not None or args.test_all):
         clean_directory("./test")
         print("Cleaned test directory.")
         sys.exit(0)
@@ -454,11 +499,12 @@ def main():
                 sys.exit(1)
 
     test_files = []
-    base_dir = "./testcases/functional_recover"
-    functional_dir = os.path.join(base_dir, "functional")
-    h_functional_dir = os.path.join(base_dir, "h_functional")
+    basic_base_dir = "./testcases/functional_recover"
+    functional_dir = os.path.join(basic_base_dir, "functional")
+    h_functional_dir = os.path.join(basic_base_dir, "h_functional")
+    perf_dir = "./testcases/perf"
 
-    search_dirs = [functional_dir, h_functional_dir]
+    basic_search_dirs = [functional_dir, h_functional_dir]
 
     if args.test:
         # Find specific test file
@@ -486,7 +532,7 @@ def main():
     elif args.basic is not None:
         basic_selectors = args.basic
         all_sy = []
-        for d in search_dirs:
+        for d in basic_search_dirs:
             all_sy.extend(find_files(d, ".sy"))
 
         if len(basic_selectors) == 0 or "all" in basic_selectors:
@@ -517,6 +563,30 @@ def main():
             if not test_files:
                 print("No test files remain after applying --exclude.")
                 sys.exit(1)
+    elif args.perf is not None:
+        test_files, missing_perf = collect_perf_tests(perf_dir, args.perf)
+        if test_files is None:
+            print(f"No perf benchmark matched full name(s): {' '.join(missing_perf)}")
+            sys.exit(1)
+        if not test_files:
+            print("No perf test files found.")
+            sys.exit(1)
+    elif args.test_all:
+        all_basic_sy = []
+        for d in basic_search_dirs:
+            all_basic_sy.extend(find_files(d, ".sy"))
+        all_basic_sy.sort()
+
+        all_perf_sy, missing_perf = collect_perf_tests(perf_dir, [])
+        if all_perf_sy is None:
+            print(f"No perf benchmark matched full name(s): {' '.join(missing_perf)}")
+            sys.exit(1)
+
+        test_files = all_basic_sy + all_perf_sy
+
+        if not test_files:
+            print("No test files found for --test-all.")
+            sys.exit(1)
     else:
         parser.print_help()
         sys.exit(1)
@@ -555,7 +625,7 @@ def main():
     sylib_ll = "./sylib/sylib.ll"
 
     # clean test/ first
-    if args.basic is not None or args.clean:
+    if args.basic is not None or args.perf is not None or args.test_all or args.clean:
         clean_directory(test_output_base)
     passed = 0
     failed = 0
