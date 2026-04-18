@@ -101,14 +101,14 @@ thread_local! {
             },
         ),
         (
-            "starttime",
+            "_sysy_starttime",
             Type::Function {
                 return_type: Box::new(Type::Void),
                 param_types: vec![],
             },
         ),
         (
-            "stoptime",
+            "_sysy_stoptime",
             Type::Function {
                 return_type: Box::new(Type::Void),
                 param_types: vec![],
