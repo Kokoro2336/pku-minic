@@ -1,8 +1,9 @@
 //! Definition of AST nodes.
 
-use crate::base::Type;
 #[cfg(feature = "debug")]
 use crate::debug::info;
+
+use crate::base::Type;
 use crate::utils::arena::*;
 
 use strum_macros::EnumDiscriminants;
@@ -17,9 +18,14 @@ pub type NodeId = usize;
 pub enum Node {
   FnDecl {
     name: String,
-    params: Vec<(String, Type)>,
+    params: Vec<NodeId>,
     typ: Type,
     body: NodeId,
+  },
+
+  Param {
+    name: String,
+    typ: Type,
   },
 
   Break,
@@ -172,13 +178,19 @@ pub enum Op {
   Minus,
   Not,
 
-  // special op which only occurs in type casting
-  Int2Float,  // Sitofp
-  Float2Int,  // Fptosi
-  Bool2Int,   // Zext
-  Int2Bool,   // Sne with 0
-  Float2Bool, // One with 0.0
-  Bool2Float, // Uitofp
+  // Special op for type conversion
+  /// Sitofp
+  Int2Float, 
+  /// Fptosi
+  Float2Int,
+  /// Zext
+  Bool2Int,
+  /// Sne with 0
+  Int2Bool,   
+  /// One with 0.0
+  Float2Bool, 
+  /// Uitofp
+  Bool2Float,
 
   // binary
   Mul,
@@ -258,8 +270,11 @@ impl Arena<Node> for AST {
     for item in self.storage.iter_mut() {
       if let ArenaItem::Data(node) = item {
         match node {
-          Node::FnDecl { body, .. } => {
+          Node::FnDecl { body, params, .. } => {
             remap_idx(body);
+            for param in params {
+              remap_idx(param);
+            }
           }
           Node::Return(ret) => {
             if let Some(ret) = ret {
@@ -354,6 +369,7 @@ impl Arena<Node> for AST {
             }
           }
           Node::Break
+          | Node::Param { .. }
           | Node::Continue
           | Node::VarAccess { .. }
           | Node::Empty

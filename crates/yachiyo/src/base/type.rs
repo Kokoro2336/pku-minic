@@ -1,9 +1,12 @@
 //! Type definitions.
 
+use std::cmp::PartialEq;
+use std::hash::{Hash, Hasher};
+
 const RISCV_BITS: u32 = 64;
 
 /// type of value
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Eq)]
 pub enum Type {
   Int,
   Void,
@@ -22,6 +25,77 @@ pub enum Type {
   },
   // only occurs in SysY lib function
   Char, /*u8*/
+}
+
+impl PartialEq for Type {
+  fn eq(&self, other: &Self) -> bool {
+    match (self, other) {
+      (Type::Int, Type::Int) => true,
+      (Type::Float, Type::Float) => true,
+      (Type::Void, Type::Void) => true,
+      (Type::Bool, Type::Bool) => true,
+      (
+        Type::Array { base: base1, dims: dims1 },
+        Type::Array { base: base2, dims: dims2 },
+      ) => base1 == base2 && dims1 == dims2,
+      (
+        Type::Function {
+          return_type: return_type1,
+          param_types: param_types1,
+        },
+        Type::Function {
+          return_type: return_type2,
+          param_types: param_types2,
+        },
+      ) => return_type1 == return_type2 && param_types1 == param_types2,
+      (Type::Char, Type::Char) => true,
+
+      (Type::Pointer { base: base1 }, Type::Pointer { base: base2 }) => {
+        // Special treatment for pointer type: if the base type is array, we only compare the base type of the array, ignoring the dimensions.
+        let base1 = if let Type::Array { base: arr_base, .. } = (**base1).clone() {
+          *arr_base
+        } else {
+          (**base1).clone()
+        };
+        let base2 = if let Type::Array { base: arr_base, .. } = (**base2).clone() {
+          *arr_base
+        } else {
+          (**base2).clone()
+        };
+        base1 == base2
+      }
+      _ => false,
+    }
+  }
+}
+
+impl Hash for Type {
+  fn hash<H: Hasher>(&self, state: &mut H) {
+    // Hash the discriminant of the enum to distinguish different variants
+    std::mem::discriminant(self).hash(state);
+
+    // Hash the fields of the enum variant
+    match self {
+      Type::Int | Type::Void | Type::Float | Type::Bool | Type::Char => {/*do nothing for scalar*/}
+      Type::Array { base, dims } => {
+        base.hash(state);
+        dims.hash(state);
+      }
+      Type::Function { return_type, param_types } => {
+        return_type.hash(state);
+        param_types.hash(state);
+      }
+      Type::Pointer { base } => {
+        // Special treatment for pointer type: if the base type is array, we only hash the base type of the array, ignoring the dimensions.
+        let base = if let Type::Array { base: arr_base, .. } = (**base).clone() {
+          *arr_base
+        } else {
+          (**base).clone()
+        };
+        base.hash(state);
+      }
+    }
+  }
 }
 
 impl std::fmt::Display for Type {

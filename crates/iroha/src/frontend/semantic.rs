@@ -430,10 +430,18 @@ impl Semantic {
         }
       }
       NodeType::Call => {
-        let (func_name, mut args_ids) = match &self.ast[node_id] {
+        let (func_name, mut args_ids) = match &mut self.ast[node_id] {
           Node::Call {
             func_name, args, ..
-          } => (func_name.clone(), args.clone()),
+          } => {
+            // If starttime or stoptime is called, we need to refine its name.
+            if func_name == "starttime" {
+              *func_name = "_sysy_starttime".to_string();
+            } else if func_name == "stoptime" {
+              *func_name = "_sysy_stoptime".to_string();
+            }
+            (func_name.clone(), args.clone())
+          }
           _ => unreachable!(),
         };
 
@@ -621,7 +629,11 @@ impl Semantic {
         self.funcs.insert(name.clone(), typ);
         self.syms.enter_scope();
         for param in &params {
-          self.syms.insert(param.0.clone(), param.1.clone());
+          let (param_name, param_type) = match &self.ast[*param] {
+            Node::Param { name, typ } => (name.clone(), typ.clone()),
+            _ => unreachable!(),
+          };
+          self.syms.insert(param_name, param_type);
         }
         self.current_func = Some(name);
         self.analyze(body)?;

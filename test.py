@@ -54,6 +54,78 @@ def matches_test_id(test_path, test_id, h_functional_dir):
     target_name = search_prefix + ".sy"
     return basename == target_name or basename.startswith(search_prefix + "_")
 
+def is_under_directory(path, directory):
+    """Returns True when path is located under directory."""
+    abs_path = os.path.abspath(path)
+    abs_dir = os.path.abspath(directory)
+    try:
+        return os.path.commonpath([abs_path, abs_dir]) == abs_dir
+    except ValueError:
+        return False
+
+def matches_exclude_selector(test_path, selector, h_functional_dir, perf_dir):
+    """Matches a selector against either basic-style IDs or perf benchmark names."""
+    if is_under_directory(test_path, perf_dir):
+        benchmark = os.path.splitext(os.path.basename(test_path))[0]
+        return benchmark == selector
+    return matches_test_id(test_path, selector, h_functional_dir)
+
+def apply_exclude_selectors(test_files, exclude_selectors, h_functional_dir, perf_dir):
+    """Filters selected tests using exclude selectors."""
+    if not exclude_selectors:
+        return test_files, []
+
+    unique_selectors = list(dict.fromkeys(exclude_selectors))
+    matched_selectors = set()
+    filtered = []
+
+    for test_file in test_files:
+        excluded = False
+        for selector in unique_selectors:
+            if matches_exclude_selector(test_file, selector, h_functional_dir, perf_dir):
+                excluded = True
+                matched_selectors.add(selector)
+                break
+        if not excluded:
+            filtered.append(test_file)
+
+    unmatched = [s for s in unique_selectors if s not in matched_selectors]
+    return filtered, unmatched
+
+def collect_perf_tests(perf_dir, perf_selectors):
+    """Collects perf tests; selectors must be exact benchmark names without .sy."""
+    all_perf_sy = find_files(perf_dir, ".sy")
+    all_perf_sy.sort()
+
+    if len(perf_selectors) == 0 or "all" in perf_selectors:
+        return all_perf_sy, []
+
+    benchmark_to_files = {}
+    for test_file in all_perf_sy:
+        benchmark = os.path.splitext(os.path.basename(test_file))[0]
+        benchmark_to_files.setdefault(benchmark, []).append(test_file)
+
+    missing = []
+    selected = []
+    for benchmark in perf_selectors:
+        matched = benchmark_to_files.get(benchmark)
+        if matched:
+            selected.extend(matched)
+        else:
+            missing.append(benchmark)
+
+    if missing:
+        return None, missing
+
+    # Remove duplicates while preserving selector order.
+    deduped = []
+    seen = set()
+    for test_file in selected:
+        if test_file not in seen:
+            deduped.append(test_file)
+            seen.add(test_file)
+    return deduped, []
+
 def clean_directory(directory):
     """Removes all files in a directory."""
     if os.path.exists(directory):
@@ -355,11 +427,22 @@ def main():
         default=None,
         help='Test basic suites: no value means all; values can be multiple test ids (same style as --exclude), e.g. --basic 00 h29 82_long_func',
     )
+    group.add_argument(
+        '--perf',
+        nargs='*',
+        default=None,
+        help='Test perf suites: no value means all; values must be full benchmark names without .sy, e.g. --perf 2025-UHB-58 2025-OKA-1',
+    )
+    group.add_argument(
+        '--test-all',
+        action='store_true',
+        help='Run all basic and perf tests',
+    )
     parser.add_argument(
         '--exclude',
         nargs='+',
         metavar='TEST_ID',
-        help='Exclude test IDs when running --basic with no selector, e.g. --basic --exclude 00 h00 82_long_func',
+        help='Exclude tests for --basic/--perf/--test-all; use basic IDs (e.g. 00 h00) or full perf benchmark names.',
     )
     parser.add_argument('--clean', action='store_true', help='Clean test directories before running')
     parser.add_argument('--graph', action='store_true', help='Generate CFG graphs (.dot/.svg) from linked LLVM IR using opt + graphviz')
@@ -379,11 +462,12 @@ def main():
     args = parser.parse_args()
 
     if args.exclude:
-        if args.basic is None or len(args.basic) != 0:
-            parser.error("--exclude is only allowed with --basic and no selector, e.g. --basic --exclude 00 h00")
-        invalid_ids = [test_id for test_id in args.exclude if test_id == 'h']
-        if invalid_ids:
-            parser.error("Invalid --exclude test id: h")
+        if args.basic is None and args.perf is None and not args.test_all:
+            parser.error("--exclude is only allowed with --basic, --perf, or --test-all")
+        if args.basic is not None or args.test_all:
+            invalid_ids = [test_id for test_id in args.exclude if test_id == 'h']
+            if invalid_ids:
+                parser.error("Invalid --exclude test id: h")
 
     if args.basic is not None:
         invalid_ids = [test_id for test_id in args.basic if test_id == 'h']
@@ -405,7 +489,7 @@ def main():
     need_emit_llvm = args.emit_llvm or args.lli or args.llc or args.graph or bool(args.dump_llvm_after)
     need_runtime_exec = args.lli or args.llc
 
-    if args.clean and not (args.test or args.basic is not None):
+    if args.clean and not (args.test or args.basic is not None or args.perf is not None or args.test_all):
         clean_directory("./test")
         print("Cleaned test directory.")
         sys.exit(0)
@@ -454,11 +538,12 @@ def main():
                 sys.exit(1)
 
     test_files = []
-    base_dir = "./testcases/functional_recover"
-    functional_dir = os.path.join(base_dir, "functional")
-    h_functional_dir = os.path.join(base_dir, "h_functional")
+    basic_base_dir = "./testcases/functional_recover"
+    functional_dir = os.path.join(basic_base_dir, "functional")
+    h_functional_dir = os.path.join(basic_base_dir, "h_functional")
+    perf_dir = "./testcases/perf"
 
-    search_dirs = [functional_dir, h_functional_dir]
+    basic_search_dirs = [functional_dir, h_functional_dir]
 
     if args.test:
         # Find specific test file
@@ -486,7 +571,7 @@ def main():
     elif args.basic is not None:
         basic_selectors = args.basic
         all_sy = []
-        for d in search_dirs:
+        for d in basic_search_dirs:
             all_sy.extend(find_files(d, ".sy"))
 
         if len(basic_selectors) == 0 or "all" in basic_selectors:
@@ -503,23 +588,51 @@ def main():
 
         # Sort for consistent order
         test_files.sort()
+    elif args.perf is not None:
+        test_files, missing_perf = collect_perf_tests(perf_dir, args.perf)
+        if test_files is None:
+            print(f"No perf benchmark matched full name(s): {' '.join(missing_perf)}")
+            sys.exit(1)
+        if not test_files:
+            print("No perf test files found.")
+            sys.exit(1)
+    elif args.test_all:
+        all_basic_sy = []
+        for d in basic_search_dirs:
+            all_basic_sy.extend(find_files(d, ".sy"))
+        all_basic_sy.sort()
 
-        if args.exclude:
-            selected_before = test_files
-            test_files = [
-                test_file for test_file in selected_before
-                if not any(matches_test_id(test_file, test_id, h_functional_dir) for test_id in args.exclude)
-            ]
+        all_perf_sy, missing_perf = collect_perf_tests(perf_dir, [])
+        if all_perf_sy is None:
+            print(f"No perf benchmark matched full name(s): {' '.join(missing_perf)}")
+            sys.exit(1)
 
-            if len(test_files) == len(selected_before):
-                print(f"[WARN] --exclude matched no tests: {' '.join(args.exclude)}")
+        test_files = all_basic_sy + all_perf_sy
 
-            if not test_files:
-                print("No test files remain after applying --exclude.")
-                sys.exit(1)
+        if not test_files:
+            print("No test files found for --test-all.")
+            sys.exit(1)
     else:
         parser.print_help()
         sys.exit(1)
+
+    excluded_count = 0
+    if args.exclude:
+        selected_before_count = len(test_files)
+        test_files, unmatched_excludes = apply_exclude_selectors(
+            test_files,
+            args.exclude,
+            h_functional_dir,
+            perf_dir,
+        )
+        excluded_count = selected_before_count - len(test_files)
+
+        if unmatched_excludes:
+            print(f"[WARN] --exclude matched no tests: {' '.join(unmatched_excludes)}")
+
+        if not test_files:
+            print("No test files remain after applying --exclude.")
+            sys.exit(1)
 
     debugger_tool = None
     debugger_flag = None
@@ -555,12 +668,11 @@ def main():
     sylib_ll = "./sylib/sylib.ll"
 
     # clean test/ first
-    if args.basic is not None or args.clean:
+    if args.basic is not None or args.perf is not None or args.test_all or args.clean:
         clean_directory(test_output_base)
     passed = 0
     failed = 0
     selected_tests_count = len(test_files)
-    excluded_count = len(args.exclude) if args.exclude else 0
     interrupted = False
 
     try:

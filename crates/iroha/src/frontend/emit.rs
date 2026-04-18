@@ -314,7 +314,11 @@ impl Emit {
           self.builder.set_current_block(block_id);
           self.syms.enter_scope();
 
-          for (i, (arg_name, arg_typ)) in params.iter().enumerate() {
+          for (i, node_id) in params.iter().enumerate() {
+            let (arg_name, arg_typ) = match &self.ast[*node_id] {
+              Node::Param { name, typ } => (name.clone(), typ.clone()),
+              _ => unreachable!("Param node expected for function parameter"),
+            };
             let alloca = self.builder.create(
               &mut self.program,
               self.builder.current_function.clone(),
