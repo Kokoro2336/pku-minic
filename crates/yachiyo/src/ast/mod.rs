@@ -172,13 +172,19 @@ pub enum Op {
   Minus,
   Not,
 
-  // special op which only occurs in type casting
-  Int2Float,  // Sitofp
-  Float2Int,  // Fptosi
-  Bool2Int,   // Zext
-  Int2Bool,   // Sne with 0
-  Float2Bool, // One with 0.0
-  Bool2Float, // Uitofp
+  // Special op for type conversion
+  /// Sitofp
+  Int2Float, 
+  /// Fptosi
+  Float2Int,
+  /// Zext
+  Bool2Int,
+  /// Sne with 0
+  Int2Bool,   
+  /// One with 0.0
+  Float2Bool, 
+  /// Uitofp
+  Bool2Float,
 
   // binary
   Mul,
