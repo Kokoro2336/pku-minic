@@ -629,7 +629,11 @@ impl Semantic {
         self.funcs.insert(name.clone(), typ);
         self.syms.enter_scope();
         for param in &params {
-          self.syms.insert(param.0.clone(), param.1.clone());
+          let (param_name, param_type) = match &self.ast[*param] {
+            Node::Param { name, typ } => (name.clone(), typ.clone()),
+            _ => unreachable!(),
+          };
+          self.syms.insert(param_name, param_type);
         }
         self.current_func = Some(name);
         self.analyze(body)?;

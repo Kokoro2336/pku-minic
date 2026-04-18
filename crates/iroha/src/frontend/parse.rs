@@ -1,9 +1,10 @@
 //! Parser utilities.
 
-use yachiyo::ast::*;
-use yachiyo::base::Type;
 #[cfg(feature = "debug")]
 use yachiyo::debug::{error, info};
+
+use yachiyo::ast::*;
+use yachiyo::base::Type;
 use yachiyo::utils::arena::Arena;
 use yachiyo::utils::table::SymbolTable;
 
@@ -12,7 +13,7 @@ pub struct Parser {
   // This symbol table is used for constant folding during parsing, we don't need to add variants.
   pub syms: SymbolTable<String, NodeId>,
   // This symbol table tracks whether an identifier is declared as array (true) or scalar (false).
-  pub decl_syms: SymbolTable<String, bool>,
+  pub decl_is_array: SymbolTable<String, bool>,
   pub ast: AST,
 }
 
@@ -238,7 +239,7 @@ impl Parser {
 
     for raw_decl in raw_decls {
       if raw_decl.const_exps.is_empty() {
-        self.decl_syms.insert(raw_decl.ident.clone(), false);
+        self.decl_is_array.insert(raw_decl.ident.clone(), false);
         let mut init_value = raw_decl.init_val;
 
         if !mutable {
@@ -276,7 +277,7 @@ impl Parser {
         };
         new_nodes.push(self.ast.alloc(var_decl));
       } else {
-        self.decl_syms.insert(raw_decl.ident.clone(), true);
+        self.decl_is_array.insert(raw_decl.ident.clone(), true);
         let mut dims: Vec<u32> = vec![];
         for exp_node in raw_decl.const_exps {
           let node = self.take_node(exp_node);

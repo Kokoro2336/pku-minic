@@ -92,14 +92,14 @@ pub CompUnit: NodeId = {
 EnterScope: () = {
   () => {
     parser.syms.enter_scope();
-    parser.decl_syms.enter_scope();
+    parser.decl_is_array.enter_scope();
   },
 };
 
 ExitScope: () = {
   () => {
     parser.syms.exit_scope();
-    parser.decl_syms.exit_scope();
+    parser.decl_is_array.exit_scope();
   },
 };
 
@@ -109,8 +109,16 @@ GlobalObj: NodeId = {
 };
 
 FuncDef: NodeId = {
-  <b_type: BType> <ident: Ident> "(" <func_fparams: FuncFParams> ")" <block: Block> => {
-    let param_types = func_fparams.iter().map(|(_, t)| t.clone()).collect();
+  <b_type: BType> <ident: Ident> <enter_scope: EnterScope> "(" <func_fparams: FuncFParams> ")" <block: Block> <exit_scope: ExitScope> => {
+    // Add param types to decl_is_array for later use in LVal parsing
+    let param_types = func_fparams.iter().map(|node_id| {
+      let ( _, typ) = match &parser.ast[*node_id] {
+        Node::Param { name, typ } => (name.clone(), typ.clone()),
+        _ => unreachable!("Param node expected for function parameter"),
+      };
+      typ
+    }).collect();
+
     parser.ast.alloc(Node::FnDecl {
       name: ident,
       params: func_fparams,
@@ -121,7 +129,7 @@ FuncDef: NodeId = {
       body: block,
     })
   },
-  <b_type: BType> <ident: Ident> "(" ")" <block: Block> => {
+  <b_type: BType> <ident: Ident> <enter_scope: EnterScope> "(" ")" <block: Block> <exit_scope: ExitScope> => {
     parser.ast.alloc(Node::FnDecl {
       name: ident,
       params: vec![],
@@ -132,8 +140,15 @@ FuncDef: NodeId = {
       },
     })
   },
-  "void" <ident: Ident> "(" <func_fparams: FuncFParams> ")" <block: Block> => {
-    let param_types = func_fparams.iter().map(|(_, t)| t.clone()).collect();
+  "void" <ident: Ident> <enter_scope: EnterScope> "(" <func_fparams: FuncFParams> ")" <block: Block> <exit_scope: ExitScope> => {
+    let param_types = func_fparams.iter().map(|node_id| {
+      let ( _, typ) = match &parser.ast[*node_id] {
+        Node::Param { name, typ } => (name.clone(), typ.clone()),
+        _ => unreachable!("Param node expected for function parameter"),
+      };
+      typ
+    }).collect();
+
     parser.ast.alloc(Node::FnDecl {
       name: ident,
       params: func_fparams,
@@ -144,7 +159,7 @@ FuncDef: NodeId = {
       },
     })
   },
-  "void" <ident: Ident> "(" ")" <block: Block> => {
+  "void" <ident: Ident> <enter_scope: EnterScope> "(" ")" <block: Block> <exit_scope: ExitScope> => {
     parser.ast.alloc(Node::FnDecl {
       name: ident,
       params: vec![],
@@ -157,7 +172,7 @@ FuncDef: NodeId = {
   },
 };
 
-FuncFParams: Vec<(String, Type)> = {
+FuncFParams: Vec<NodeId> = {
   <first_param: FuncFParam> <other_params: ("," FuncFParam)*> => {
     let mut param_list = vec![first_param];
     for (_, other_param) in other_params {
@@ -167,15 +182,24 @@ FuncFParams: Vec<(String, Type)> = {
   }
 };
 
-FuncFParam: (String, Type) = {
-  <param_type: BType> <ident: Ident> => (ident, param_type),
+// (Param name, Param type, is_array)
+FuncFParam: NodeId = {
+  <param_type: BType> <ident: Ident> => {
+    parser.decl_is_array.insert(ident.clone(), false);
+    let node_id = parser.ast.alloc(Node::Param {
+      name: ident.clone(),
+      typ: param_type,
+    });
+    parser.syms.insert(ident, node_id);
+    node_id
+  },
   <param_type: BType> <ident: Ident> <first_const_exp: ("[" "]")> <other_const_exps: ("[" ConstExp "]")*> => {
     let arr_type = Type::Pointer {
       base: if other_const_exps.is_empty() {
-        Box::new(param_type)
+        Box::new(param_type.clone())
       } else {
         Box::new(Type::Array {
-          base: Box::new(param_type),
+          base: Box::new(param_type.clone()),
           dims: other_const_exps.into_iter().map(|(_, exp, _)| {
             let node = std::mem::take(&mut parser.ast[exp]);
             match parser.fold(node) {
@@ -186,7 +210,13 @@ FuncFParam: (String, Type) = {
         })
       },
     };
-    (ident, arr_type)
+    parser.decl_is_array.insert(ident.clone(), true);
+    let node_id = parser.ast.alloc(Node::Param {
+      name: ident.clone(),
+      typ: arr_type,
+    });
+    parser.syms.insert(ident, node_id);
+    node_id
   }
 };
 
@@ -273,7 +303,7 @@ SimpleStmt: NodeId = {
 LVal: NodeId = {
   <ident: Ident> <exps: ("[" Exp "]")*> => {
     if exps.is_empty() {
-      if let Some(is_array) = parser.decl_syms.get(&ident) {
+      if let Some(is_array) = parser.decl_is_array.get(&ident) {
         if *is_array {
           parser.ast.alloc(Node::ArrayAccess {
             name: ident,

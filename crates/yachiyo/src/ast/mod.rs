@@ -1,8 +1,9 @@
 //! Definition of AST nodes.
 
-use crate::base::Type;
 #[cfg(feature = "debug")]
 use crate::debug::info;
+
+use crate::base::Type;
 use crate::utils::arena::*;
 
 use strum_macros::EnumDiscriminants;
@@ -17,9 +18,14 @@ pub type NodeId = usize;
 pub enum Node {
   FnDecl {
     name: String,
-    params: Vec<(String, Type)>,
+    params: Vec<NodeId>,
     typ: Type,
     body: NodeId,
+  },
+
+  Param {
+    name: String,
+    typ: Type,
   },
 
   Break,
@@ -264,8 +270,11 @@ impl Arena<Node> for AST {
     for item in self.storage.iter_mut() {
       if let ArenaItem::Data(node) = item {
         match node {
-          Node::FnDecl { body, .. } => {
+          Node::FnDecl { body, params, .. } => {
             remap_idx(body);
+            for param in params {
+              remap_idx(param);
+            }
           }
           Node::Return(ret) => {
             if let Some(ret) = ret {
@@ -360,6 +369,7 @@ impl Arena<Node> for AST {
             }
           }
           Node::Break
+          | Node::Param { .. }
           | Node::Continue
           | Node::VarAccess { .. }
           | Node::Empty
