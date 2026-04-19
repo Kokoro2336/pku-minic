@@ -162,7 +162,7 @@ def regenerate_sylib_ll(repo_root: str):
         return 1, b"", f"[ERROR] Runtime source not found: {sylib_c}\n".encode()
 
     result = subprocess.run(
-        [clang, "-S", "-emit-llvm", sylib_c, "-o", sylib_ll],
+        [clang, "-S", "-emit-llvm", "-fno-use-cxa-atexit", sylib_c, "-o", sylib_ll],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
