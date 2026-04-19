@@ -150,6 +150,24 @@ def normalize_output_bytes(data: bytes) -> bytes:
         lines.pop()
     return b"\n".join(lines)
 
+def regenerate_sylib_ll(repo_root: str):
+    """Regenerates sylib/sylib.ll from sylib/sylib.c using clang."""
+    clang = shutil.which("clang")
+    if clang is None:
+        return 127, b"", b"[ERROR] clang not found in PATH; cannot regenerate sylib/sylib.ll\n"
+
+    sylib_c = os.path.join(repo_root, "sylib", "sylib.c")
+    sylib_ll = os.path.join(repo_root, "sylib", "sylib.ll")
+    if not os.path.exists(sylib_c):
+        return 1, b"", f"[ERROR] Runtime source not found: {sylib_c}\n".encode()
+
+    result = subprocess.run(
+        [clang, "-S", "-emit-llvm", sylib_c, "-o", sylib_ll],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return result.returncode, result.stdout, result.stderr
+
 def generate_cfg_graphs(ll_path: str, graph_dir: str, test_name: str):
     os.makedirs(graph_dir, exist_ok=True)
     abs_ll_path = os.path.abspath(ll_path)
@@ -515,6 +533,17 @@ def main():
     qemu_container_name = f"iroha-qemu-{uuid.uuid4().hex[:8]}"
     qemu_cases = []
 
+    if args.lli:
+        print("Regenerating sylib/sylib.ll via clang...")
+        regen_code, regen_stdout, regen_stderr = regenerate_sylib_ll(repo_root)
+        if regen_stdout:
+            sys.stdout.buffer.write(regen_stdout)
+        if regen_stderr:
+            sys.stderr.buffer.write(regen_stderr)
+        if regen_code != 0:
+            print("Failed to regenerate sylib/sylib.ll. Exiting.")
+            sys.exit(1)
+
     if args.qemu or args.qemu_debug:
         if shutil.which("docker") is None:
             print("--qemu/--qemu-debug requested but docker was not found in PATH.")
@@ -665,7 +694,7 @@ def main():
     dump_llvm_dir = "./dump_llvm"
     dump_asm_dir = "./dump_asm"
     test_output_base = "./test"
-    sylib_ll = "./sylib/sylib.ll"
+    sylib_ll = os.path.join(repo_root, "sylib", "sylib.ll")
 
     # clean test/ first
     if args.basic is not None or args.perf is not None or args.test_all or args.clean:
