@@ -1791,7 +1791,7 @@ impl RegAlloc<'_> {
   /// * Check whether the function is a leaf
   /// * Figure out the used registers
   /// * Allocate space for callee-saved registers & ra.
-  fn pre_check(&mut self) {
+  fn alloc_saved(&mut self) {
     let func_id = self.builder.current_function.unwrap();
     let bb_ids = self.get_func(func_id).cfg.ids();
     let mut is_leaf = true;
@@ -2150,7 +2150,7 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
 
       // ========== Post-RA Phase ==========
       // Pre checking
-      self.pre_check();
+      self.alloc_saved();
       // Build stack frame
       let func = self.get_func_mut(func_id);
       func.frame_info.build();

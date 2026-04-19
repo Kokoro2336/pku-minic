@@ -14,3 +14,4 @@ dump_llvm/
 .codex
 __pycache__/
 .DS_Store
+sylib.ll
