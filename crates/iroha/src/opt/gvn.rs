@@ -1,9 +1,10 @@
-//! Global Value Numbering (GVN) base on Dominator Tree Traversal.
+//! Global Value Numbering (GVN) .
 
 use yachiyo::analysis::analyze;
 use yachiyo::ir::mid::{Builder, Function, OpData, Operand, PhiIncoming, IR};
 use yachiyo::pass::Pass;
 use yachiyo::utils::table::SymbolTable;
+use yachiyo::utils::set::BitSet;
 
 use crate::analysis::{DomAnalysis, DomTree};
 
@@ -49,6 +50,11 @@ pub struct GVN<'a> {
   builder: Builder,
   symbols: SymbolTable<CanonicalExpr, Operand>,
   stack: Vec<GVNPhase>,
+
+  visited: BitSet,
+  dfs_post_order: Vec<Operand>,
+  /// BBId -> Reveresed Post-Order DFS number
+  rdfn: Vec<usize>,
 }
 
 impl From<&OpData> for CanonicalExpr {
@@ -131,12 +137,38 @@ impl GVN<'_> {
   #[inline(always)]
   fn init(&mut self, func_id: Operand) {
     self.builder.set_current_func(Some(func_id));
+
+    self.symbols.clear();
+    self.stack.clear();
+    self.visited.clear();
+    self.dfs_post_order.clear();
+
+    self.rdfn.clear();
+    self.rdfn.resize(self.get_func(func_id).cfg.len(), 0);
   }
 
   #[inline(always)]
   fn get_func(&self, func_id: Operand) -> &Function {
     &self.ir.as_ref().unwrap().funcs[func_id]
   }
+
+  fn dfs(&mut self, bb_id: Operand) {
+    let func_id = self.builder.current_function.unwrap();
+    if self.visited.contains(bb_id.get_bb_id()) {
+      return;
+    }
+
+    self.visited.insert(bb_id.get_bb_id());
+
+    let succs = self.get_func(func_id).cfg[bb_id].succs.clone();
+    for (succ, _) in succs {
+      self.dfs(succ);
+    }
+
+    // Post-order traversal.
+    self.dfs_post_order.push(bb_id);
+  }
+
 
   #[inline(always)]
   fn replace_all_uses(&mut self, old: Operand, new: Operand) {
@@ -197,12 +229,13 @@ impl GVN<'_> {
           self.stack.push(GVNPhase::End);
 
           // Update stack and symbol table
-          let idoms = dom_tree[bb_id.get_bb_id()]
+          let mut idoms = dom_tree[bb_id.get_bb_id()]
             .iter()
             .map(|&child| Operand::BB(child))
             .collect::<Vec<_>>();
-          for idom in idoms {
-            self.enter_scope(idom);
+          idoms.sort_by_key(|idom| self.rdfn[idom.get_bb_id()]);
+          for idom in idoms.iter().rev() {
+            self.enter_scope(*idom);
           }
         }
         GVNPhase::End => {
@@ -230,10 +263,14 @@ impl<'a> Pass<'a> for GVN<'a> {
       let dom_tree = &dom_trees[func_id];
       let func_id = Operand::Func(func_id);
       self.init(func_id);
+      let entry = Operand::BB(self.get_func(func_id).cfg.entry.unwrap());
+      self.dfs(entry);
+      for (rdfn, bb_id) in self.dfs_post_order.iter().rev().enumerate() {
+        self.rdfn[bb_id.get_bb_id()] = rdfn;
+      }
 
-      let entry = self.get_func(func_id).cfg.entry.unwrap();
       // Update stack and symbol table.
-      self.enter_scope(Operand::BB(entry));
+      self.enter_scope(entry);
       self.run(dom_tree);
     }
   }
