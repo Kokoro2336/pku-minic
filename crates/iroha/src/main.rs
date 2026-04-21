@@ -8,11 +8,12 @@ use iroha::backend::*;
 use iroha::frontend::*;
 use iroha::opt::*;
 
-use yachiyo::cli::Cli;
 #[cfg(feature = "debug")]
 use yachiyo::debug::info;
 #[cfg(feature = "debug")]
 use yachiyo::debug::log::setup;
+
+use yachiyo::cli::Cli;
 use yachiyo::debug::DumpASM;
 use yachiyo::pass::*;
 use yachiyo::utils::arena::Arena;

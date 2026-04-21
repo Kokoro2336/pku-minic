@@ -61,7 +61,7 @@ impl Lowering {
       Operand::Func(id) => self.func_map[id],
       // When getting an IR value, we get Vreg of LOp.
       Operand::Value(id) => self.value_map[id],
-      Operand::Param { idx, .. } => self.param_map[idx],
+      Operand::Param(idx) => self.param_map[idx],
 
       // Legalize immediates when getting them.
       // For zero immediate, replace it with zero register.
@@ -147,7 +147,7 @@ impl Lowering {
         let op = &self.ir.funcs[current_function].dfg[id];
         op.typ.clone()
       }
-      Operand::Param { idx, .. } => match &self.ir.funcs[current_function].typ {
+      Operand::Param(idx) => match &self.ir.funcs[current_function].typ {
         Type::Function { param_types, .. } => param_types[idx].clone(),
         _ => unreachable!("Only function type should be in the function arena"),
       },
@@ -165,13 +165,13 @@ impl Lowering {
       Operand::Global(id) => self.global_map[id] = value,
       Operand::BB(id) => self.block_map[id] = value,
       Operand::Func(id) => self.func_map[id] = value,
-      Operand::Param { idx, .. } => self.param_map[idx] = value,
+      Operand::Param(idx) => self.param_map[idx] = value,
       Operand::Bool(_) | Operand::Int(_) | Operand::Float(_) | Operand::Undefined => (),
     }
   }
 
   fn init(&mut self, func_id: Operand) {
-    let lfunc_id = self.get(func_id.clone());
+    let lfunc_id = self.get(func_id);
     self.builder.set_current_func(lfunc_id);
 
     // Clear the maps.
@@ -185,11 +185,11 @@ impl Lowering {
     // Resize the maps.
     self
       .block_map
-      .resize(self.ir.funcs[func_id.clone()].cfg.len(), BOperand::Undef);
+      .resize(self.ir.funcs[func_id].cfg.len(), BOperand::Undef);
     self
       .value_map
-      .resize(self.ir.funcs[func_id.clone()].dfg.len(), BOperand::Undef);
-    let param_num = match &self.ir.funcs[func_id.clone()].typ {
+      .resize(self.ir.funcs[func_id].dfg.len(), BOperand::Undef);
+    let param_num = match &self.ir.funcs[func_id].typ {
       Type::Function { param_types, .. } => param_types.len(),
       _ => unreachable!("Only function type should be in the function arena"),
     };
@@ -333,11 +333,11 @@ impl Lowering {
     let func_id = self.get_current_func();
 
     let (typ, attrs, data) = {
-      let op = &self.ir.funcs[func_id.clone()].dfg[op_id.clone()];
+      let op = &self.ir.funcs[func_id].dfg[op_id];
       #[cfg(feature = "debug")]
       yachiyo::debug::info!("{:?}: Lowering op {:?}", op_id, op);
       (
-        self.get_op_type(op_id.clone()),
+        self.get_op_type(op_id),
         op.attrs.clone(),
         op.data.clone(),
       )
@@ -418,8 +418,8 @@ impl Lowering {
         fallback: {
             // For bool -> float, we replace it with int -> float.
             OpData::Uitofp { value } => {
-                let value = self.get(value.clone());
-                self.create_and_map_lop(op_id.clone(), BOp::new(
+                let value = self.get(value);
+                self.create_and_map_lop(op_id, BOp::new(
                     typ.clone().into(),
                     lattr,
                     LOpData::Sitofp {
@@ -431,18 +431,18 @@ impl Lowering {
             },
             // For bool -> int, we don't genrate any instruction, just map the value.
             OpData::Zext { value } => {
-                let vreg_id = self.get(value.clone());
-                self.set(op_id.clone(), vreg_id);
+                let vreg_id = self.get(value);
+                self.set(op_id, vreg_id);
             },
             OpData::Br {
                 cond,
                 then_bb,
                 else_bb,
             } => {
-                let cond = self.get(cond.clone());
-                let then_bb = self.get(then_bb.clone());
-                let else_bb = self.get(else_bb.clone());
-                self.create_and_map_lop(op_id.clone(),
+                let cond = self.get(cond);
+                let then_bb = self.get(then_bb);
+                let else_bb = self.get(else_bb);
+                self.create_and_map_lop(op_id,
                     BOp::new(
                         Type::Void.into(),
                         lattr,
@@ -456,9 +456,9 @@ impl Lowering {
                 );
             },
             OpData::Jump { target_bb } => {
-                let target_bb = self.get(target_bb.clone());
+                let target_bb = self.get(target_bb);
                 self.create_and_map_lop(
-                    op_id.clone(),
+                    op_id,
                     BOp::new(
                         Type::Void.into(),
                         lattr,
@@ -470,9 +470,9 @@ impl Lowering {
                 );
             },
             OpData::Load { addr } => {
-                let addr = self.get(addr.clone());
+                let addr = self.get(addr);
                 self.create_and_map_lop(
-                    op_id.clone(),
+                    op_id,
                     BOp::new(
                         typ.clone().into(),
                         lattr,
@@ -485,11 +485,11 @@ impl Lowering {
                 );
             },
             OpData::Store { addr, value } => {
-                let addr = self.get(addr.clone());
-                let val_typ = self.get_op_type(value.clone());
-                let value = self.get(value.clone());
+                let addr = self.get(addr);
+                let val_typ = self.get_op_type(value);
+                let value = self.get(value);
                 self.create_and_map_lop(
-                    op_id.clone(),
+                    op_id,
                     BOp::new(
                         Type::Void.into(),
                         lattr,
@@ -504,8 +504,8 @@ impl Lowering {
             },
             OpData::Call { func, args } => {
                 // Create move instructions for args
-              let callee_func_id = self.get(func.clone());
-                let callee_func_type = self.get_op_type(func.clone());
+              let callee_func_id = self.get(func);
+                let callee_func_type = self.get_op_type(func);
                 let (param_types, ret_typ) = match &callee_func_type {
                     Type::Function { param_types, return_type } => (param_types.clone(), *return_type.clone()),
                     _ => unreachable!("Only function type can be called"),
@@ -530,9 +530,9 @@ impl Lowering {
                 let spilled_arg_offsets = self.get_spilled_arg_offsets(callee_func_id, &callee_func_type);
 
                 for (idx, arg) in args.iter().enumerate() {
-                    let arg_typ = self.get_op_type(arg.clone());
+                    let arg_typ = self.get_op_type(*arg);
                     if idx < PARAM_REG_MAX_NUM as usize {
-                        let arg = self.get(arg.clone());
+                        let arg = self.get(*arg);
                         self.create(BOp::new(
                             arg_typ.clone().into(),
                             vec![],
@@ -544,8 +544,8 @@ impl Lowering {
                         ));
                     } else {
                         let slot_id = spilled_arg_offsets[idx - PARAM_REG_MAX_NUM as usize];
-                        let arg_typ = self.get_op_type(arg.clone());
-                        let arg = self.get(arg.clone());
+                        let arg_typ = self.get_op_type(*arg);
+                        let arg = self.get(*arg);
                         self.create(BOp::new(
                             Type::Void.into(),
                             vec![],
@@ -560,7 +560,7 @@ impl Lowering {
                 }
 
                 // Create call instruction
-                let func = self.get(func.clone());
+                let func = self.get(func);
                 self.create(BOp::new(
                     // Since call doesn't produce a value in Lower IR, the type should be void.
                     Type::Void.into(),
@@ -593,7 +593,7 @@ impl Lowering {
                         }
                     };
                     self.create_and_map_lop(
-                        op_id.clone(),
+                        op_id,
                         BOp::new(
                             typ.clone().into(),
                             vec![],
@@ -621,7 +621,7 @@ impl Lowering {
             OpData::GEP { base, indices } => {
                 // GEP is only used for array in SysY.
                 let pointee_typ = {
-                  let base_typ = self.get_op_type(base.clone());
+                  let base_typ = self.get_op_type(base);
                   match &base_typ {
                     Type::Pointer { base } => (**base).clone(),
                     _ => unreachable!("Only array type can be the base of GEP"),
@@ -629,7 +629,7 @@ impl Lowering {
                 };
 
                 // Initialize the current base address with the base pointer.
-                let mut current_lop_vreg_id = self.get(base.clone());
+                let mut current_lop_vreg_id = self.get(base);
                 // If indices are empty, we can map GEP to the base pointer directly.
                 if indices.is_empty() {
                   self.set(op_id, current_lop_vreg_id);
@@ -652,7 +652,7 @@ impl Lowering {
                       }
                     };
 
-                    let index = self.get(index.clone());
+                    let index = self.get(*index);
                     let mul_lop_id = self.create(BOp::new(
                       BType::U64,
                       vec![],
@@ -678,7 +678,7 @@ impl Lowering {
 
                     // If the end of loop reached, bind the VReg of GEP to the current instruction.
                     if dim == indices.len() - 1 {
-                      self.create_and_map_lop(op_id.clone(), add_lop);
+                      self.create_and_map_lop(op_id, add_lop);
                     } else {
                       let add_lop_id = self.create(add_lop);
                       // Update current base address.
@@ -689,7 +689,7 @@ impl Lowering {
             }
             OpData::Ret { value } => {
                 let rd = if let Some(value) = value {
-                    let move_typ = self.get_op_type(value.clone());
+                    let move_typ = self.get_op_type(value);
                     let value = self.get(
                     value,
                     );
@@ -740,10 +740,10 @@ impl Lowering {
       }
       self.processed.insert(bb_id);
 
-      if bb_id == self.ir.funcs[func_id.clone()].cfg.entry.unwrap() {
+      if bb_id == self.ir.funcs[func_id].cfg.entry.unwrap() {
         let lentry = self.get(Operand::BB(bb_id));
 
-        let func = &self.ir.funcs[func_id.clone()];
+        let func = &self.ir.funcs[func_id];
         let param_types = match &func.typ {
           Type::Function { param_types, .. } => param_types.clone(),
           _ => unreachable!("Only function type should be in the function arena"),
@@ -784,7 +784,7 @@ impl Lowering {
       // The first iteration: Create Lower IR instructions
       let lbb_id = self.get(Operand::BB(bb_id));
       self.builder.set_current_block(lbb_id);
-      let bb = &self.ir.funcs[func_id.clone()].cfg[bb_id];
+      let bb = &self.ir.funcs[func_id].cfg[bb_id];
       let cur = bb.cur.clone();
 
       // Lower the IR operations.
@@ -793,7 +793,7 @@ impl Lowering {
       }
 
       // push successors to the worklist for later processing.
-      let bb = &self.ir.funcs[func_id.clone()].cfg[bb_id];
+      let bb = &self.ir.funcs[func_id].cfg[bb_id];
       let succs = bb.succs.clone();
       for (succ, _) in succs {
         self.worklist.push_back(succ.get_bb_id());
@@ -1129,10 +1129,10 @@ impl Lowering {
 
     for func_id in self.ir.funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
-      self.init(func_id.clone());
+      self.init(func_id);
 
       // Pre-allocate basic blocks.
-      let func = &self.ir.funcs[func_id.clone()];
+      let func = &self.ir.funcs[func_id];
       let entry = func.cfg.entry.unwrap();
       for bb_id in func.cfg.ids() {
         self.alloc_and_map_block(Operand::BB(bb_id), BBasicBlock::default());
@@ -1142,25 +1142,25 @@ impl Lowering {
       // We need to pre-allocate a VReg for all Phi instructions and bind them with vregs.
       self
         .ir
-        .get_all_ops(Some(func_id.clone()), OpType::Phi)
+        .get_all_ops(Some(func_id), OpType::Phi)
         .into_iter()
         .for_each(|phi_id| {
-          let typ = self.get_op_type(phi_id.clone());
+          let typ = self.get_op_type(phi_id);
           let phi_vreg_id = self.alloc_vreg(VirtReg::new(typ.into()));
           // Phi is eliminated, without BOp mapped to Phi. So we map it to vreg directly.
           self.set(phi_id, phi_vreg_id);
         });
 
       self.worklist.push_back(entry);
-      self.lower_bbs(func_id.clone());
+      self.lower_bbs(func_id);
 
       // Process phis.
       // phi_moves: (from, to) -> Vec<LOpId>
       let mut phi_moves: FxHashMap<(Operand, Operand), Vec<BOperand>> = FxHashMap::default();
       for (phi_id, phi_bb_id) in std::mem::take(&mut self.phis) {
         let (typ, phi_op_data) = {
-          let op = &self.ir.funcs[func_id.clone()].dfg[phi_id.clone()];
-          (self.get_op_type(phi_id.clone()), op.data.clone())
+          let op = &self.ir.funcs[func_id].dfg[phi_id];
+          (self.get_op_type(phi_id), op.data.clone())
         };
 
         if let OpData::Phi { incomings } = phi_op_data {
@@ -1178,8 +1178,8 @@ impl Lowering {
             };
 
             // Set current block
-            let lfunc_id = self.get(func_id.clone());
-            let lbb_id = self.get(bb_id.clone());
+            let lfunc_id = self.get(func_id);
+            let lbb_id = self.get(bb_id);
             self.builder.set_current_block(lbb_id);
 
             let lterm_id = {
@@ -1188,13 +1188,13 @@ impl Lowering {
             };
             self.builder.set_current_inst(lterm_id);
 
-            let incoming_vreg_id = self.get(value.clone());
+            let incoming_vreg_id = self.get(value);
 
             let move_lop = BOp::new(
               typ.clone().into(),
               vec![BAttr::PhiMove],
               LOpData::Move {
-                rd: self.get(phi_id.clone()),
+                rd: self.get(phi_id),
                 src: incoming_vreg_id,
               }
               .into(),
@@ -1202,10 +1202,10 @@ impl Lowering {
 
             // The moves will be binded to the same VReg allocated to Phi instruction previously.
             // For now we don't care where it's created, we will move 'em to trampolines later.
-            let move_lop_id = self.create_and_map_lop(phi_id.clone(), move_lop);
+            let move_lop_id = self.create_and_map_lop(phi_id, move_lop);
             // Record the move_lop_id for later resorting and trampoline insertion.
             phi_moves
-              .entry((bb_id, phi_bb_id.clone()))
+              .entry((bb_id, phi_bb_id))
               .or_default()
               .push(move_lop_id);
           }
@@ -1217,8 +1217,8 @@ impl Lowering {
       // Refinement: reschedule the Moves generated by Phis and create trampolines.
       for edge in phi_moves.keys().cloned() {
         // Set current block
-        let lfunc_id = self.get(func_id.clone());
-        let bb_id = edge.0.clone();
+        let lfunc_id = self.get(func_id);
+        let bb_id = edge.0;
         let lbb_id = self.get(bb_id);
         self.builder.set_current_block(lbb_id);
 

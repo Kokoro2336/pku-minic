@@ -22,7 +22,7 @@ pub struct DCE<'a> {
 impl<'a> DCE<'a> {
   pub fn is_dead(&self, operand: &Operand) -> bool {
     let program = self.program.as_ref().unwrap();
-    let current_func = match self.builder.current_function.clone() {
+    let current_func = match self.builder.current_function {
       Some(idx) => &program.funcs[idx],
       None => panic!("DCE: not in a function"),
     };
@@ -36,7 +36,7 @@ impl<'a> DCE<'a> {
   }
 
   pub fn init(&mut self, func_id: Operand) {
-    self.builder.set_current_func(Some(func_id.clone()));
+    self.builder.set_current_func(Some(func_id));
     let program = self.program.as_ref().unwrap();
     let func = &program.funcs[func_id];
     self.worklist.clear();
@@ -70,7 +70,7 @@ impl<'a> DCE<'a> {
           inst.is_impure()
         };
         if self.is_dead(inst_id) && !is_impure {
-          self.worklist.push_back(inst_id.clone());
+          self.worklist.push_back(*inst_id);
         }
       }
     }
@@ -87,7 +87,7 @@ impl<'a> Pass<'a> for DCE<'a> {
   fn run(&mut self) {
     fn check(this: &mut DCE, operand: &Operand) {
       let program = this.program.as_ref().unwrap();
-      let func = match this.builder.current_function.clone() {
+      let func = match this.builder.current_function {
         Some(idx) => &program.funcs[idx],
         None => panic!("DCE: not in a function"),
       };
@@ -95,13 +95,13 @@ impl<'a> Pass<'a> for DCE<'a> {
         Operand::Value(id) => {
           let op_id = *id;
           if this.is_dead(operand) && !func.dfg[op_id].is_impure() {
-            this.worklist.push_back(operand.clone());
+            this.worklist.push_back(*operand);
           }
         }
         Operand::Global(id) => {
           let global_id = *id;
           if this.is_dead(operand) && !program.globals[global_id].is_impure() {
-            this.worklist.push_back(operand.clone());
+            this.worklist.push_back(*operand);
           }
         }
         Operand::Int(_) | Operand::Float(_) | Operand::Undefined | Operand::Param { .. } => { /* do nothing */
@@ -113,27 +113,27 @@ impl<'a> Pass<'a> for DCE<'a> {
     for func_id in func_ids {
       self.init(Operand::Func(func_id));
       while let Some(op_id) = self.worklist.pop_front() {
-        let bb_id = self.op_to_bb[op_id.get_op_id()].clone();
+        let bb_id = self.op_to_bb[op_id.get_op_id()];
 
         if let Operand::Value(id) = op_id {
           let func =
-            &self.program.as_ref().unwrap().funcs[self.builder.current_function.clone().unwrap()];
+            &self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()];
           let bb = bb_id.get_bb_id();
           if !func.cfg[bb].cur.iter().any(|inst| inst.get_op_id() == id) {
             continue;
           }
         }
-        self.builder.set_current_block(bb_id.clone());
+        self.builder.set_current_block(bb_id);
         let removed_op = match op_id {
           Operand::Global(_) => self.program.as_deref_mut().unwrap().remove_op(
-            self.builder.current_function.clone(),
+            self.builder.current_function,
             op_id,
             None,
           ),
           _ => self.program.as_deref_mut().unwrap().remove_op(
-            self.builder.current_function.clone(),
-            op_id.clone(),
-            Some(bb_id.clone()),
+            self.builder.current_function,
+            op_id,
+            Some(bb_id),
           ),
         };
 

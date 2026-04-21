@@ -4,10 +4,11 @@ use std::ops::{Index, IndexMut};
 use std::vec::Vec;
 use strum_macros::EnumDiscriminants;
 
-use crate::ast::Literal;
-use crate::base::Type;
 #[cfg(feature = "debug")]
 use crate::debug::info;
+
+use crate::ast::Literal;
+use crate::base::Type;
 use crate::utils::arena::*;
 use crate::utils::r#match::{match_some, match_src};
 
@@ -166,7 +167,7 @@ pub enum OpData {
   Zext {
     value: Operand,
   }, // bool to int
-
+  
   // SysY doesn't support bitwise shift for float
   /// Memory operations
   Store {
@@ -564,21 +565,21 @@ impl Op {
   }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Operand {
   // Ids
-  Value(usize),
-  BB(usize),
-  Func(usize),
   Global(usize),
+  Func(usize),
+  BB(usize),
+  Value(usize),
+  // Param(Index)
+  Param(usize),
 
   // Literals
   Int(i32),
   Float(u32),
   Bool(bool),
 
-  // Param
-  Param { idx: usize, name: String, typ: Type },
   // for phi
   Undefined,
 }
@@ -647,7 +648,7 @@ impl std::fmt::Display for Operand {
       Operand::Int(value) => write!(f, "{}", value),
       Operand::Float(value) => write!(f, "{}", value),
       Operand::Bool(value) => write!(f, "{}", value),
-      Operand::Param { idx, .. } => write!(f, "%arg{}", idx),
+      Operand::Param(idx) => write!(f, "%arg{}", idx),
       Operand::Func(func_id) => write!(f, "@{}", func_id),
       Operand::Undefined => write!(f, "undefined"),
     }
@@ -899,7 +900,7 @@ impl IndexedArena<Op> {
   // @param old: the old use we want to replace with e.g. %1 in "add %1, %2"
   // @param new: the new use we want to replace with e.g. %3 in "add %3, %2"
   pub fn replace_use(&mut self, op_tuple: (Operand, usize), old: Operand, new: Operand) {
-    let op_id = op_tuple.0.clone();
+    let op_id = op_tuple.0;
     let op_id = match_some! {
         target: op_id,
         enu: Operand,
@@ -915,11 +916,11 @@ impl IndexedArena<Op> {
     let src_tuples = self.get_src_tuple_mut(Operand::Value(op_id));
     for (src, _) in src_tuples {
       if *src == old {
-        *src = new.clone();
+        *src = new;
       }
     }
     // Delete old user
-    self.remove_use(old, op_tuple.clone());
+    self.remove_use(old, op_tuple);
     // Add new user
     self.add_use(new, op_tuple);
   }

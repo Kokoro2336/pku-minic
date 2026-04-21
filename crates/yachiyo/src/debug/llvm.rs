@@ -44,6 +44,15 @@ fn global_operand_name(id: usize, ctx: &DumpContext) -> String {
   format!("@{}", id)
 }
 
+fn param_operand_type(idx: usize, ctx: &DumpContext, default: Type) -> Type {
+  if let Some(func) = ctx.function {
+    if idx < func.params.len() {
+      return func.params[idx].1.clone();
+    }
+  }
+  default
+}
+
 fn operand_type(operand: &Operand, ctx: &DumpContext, default: Type) -> Type {
   match operand {
     Operand::Value(id) => {
@@ -57,7 +66,7 @@ fn operand_type(operand: &Operand, ctx: &DumpContext, default: Type) -> Type {
     Operand::Int(_) => Type::Int,
     Operand::Float(_) => Type::Float,
     Operand::Bool(_) => Type::Bool,
-    Operand::Param { typ, .. } => typ.clone(),
+    Operand::Param(idx) => param_operand_type(*idx, ctx, default),
     Operand::BB(_) | Operand::Func(_) | Operand::Undefined => default,
   }
 }
@@ -113,7 +122,7 @@ impl Dump for Operand {
       Operand::Float(val) => write!(s, "0x{:016X}", (f32::from_bits(*val) as f64).to_bits())?,
       Operand::Bool(val) => write!(s, "{}", val)?,
       Operand::BB(id) => write!(s, "%bb_{}", id)?,
-      Operand::Param { idx, .. } => write!(s, "%arg{}", idx)?,
+      Operand::Param(idx) => write!(s, "%arg{}", idx)?,
       Operand::Func(id) => write!(s, "@{}", ctx.program.funcs[*id].name)?,
       Operand::Undefined => write!(s, "undef")?,
     }
@@ -145,7 +154,13 @@ impl Dump for Op {
           | Operand::Undefined => Type::Pointer {
             base: Box::new(Type::Int),
           },
-          Operand::Param { typ, .. } => typ.clone(),
+          Operand::Param(idx) => param_operand_type(
+            *idx,
+            ctx,
+            Type::Pointer {
+              base: Box::new(Type::Int),
+            },
+          ),
         };
 
         let gep_base_ty = match &ptr_ty {
@@ -179,7 +194,7 @@ impl Dump for Op {
             Operand::Int(_) => Type::Int,
             Operand::Float(_) => Type::Float,
             Operand::Bool(_) => Type::Bool,
-            Operand::Param { typ, .. } => typ.clone(),
+            Operand::Param(idx) => param_operand_type(*idx, ctx, Type::Int),
             Operand::BB(_) | Operand::Func(_) | Operand::Undefined => Type::Int,
           };
           write!(
@@ -252,7 +267,13 @@ impl Dump for Op {
           | Operand::Undefined => Type::Pointer {
             base: Box::new(Type::Int),
           },
-          Operand::Param { typ, .. } => typ.clone(),
+          Operand::Param(idx) => param_operand_type(
+            *idx,
+            ctx,
+            Type::Pointer {
+              base: Box::new(Type::Int),
+            },
+          ),
         };
 
         write!(
@@ -276,7 +297,7 @@ impl Dump for Op {
           Operand::Int(_) => Type::Int,
           Operand::Float(_) => Type::Float,
           Operand::Bool(_) => Type::Bool,
-          Operand::Param { typ, .. } => typ.clone(),
+          Operand::Param(idx) => param_operand_type(*idx, ctx, Type::Int),
           Operand::BB(_) | Operand::Func(_) | Operand::Undefined => Type::Int,
         };
         let ptr_ty = match addr {
@@ -298,7 +319,13 @@ impl Dump for Op {
           | Operand::Undefined => Type::Pointer {
             base: Box::new(Type::Int),
           },
-          Operand::Param { typ, .. } => typ.clone(),
+          Operand::Param(idx) => param_operand_type(
+            *idx,
+            ctx,
+            Type::Pointer {
+              base: Box::new(Type::Int),
+            },
+          ),
         };
 
         write!(
@@ -511,7 +538,7 @@ impl Dump for Op {
           | Operand::Float(_)
           | Operand::Bool(_)
           | Operand::Undefined => Type::Int,
-          Operand::Param { typ, .. } => typ.clone(),
+          Operand::Param(idx) => param_operand_type(*idx, ctx, Type::Int),
         };
         write!(
           s,
@@ -537,7 +564,7 @@ impl Dump for Op {
           | Operand::Float(_)
           | Operand::Bool(_)
           | Operand::Undefined => Type::Float,
-          Operand::Param { typ, .. } => typ.clone(),
+          Operand::Param(idx) => param_operand_type(*idx, ctx, Type::Float),
         };
 
         write!(
@@ -564,7 +591,7 @@ impl Dump for Op {
           | Operand::Int(_)
           | Operand::Float(_)
           | Operand::Undefined => Type::Bool,
-          Operand::Param { typ, .. } => typ.clone(),
+          Operand::Param(idx) => param_operand_type(*idx, ctx, Type::Bool),
         };
 
         write!(
@@ -591,7 +618,7 @@ impl Dump for Op {
           | Operand::Int(_)
           | Operand::Float(_)
           | Operand::Undefined => Type::Bool,
-          Operand::Param { typ, .. } => typ.clone(),
+          Operand::Param(idx) => param_operand_type(*idx, ctx, Type::Bool),
         };
 
         write!(
@@ -627,7 +654,7 @@ impl Dump for Op {
           | Operand::Int(_)
           | Operand::Float(_)
           | Operand::Bool(_)
-          | Operand::Param { .. }
+          | Operand::Param(_)
           | Operand::Undefined => "unknown".to_string(),
         };
         write!(s, "call {} @{}(", self.typ.dump_to_llvm(ctx)?, func_name)?;
@@ -644,7 +671,7 @@ impl Dump for Op {
             Operand::Int(_) => Type::Int,
             Operand::Float(_) => Type::Float,
             Operand::Bool(_) => Type::Bool,
-            Operand::Param { typ, .. } => typ.clone(),
+            Operand::Param(idx) => param_operand_type(*idx, ctx, Type::Int),
             Operand::BB(_) | Operand::Func(_) | Operand::Undefined => Type::Int,
           };
           write!(

@@ -31,9 +31,9 @@ pub struct BuilderGuard<'a> {
 impl<'a> BuilderGuard<'a> {
   pub fn new(builder: &'a mut Builder) -> Self {
     let loop_stack = builder.loop_stack.clone();
-    let current_function = builder.current_function.clone();
-    let current_block = builder.current_block.clone();
-    let current_inst = builder.current_inst.clone();
+    let current_function = builder.current_function;
+    let current_block = builder.current_block;
+    let current_inst = builder.current_inst;
     Self {
       builder,
       loop_stack,
@@ -61,9 +61,9 @@ impl DerefMut for BuilderGuard<'_> {
 impl Drop for BuilderGuard<'_> {
   fn drop(&mut self) {
     self.builder.loop_stack = self.loop_stack.clone();
-    self.builder.current_function = self.current_function.clone();
-    self.builder.current_block = self.current_block.clone();
-    self.builder.current_inst = self.current_inst.clone();
+    self.builder.current_function = self.current_function;
+    self.builder.current_block = self.current_block;
+    self.builder.current_inst = self.current_inst;
   }
 }
 
@@ -124,7 +124,7 @@ impl Builder {
       self.current_inst = None;
       return;
     }
-    if bb.cur.contains(&inst_id.clone().unwrap()) {
+    if bb.cur.contains(&inst_id.unwrap()) {
       self.current_inst = inst_id;
     } else {
       panic!(
@@ -154,11 +154,11 @@ impl Builder {
       self.current_inst = None;
       return;
     }
-    if bb.cur.contains(&inst_id.clone().unwrap()) {
+    if bb.cur.contains(&inst_id.unwrap()) {
       let pos = bb
         .cur
         .iter()
-        .position(|id| id == &inst_id.clone().unwrap())
+        .position(|id| id == &inst_id.unwrap())
         .unwrap_or_else(|| {
           panic!(
             "Builder set_after_inst: inst {:?} not found in current_block {:?}",
@@ -166,7 +166,7 @@ impl Builder {
           )
         });
       if pos + 1 < bb.cur.len() {
-        self.current_inst = Some(bb.cur[pos + 1].clone());
+        self.current_inst = Some(bb.cur[pos + 1]);
       } else {
         self.current_inst = None;
       }
