@@ -74,10 +74,6 @@ impl From<&OpData> for CanonicalExpr {
         let (lhs, rhs) = swap(*lhs, *rhs);
         CanonicalExpr::Xor(lhs, rhs)
       }
-      OpData::Sar { lhs, rhs } => {
-        let (lhs, rhs) = swap(*lhs, *rhs);
-        CanonicalExpr::Sar(lhs, rhs)
-      }
       OpData::SEq { lhs, rhs } | OpData::OEq { lhs, rhs } => {
         let (lhs, rhs) = swap(*lhs, *rhs);
         CanonicalExpr::Eq(lhs, rhs)
@@ -95,6 +91,7 @@ impl From<&OpData> for CanonicalExpr {
       OpData::ModI { lhs, rhs } => CanonicalExpr::Mod(*lhs, *rhs),
       OpData::Shl { lhs, rhs } => CanonicalExpr::Shl(*lhs, *rhs),
       OpData::Shr { lhs, rhs } => CanonicalExpr::Shr(*lhs, *rhs),
+      OpData::Sar { lhs, rhs } => CanonicalExpr::Sar(*lhs, *rhs),
 
       // We can canonicalize `>` and `>=` by swapping their operands and changing them to `<` and `<=`.
       OpData::SGt { lhs, rhs } | OpData::OGt { lhs, rhs } => CanonicalExpr::Lt(*rhs, *lhs),
@@ -168,8 +165,13 @@ impl GVN<'_> {
           for inst in insts {
             let op_data = &self.get_func(func_id).dfg[inst.get_op_id()].data;
             if let OpData::GEP { base, indices } = op_data {
-              if indices.iter().all(|index| matches!(index, Operand::Int(0))) {
-                // We can canonicalize GEP with all zero indices to its base pointer.
+              if indices.len() == 1
+                && indices.iter().all(|index| matches!(index, Operand::Int(0)))
+                // TODO: Global's use-def not supported yet.
+                && !matches!(base, Operand::Global(_))
+              {
+                // We can canonicalize GEP with single zero indices to its base pointer.
+                // If indices.len() > 1, we can't eliminate it since replacement would iccur type mismatch.
                 self.replace_all_uses(inst, *base);
                 continue;
               }
@@ -177,7 +179,6 @@ impl GVN<'_> {
 
             // Canonicalize the instruction
             let canonical_expr: CanonicalExpr = op_data.into();
-
             // If it's not the target of GVN, we skip it.
             if canonical_expr == CanonicalExpr::None {
               continue;

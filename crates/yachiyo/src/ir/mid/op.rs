@@ -896,9 +896,10 @@ impl IndexedArena<Op> {
     }
   }
 
-  // @param op_tuple: the op whose uses we want to replace with new operand. e.g. "add %1, %2"
-  // @param old: the old use we want to replace with e.g. %1 in "add %1, %2"
-  // @param new: the new use we want to replace with e.g. %3 in "add %3, %2"
+  /// # Params
+  /// - op_tuple: the op whose uses we want to replace with new operand. e.g. "add %1, %2"
+  /// - old: the old use we want to replace with e.g. %1 in "add %1, %2"
+  /// - new: the new use we want to replace with e.g. %3 in "add %3, %2"
   pub fn replace_use(&mut self, op_tuple: (Operand, usize), old: Operand, new: Operand) {
     let op_id = op_tuple.0;
     let op_id = match_some! {
