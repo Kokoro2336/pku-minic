@@ -33,9 +33,13 @@ enum CanonicalExpr {
   // - Load produce a value, we don't consider it as memory is not constrained by SSA form.
   // - GEP is not to be canonicalized too.
   // TODO: When we can determine whether a function has side effects, we can add Call here.
-
   /// For other operations that we don't consider, we represent then as None.
   None,
+}
+
+enum GVNPhase {
+  Start(Operand),
+  End,
 }
 
 #[allow(clippy::upper_case_acronyms)]
@@ -44,7 +48,7 @@ pub struct GVN<'a> {
   ir: Option<&'a mut IR>,
   builder: Builder,
   symbols: SymbolTable<CanonicalExpr, Operand>,
-  stack: Vec<Operand>,
+  stack: Vec<GVNPhase>,
 }
 
 impl From<&OpData> for CanonicalExpr {
@@ -140,59 +144,70 @@ impl GVN<'_> {
   #[inline(always)]
   fn replace_all_uses(&mut self, old: Operand, new: Operand) {
     let func_id = self.builder.current_function;
-    self.ir.as_mut().unwrap().replace_all_uses(func_id, old, new);
+    self
+      .ir
+      .as_mut()
+      .unwrap()
+      .replace_all_uses(func_id, old, new);
   }
 
   #[inline(always)]
   fn enter_scope(&mut self, bb_id: Operand) {
-    self.stack.push(bb_id);
+    self.stack.push(GVNPhase::Start(bb_id));
     self.symbols.enter_scope();
   }
 
   fn run(&mut self, dom_tree: &DomTree) {
     let func_id = self.builder.current_function.unwrap();
-    while let Some(bb_id) = self.stack.pop() {
-      let insts = self.get_func(func_id).cfg[bb_id.get_bb_id()].cur.clone();
+    while let Some(phase) = self.stack.pop() {
+      match phase {
+        GVNPhase::Start(bb_id) => {
+          let insts = self.get_func(func_id).cfg[bb_id.get_bb_id()].cur.clone();
 
-      // Start GVN
-      for inst in insts {
-        let op_data = &self.get_func(func_id).dfg[inst.get_op_id()].data;
-        if let OpData::GEP { base, indices } = op_data {
-          if indices.iter().all(|index| matches!(index, Operand::Int(0))) {
-            // We can canonicalize GEP with all zero indices to its base pointer.
-            self.replace_all_uses(inst, *base);
-            continue;
+          // Start GVN
+          for inst in insts {
+            let op_data = &self.get_func(func_id).dfg[inst.get_op_id()].data;
+            if let OpData::GEP { base, indices } = op_data {
+              if indices.iter().all(|index| matches!(index, Operand::Int(0))) {
+                // We can canonicalize GEP with all zero indices to its base pointer.
+                self.replace_all_uses(inst, *base);
+                continue;
+              }
+            }
+
+            // Canonicalize the instruction
+            let canonical_expr: CanonicalExpr = op_data.into();
+
+            // If it's not the target of GVN, we skip it.
+            if canonical_expr == CanonicalExpr::None {
+              continue;
+            }
+
+            if let Some(value) = self.symbols.get(&canonical_expr) {
+              // Replace the instruction with the existing value.
+              self.replace_all_uses(inst, *value);
+            } else {
+              // Insert the canonical expression into the symbol table.
+              self.symbols.insert(canonical_expr, inst);
+            }
+          }
+
+          // Push End phase to the stack
+          self.stack.push(GVNPhase::End);
+
+          // Update stack and symbol table
+          let idoms = dom_tree[bb_id.get_bb_id()]
+            .iter()
+            .map(|&child| Operand::BB(child))
+            .collect::<Vec<_>>();
+          for idom in idoms {
+            self.enter_scope(idom);
           }
         }
-
-        // Canonicalize the instruction
-        let canonical_expr: CanonicalExpr =
-          op_data.into();
-
-        // If it's not the target of GVN, we skip it.
-        if canonical_expr == CanonicalExpr::None {
-          continue;
+        GVNPhase::End => {
+          // Exit current scope
+          self.symbols.exit_scope();
         }
-
-        if let Some(value) = self.symbols.get(&canonical_expr) {
-          // Replace the instruction with the existing value.
-          self.replace_all_uses(inst, *value);
-        } else {
-          // Insert the canonical expression into the symbol table.
-          self.symbols.insert(canonical_expr, inst);
-        }
-      }
-
-      // Exit current scope
-      self.symbols.exit_scope();
-
-      // Update stack and symbol table
-      let idoms = dom_tree[bb_id.get_bb_id()]
-        .iter()
-        .map(|&child| Operand::BB(child))
-        .collect::<Vec<_>>();
-      for idom in idoms {
-        self.enter_scope(idom);
       }
     }
   }
