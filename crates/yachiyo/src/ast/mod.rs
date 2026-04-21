@@ -180,15 +180,15 @@ pub enum Op {
 
   // Special op for type conversion
   /// Sitofp
-  Int2Float, 
+  Int2Float,
   /// Fptosi
   Float2Int,
   /// Zext
   Bool2Int,
   /// Sne with 0
-  Int2Bool,   
+  Int2Bool,
   /// One with 0.0
-  Float2Bool, 
+  Float2Bool,
   /// Uitofp
   Bool2Float,
 

@@ -1080,7 +1080,7 @@ impl Allocator<'_> {
           self.spilled_nodes
       );
 
-      // If there is no spill, we are done.
+      // If there is no spill, the main loop is done.
       if self.spilled_nodes.is_empty() {
         break;
       }

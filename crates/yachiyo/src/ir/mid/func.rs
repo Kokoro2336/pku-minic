@@ -1,14 +1,16 @@
 //! Function definition of IR.
 
-use crate::base::Type;
 #[cfg(feature = "debug")]
 use crate::debug::info;
+
+use crate::base::Type;
 use crate::ir::mid::{BasicBlock, Op, OpData, Operand, PhiIncoming, CFG, DFG};
 use crate::utils::arena::*;
 use crate::utils::r#match::match_some;
 use std::ops::{Index, IndexMut};
 
 pub type CG = IndexedArena<Function>;
+pub type Params = IndexedArena<(String, Type)>;
 
 #[derive(Debug, Clone)]
 pub struct Function {
@@ -17,6 +19,7 @@ pub struct Function {
   pub typ: Type,
   pub cfg: CFG,
   pub dfg: DFG,
+  pub params: Params,
 }
 
 impl Function {
@@ -27,6 +30,7 @@ impl Function {
       typ,
       cfg: CFG::default(),
       dfg: DFG::default(),
+      params: Params::default(),
     }
   }
 
@@ -227,6 +231,17 @@ impl IndexMut<Operand> for CG {
     match index {
       Operand::Func(id) => self.get_mut(id).unwrap(),
       _ => panic!("CG index_mut: expected Operand::Func, got {:?}", index),
+    }
+  }
+}
+
+impl Index<Operand> for Params {
+  type Output = (String, Type);
+
+  fn index(&self, index: Operand) -> &Self::Output {
+    match index {
+      Operand::Param(id) => self.get(id).unwrap(),
+      _ => panic!("Params index: expected Operand::Param, got {:?}", index),
     }
   }
 }

@@ -50,25 +50,25 @@ impl IR {
 
   pub fn add_uses(&mut self, current_function: Option<Operand>, op: Operand) {
     let src_tuples = self
-      .get_src_tuple(current_function.clone(), op.clone())
+      .get_src_tuple(current_function, op)
       .into_iter()
-      .map(|(src, idx)| (src.clone(), idx))
+      .map(|(src, idx)| (*src, idx))
       .collect::<Vec<(Operand, usize)>>();
     let dfg = self.dfg_mut_or_panic(current_function, "IR add_uses: no current function");
     for (src, idx) in src_tuples {
-      dfg.add_use(src.clone(), (op.clone(), idx));
+      dfg.add_use(src, (op, idx));
     }
   }
 
   pub fn remove_uses(&mut self, current_function: Option<Operand>, op: Operand) {
     let src_tuples = self
-      .get_src_tuple(current_function.clone(), op.clone())
+      .get_src_tuple(current_function, op)
       .into_iter()
-      .map(|(src, idx)| (src.clone(), idx))
+      .map(|(src, idx)| (*src, idx))
       .collect::<Vec<(Operand, usize)>>();
     let dfg = self.dfg_mut_or_panic(current_function, "IR remove_uses: no current function");
     for (src, idx) in src_tuples {
-      dfg.remove_use(src.clone(), (op.clone(), idx));
+      dfg.remove_use(src, (op, idx));
     }
   }
 
@@ -81,7 +81,7 @@ impl IR {
     let dfg = self.dfg_mut_or_panic(current_function, "IR replace_all_uses: no current function");
     let uses = dfg[old.get_op_id()].users.clone();
     for use_op in uses {
-      dfg.replace_use(use_op, old.clone(), new.clone());
+      dfg.replace_use(use_op, old, new);
     }
   }
 
@@ -97,14 +97,14 @@ impl IR {
             OpData::Br {
                 then_bb, else_bb, ..
             } => {
-                cfg.add_pred(then_bb.clone(), (bb.clone(), op.clone()));
-                cfg.add_succ(bb.clone(), (then_bb, op.clone()));
+                cfg.add_pred(then_bb, (bb, op));
+                cfg.add_succ(bb, (then_bb, op));
 
-                cfg.add_pred(else_bb.clone(), (bb.clone(), op.clone()));
+                cfg.add_pred(else_bb, (bb, op));
                 cfg.add_succ(bb, (else_bb, op));
             }
             OpData::Jump { target_bb } => {
-                cfg.add_pred(target_bb.clone(), (bb.clone(), op.clone()));
+                cfg.add_pred(target_bb, (bb, op));
                 cfg.add_succ(bb, (target_bb, op));
             }
         },
@@ -132,13 +132,13 @@ impl IR {
             OpData::Br {
                 then_bb, else_bb, ..
             } => {
-                cfg.remove_pred(then_bb.clone(), (bb.clone(), op.clone()));
-                cfg.remove_succ(bb.clone(), (then_bb, op.clone()));
-                cfg.remove_pred(else_bb.clone(), (bb.clone(), op.clone()));
+                cfg.remove_pred(then_bb, (bb, op));
+                cfg.remove_succ(bb, (then_bb, op));
+                cfg.remove_pred(else_bb, (bb, op));
                 cfg.remove_succ(bb, (else_bb, op));
             }
             OpData::Jump { target_bb } => {
-                cfg.remove_pred(target_bb.clone(), (bb.clone(), op.clone()));
+                cfg.remove_pred(target_bb, (bb, op));
                 cfg.remove_succ(bb, (target_bb, op));
             }
         },
@@ -165,7 +165,7 @@ impl IR {
         uni_ops: [AddF, SubF, MulF, DivF, AddI, SubI, MulI, DivI, ModI, Load, Store, Alloca, Phi, Call, GEP, Sitofp, Fptosi, Uitofp, Zext, Ret, Shl, Shr, Sar, SNe, SEq, Xor, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Jump, Br],
         uni_arm: {
             let (cfg, dfg) =
-                self.cfg_dfg_mut_or_panic(current_function.clone(), "IR create: no current function");
+                self.cfg_dfg_mut_or_panic(current_function, "IR create: no current function");
 
             let new_id = dfg.alloc(op);
             let current_block = if let Some(block) = &builder.current_block {
@@ -187,20 +187,19 @@ impl IR {
                         )
                     });
                 let op_id = Operand::Value(new_id);
-                bb.cur.insert(pos, op_id.clone());
+                bb.cur.insert(pos, op_id);
                 op_id
             } else {
                 let op_id = Operand::Value(new_id);
-                bb.cur.push(op_id.clone());
+                bb.cur.push(op_id);
                 op_id
             };
 
-            self.add_uses(current_function.clone(), op_id.clone());
+            self.add_uses(current_function, op_id);
             let current_block = builder
                 .current_block
-                .clone()
                 .unwrap_or_else(|| panic!("IR create: current_block is None"));
-            self.add_control_flow(current_function, op_id.clone(), current_block);
+            self.add_control_flow(current_function, op_id, current_block);
             op_id
         }
     }
@@ -218,19 +217,16 @@ impl IR {
     };
 
     let inst_id = {
-      let cfg = self.cfg_mut_or_panic(
-        current_function.clone(),
-        "IR create_at_head: no current function",
-      );
+      let cfg = self.cfg_mut_or_panic(current_function, "IR create_at_head: no current function");
       let bb = &cfg[bb_id];
       if bb.cur.is_empty() {
         None
       } else {
-        Some(bb.cur[0].clone())
+        Some(bb.cur[0])
       }
     };
 
-    builder.set_before_inst(self, current_function.clone(), inst_id);
+    builder.set_before_inst(self, current_function, inst_id);
     self.create(builder, current_function, op)
   }
 
@@ -278,7 +274,7 @@ impl IR {
     for inst in &bb.cur {
       let data = &dfg[inst.get_op_id()];
       if data.is(op_typ) {
-        ops.push(inst.clone());
+        ops.push(*inst);
       }
     }
     ops
@@ -301,7 +297,7 @@ impl IR {
     for inst in &bb.cur {
       let data = &dfg[inst.get_op_id()];
       if !data.is(OpType::Phi) {
-        ops.push(inst.clone());
+        ops.push(*inst);
       }
     }
     ops
@@ -324,9 +320,9 @@ impl IR {
       return removed_op;
     }
 
-    self.remove_uses(current_function.clone(), op.clone());
-    if let Some(bb_id) = bb.clone() {
-      self.remove_control_flow(current_function.clone(), op.clone(), bb_id);
+    self.remove_uses(current_function, op);
+    if let Some(bb_id) = bb {
+      self.remove_control_flow(current_function, op, bb_id);
     }
 
     let (cfg, dfg) =
@@ -371,11 +367,8 @@ impl IR {
     new_op: Op,
   ) -> Operand {
     let pos = {
-      let cfg = self.cfg_mut_or_panic(
-        current_function.clone(),
-        "IR replace_op: no current function",
-      );
-      let bb = &cfg[bb_id.clone()];
+      let cfg = self.cfg_mut_or_panic(current_function, "IR replace_op: no current function");
+      let bb = &cfg[bb_id];
       bb.cur
         .iter()
         .position(|id| id.get_op_id() == op_id.get_op_id())
@@ -388,24 +381,21 @@ impl IR {
     };
 
     let next_inst = {
-      let cfg = self.cfg_mut_or_panic(
-        current_function.clone(),
-        "IR replace_op: no current function",
-      );
+      let cfg = self.cfg_mut_or_panic(current_function, "IR replace_op: no current function");
       let bb = &cfg[bb_id.get_bb_id()];
       bb.cur.get(pos + 1).cloned()
     };
 
     {
       let mut guard = BuilderGuard::new(builder);
-      guard.set_current_block(bb_id.clone());
+      guard.set_current_block(bb_id);
       // Create new instruction first.
-      guard.set_before_inst(self, current_function.clone(), next_inst);
-      let new_op_id = self.create(&guard, current_function.clone(), new_op);
+      guard.set_before_inst(self, current_function, next_inst);
+      let new_op_id = self.create(&guard, current_function, new_op);
       // RAUW
-      self.replace_all_uses(current_function.clone(), op_id.clone(), new_op_id.clone());
+      self.replace_all_uses(current_function, op_id, new_op_id);
       // Remove old instruction.
-      self.remove_op(current_function, op_id, Some(bb_id.clone()));
+      self.remove_op(current_function, op_id, Some(bb_id));
       new_op_id
     }
   }
@@ -442,7 +432,7 @@ impl IR {
         .iter()
         .position(|id| id.get_op_id() == pos_id)
       {
-        new_bb_ref.cur.insert(pos, op.clone());
+        new_bb_ref.cur.insert(pos, op);
       } else {
         panic!(
           "IR move_op_to_bb_at: instruction {:?} not found in new_bb {:?}",
@@ -450,7 +440,7 @@ impl IR {
         );
       }
     } else {
-      new_bb_ref.cur.push(op.clone());
+      new_bb_ref.cur.push(op);
     }
   }
 
@@ -498,11 +488,8 @@ impl IR {
     let phi_id = phi.get_op_id();
 
     if let OpData::Phi { incomings } = &mut dfg[phi_id].data {
-      incomings[idx] = PhiIncoming::Data {
-        value: value.clone(),
-        bb,
-      };
-      dfg.add_use(value, (phi.clone(), idx));
+      incomings[idx] = PhiIncoming::Data { value, bb };
+      dfg.add_use(value, (phi, idx));
     } else {
       panic!("IR add_phi_incoming: not a phi node");
     }
@@ -542,7 +529,7 @@ impl IR {
         }
       }) {
         if let PhiIncoming::Data { value, .. } = &incomings[pos] {
-          dfg.remove_use(value.clone(), (phi.clone(), pos));
+          dfg.remove_use(*value, (phi, pos));
         }
 
         let updated_incomings = if let OpData::Phi { incomings } = &mut dfg[phi_id].data {

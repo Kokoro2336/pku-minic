@@ -47,8 +47,15 @@ impl Emit {
     }
   }
 
+  #[inline(always)]
+  fn alloc_param(&mut self, param: (String, Type)) -> Operand {
+    let func_id = self.builder.current_function.unwrap();
+    let param_idx = self.program.funcs[func_id].params.alloc(param);
+    Operand::Param(param_idx)
+  }
+
   pub fn get_type(&self, operand: &Operand) -> Type {
-    let current_func = match self.builder.current_function.clone() {
+    let current_func = match self.builder.current_function {
       Some(idx) => &self.program.funcs[idx],
       None => panic!("get_type: not in a function"),
     };
@@ -57,7 +64,7 @@ impl Emit {
     match operand {
       Operand::Value(id) => dfg[*id].typ.clone(),
       Operand::Global(id) => globals[*id].typ.clone(),
-      Operand::Param { typ, .. } => typ.clone(),
+      Operand::Param(id) => current_func.params[*id].1.clone(),
       Operand::Int(_) => Type::Int,
       Operand::Float(_) => Type::Float,
       Operand::Bool(_) => Type::Bool,
@@ -72,7 +79,7 @@ impl Emit {
   }
 
   fn current_block_has_terminator(&self) -> bool {
-    let current_func = match self.builder.current_function.clone() {
+    let current_func = match self.builder.current_function {
       Some(idx) => &self.program.funcs[idx],
       None => return false,
     };
@@ -99,7 +106,7 @@ impl Emit {
     }
     self.builder.create(
       &mut self.program,
-      self.builder.current_function.clone(),
+      self.builder.current_function,
       mid::Op::new(Type::Void, vec![], op_data),
     );
   }
@@ -211,7 +218,7 @@ impl Emit {
           let typ = node_value_type(&this.ast, node_id);
           op = this.builder.create(
             &mut this.program,
-            this.builder.current_function.clone(),
+            this.builder.current_function,
             mid::Op::new(typ, vec![], OpData::Load { addr: op }),
           );
         }
@@ -222,7 +229,7 @@ impl Emit {
               // decay it.
               op = this.builder.create(
                 &mut this.program,
-                this.builder.current_function.clone(),
+                this.builder.current_function,
                 mid::Op::new(
                   decay(typ).unwrap(),
                   vec![],
@@ -236,7 +243,7 @@ impl Emit {
             _ => {
               op = this.builder.create(
                 &mut this.program,
-                this.builder.current_function.clone(),
+                this.builder.current_function,
                 mid::Op::new(typ, vec![], OpData::Load { addr: op }),
               );
             }
@@ -271,7 +278,7 @@ impl Emit {
 
       this.builder.create(
         &mut this.program,
-        this.builder.current_function.clone(),
+        this.builder.current_function,
         mid::Op::new(to, vec![], op_data),
       )
     }
@@ -303,25 +310,25 @@ impl Emit {
             typ.clone(),
           )))));
 
-        if let Some(func_id) = self.builder.current_function.clone() {
+        if let Some(func_id) = self.builder.current_function {
           self.func_ids.insert(name, func_id.get_func_id());
         }
 
         {
           let block_id = self
             .builder
-            .create_new_block(&mut self.program, self.builder.current_function.clone());
+            .create_new_block(&mut self.program, self.builder.current_function);
           self.builder.set_current_block(block_id);
           self.syms.enter_scope();
 
-          for (i, node_id) in params.iter().enumerate() {
+          for node_id in params.iter() {
             let (arg_name, arg_typ) = match &self.ast[*node_id] {
               Node::Param { name, typ } => (name.clone(), typ.clone()),
               _ => unreachable!("Param node expected for function parameter"),
             };
             let alloca = self.builder.create(
               &mut self.program,
-              self.builder.current_function.clone(),
+              self.builder.current_function,
               mid::Op::new(
                 Type::Pointer {
                   base: Box::new(arg_typ.clone()),
@@ -334,19 +341,16 @@ impl Emit {
                 OpData::Alloca(arg_typ.clone()),
               ),
             );
+            let param = self.alloc_param((arg_name.clone(), arg_typ.clone()));
             self.builder.create(
               &mut self.program,
-              self.builder.current_function.clone(),
+              self.builder.current_function,
               mid::Op::new(
                 Type::Void,
                 vec![],
                 OpData::Store {
-                  addr: alloca.clone(),
-                  value: Operand::Param {
-                    idx: i,
-                    name: arg_name.clone(),
-                    typ: arg_typ.clone(),
-                  },
+                  addr: alloca,
+                  value: param,
                 },
               ),
             );
@@ -355,15 +359,15 @@ impl Emit {
 
           let body_block_id = self
             .builder
-            .create_new_block(&mut self.program, self.builder.current_function.clone());
+            .create_new_block(&mut self.program, self.builder.current_function);
           self.builder.create(
             &mut self.program,
-            self.builder.current_function.clone(),
+            self.builder.current_function,
             mid::Op::new(
               Type::Void,
               vec![],
               OpData::Jump {
-                target_bb: body_block_id.clone(),
+                target_bb: body_block_id,
               },
             ),
           );
@@ -376,7 +380,7 @@ impl Emit {
           // Add reachability check to determine whether the implicit return is actually reachable.
           // We simply apply a dummy ret here.
           // The type might mismatch with function return type, but it's ok, since the later simplify CFG pass will remove it if it's not reachable.
-          let op_data = match self.program.funcs[self.builder.current_function.clone().unwrap()]
+          let op_data = match self.program.funcs[self.builder.current_function.unwrap()]
             .typ
             .clone()
           {
@@ -434,7 +438,7 @@ impl Emit {
           };
           let alloca = self.builder.create(
             &mut self.program,
-            self.builder.current_function.clone(),
+            self.builder.current_function,
             mid::Op::new(
               Type::Pointer {
                 base: Box::new(typ.clone()),
@@ -459,7 +463,7 @@ impl Emit {
           let alloca = {
             self.builder.create(
               &mut self.program,
-              self.builder.current_function.clone(),
+              self.builder.current_function,
               mid::Op::new(
                 Type::Pointer {
                   base: Box::new(typ.clone()),
@@ -469,13 +473,13 @@ impl Emit {
               ),
             )
           };
-          self.syms.insert(name, alloca.clone());
+          self.syms.insert(name, alloca);
 
           if let Some(init_id) = init_value {
             let value = emit_rval(self, init_id);
             self.builder.create(
               &mut self.program,
-              self.builder.current_function.clone(),
+              self.builder.current_function,
               mid::Op::new(
                 Type::Void,
                 vec![],
@@ -512,7 +516,7 @@ impl Emit {
           };
           let alloca = self.builder.create(
             &mut self.program,
-            self.builder.current_function.clone(),
+            self.builder.current_function,
             mid::Op::new(
               Type::Pointer {
                 base: Box::new(typ.clone()),
@@ -538,7 +542,7 @@ impl Emit {
           let alloca = {
             self.builder.create(
               &mut self.program,
-              self.builder.current_function.clone(),
+              self.builder.current_function,
               mid::Op::new(
                 Type::Pointer {
                   base: Box::new(typ.clone()),
@@ -548,7 +552,7 @@ impl Emit {
               ),
             )
           };
-          self.syms.insert(name, alloca.clone());
+          self.syms.insert(name, alloca);
 
           // if has init values, create stores
           if let Some(init_values) = &init_values {
@@ -580,14 +584,14 @@ impl Emit {
               // evaluate the address
               let addr = self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
+                self.builder.current_function,
                 mid::Op::new(
                   Type::Pointer {
                     base: Box::new(base.clone()),
                   },
                   vec![],
                   OpData::GEP {
-                    base: alloca.clone(),
+                    base: alloca,
                     indices: std::iter::once(Operand::Int(0))
                       .chain(range.iter().map(|&i| Operand::Int(i as i32)))
                       .collect(),
@@ -597,7 +601,7 @@ impl Emit {
               // store
               self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
+                self.builder.current_function,
                 mid::Op::new(Type::Void, vec![], OpData::Store { addr, value: op_id }),
               );
             }
@@ -606,14 +610,14 @@ impl Emit {
             for (chunk_start, chunk_size, init_value) in chunks {
               let flat_base = self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
+                self.builder.current_function,
                 mid::Op::new(
                   Type::Pointer {
                     base: Box::new(base.clone()),
                   },
                   vec![],
                   OpData::GEP {
-                    base: alloca.clone(),
+                    base: alloca,
                     indices: std::iter::once(Operand::Int(0))
                       .chain((0..dims.len()).map(|_| Operand::Int(0)))
                       .collect(),
@@ -623,7 +627,7 @@ impl Emit {
               // Allocate spaces for the loop variables
               let loop_var = self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
+                self.builder.current_function,
                 mid::Op::new(
                   Type::Pointer {
                     base: Box::new(Type::Int),
@@ -635,19 +639,19 @@ impl Emit {
               // store chunk_start to loop_var
               self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
+                self.builder.current_function,
                 mid::Op::new(
                   Type::Void,
                   vec![],
                   OpData::Store {
-                    addr: loop_var.clone(),
+                    addr: loop_var,
                     value: Operand::Int(chunk_start as i32),
                   },
                 ),
               );
               let chuck_end_ptr = self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
+                self.builder.current_function,
                 mid::Op::new(
                   Type::Pointer {
                     base: Box::new(Type::Int),
@@ -659,12 +663,12 @@ impl Emit {
               // store chunk_end to loop_var
               self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
+                self.builder.current_function,
                 mid::Op::new(
                   Type::Void,
                   vec![],
                   OpData::Store {
-                    addr: chuck_end_ptr.clone(),
+                    addr: chuck_end_ptr,
                     value: Operand::Int((chunk_start + chunk_size) as i32),
                   },
                 ),
@@ -673,62 +677,56 @@ impl Emit {
               // create loop to initialize the chunk_size elements starting from chunk_start with op_id
               let loop_entry = self
                 .builder
-                .create_new_block(&mut self.program, self.builder.current_function.clone());
+                .create_new_block(&mut self.program, self.builder.current_function);
               let loop_body = self
                 .builder
-                .create_new_block(&mut self.program, self.builder.current_function.clone());
+                .create_new_block(&mut self.program, self.builder.current_function);
               let loop_end = self
                 .builder
-                .create_new_block(&mut self.program, self.builder.current_function.clone());
+                .create_new_block(&mut self.program, self.builder.current_function);
 
               // jump to loop entry
               self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
+                self.builder.current_function,
                 mid::Op::new(
                   Type::Void,
                   vec![],
                   OpData::Jump {
-                    target_bb: loop_entry.clone(),
+                    target_bb: loop_entry,
                   },
                 ),
               );
 
               // loop entry block
-              self.builder.set_current_block(loop_entry.clone());
+              self.builder.set_current_block(loop_entry);
 
               // load loop variable
               let current_idx = self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
-                mid::Op::new(
-                  Type::Int,
-                  vec![],
-                  OpData::Load {
-                    addr: loop_var.clone(),
-                  },
-                ),
+                self.builder.current_function,
+                mid::Op::new(Type::Int, vec![], OpData::Load { addr: loop_var }),
               );
               let limit_idx = self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
+                self.builder.current_function,
                 mid::Op::new(
                   Type::Int,
                   vec![],
                   OpData::Load {
-                    addr: chuck_end_ptr.clone(),
+                    addr: chuck_end_ptr,
                   },
                 ),
               );
               // compare loop_var with chunk_end
               let res = self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
+                self.builder.current_function,
                 mid::Op::new(
                   Type::Bool,
                   vec![],
                   OpData::SLt {
-                    lhs: current_idx.clone(),
+                    lhs: current_idx,
                     rhs: limit_idx,
                   },
                 ),
@@ -736,34 +734,34 @@ impl Emit {
               // Br
               self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
+                self.builder.current_function,
                 mid::Op::new(
                   Type::Void,
                   vec![],
                   OpData::Br {
                     cond: res,
-                    then_bb: loop_body.clone(),
-                    else_bb: loop_end.clone(),
+                    then_bb: loop_body,
+                    else_bb: loop_end,
                   },
                 ),
               );
 
               // loop body block
-              self.builder.set_current_block(loop_body.clone());
+              self.builder.set_current_block(loop_body);
 
               // evaluate the address of the current element to be initialized
               // calculate offset by GEP from flattened base pointer.
               let addr = self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
+                self.builder.current_function,
                 mid::Op::new(
                   Type::Pointer {
                     base: Box::new(base.clone()),
                   },
                   vec![],
                   OpData::GEP {
-                    base: flat_base.clone(),
-                    indices: vec![current_idx.clone()],
+                    base: flat_base,
+                    indices: vec![current_idx],
                   },
                 ),
               );
@@ -771,7 +769,7 @@ impl Emit {
               // store the init value to the current element
               self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
+                self.builder.current_function,
                 mid::Op::new(
                   Type::Void,
                   vec![],
@@ -791,7 +789,7 @@ impl Emit {
               // increment loop variable
               let inc = self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
+                self.builder.current_function,
                 mid::Op::new(
                   Type::Int,
                   vec![],
@@ -803,7 +801,7 @@ impl Emit {
               );
               self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
+                self.builder.current_function,
                 mid::Op::new(
                   Type::Void,
                   vec![],
@@ -817,18 +815,18 @@ impl Emit {
               // jump to loop entry
               self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
+                self.builder.current_function,
                 mid::Op::new(
                   Type::Void,
                   vec![],
                   OpData::Jump {
-                    target_bb: loop_entry.clone(),
+                    target_bb: loop_entry,
                   },
                 ),
               );
 
               // loop end block
-              self.builder.set_current_block(loop_end.clone());
+              self.builder.set_current_block(loop_end);
             }
           }
         }
@@ -841,7 +839,7 @@ impl Emit {
       } => {
         let typ = typ.clone();
         let init_values = init_values.clone();
-        let emitted_name = if let Some(current_func) = self.builder.current_function.clone() {
+        let emitted_name = if let Some(current_func) = self.builder.current_function {
           let func_name = self.program.funcs[current_func].name.clone();
           let mangled_name = format!("__const_{}_{}_{}", func_name, name, self.counter);
           self.counter += 1;
@@ -862,7 +860,7 @@ impl Emit {
         };
         let alloca = self.builder.create(
           &mut self.program,
-          self.builder.current_function.clone(),
+          self.builder.current_function,
           mid::Op::new(
             Type::Pointer {
               base: Box::new(typ.clone()),
@@ -909,47 +907,43 @@ impl Emit {
             (
               self
                 .builder
-                .create_new_block(&mut self.program, self.builder.current_function.clone()),
+                .create_new_block(&mut self.program, self.builder.current_function),
               self
                 .builder
-                .create_new_block(&mut self.program, self.builder.current_function.clone()),
+                .create_new_block(&mut self.program, self.builder.current_function),
             )
           };
 
           let cond = emit_rval(self, condition);
           self.insert_terminator_if_needed(OpData::Br {
             cond,
-            then_bb: then_bb.clone(),
-            else_bb: else_bb.clone(),
+            then_bb,
+            else_bb,
           });
 
-          self.builder.set_current_block(then_bb.clone());
+          self.builder.set_current_block(then_bb);
           self.emit(then_block);
-          let then_fallthrough = self.builder.current_block.clone();
+          let then_fallthrough = self.builder.current_block;
 
-          self.builder.set_current_block(else_bb.clone());
+          self.builder.set_current_block(else_bb);
           self.emit(else_id);
-          let else_fallthrough = self.builder.current_block.clone();
+          let else_fallthrough = self.builder.current_block;
 
           if then_fallthrough.is_some() || else_fallthrough.is_some() {
             let end_bb = {
               self
                 .builder
-                .create_new_block(&mut self.program, self.builder.current_function.clone())
+                .create_new_block(&mut self.program, self.builder.current_function)
             };
 
             if let Some(bb) = then_fallthrough {
               self.builder.set_current_block(bb);
-              self.insert_terminator_if_needed(OpData::Jump {
-                target_bb: end_bb.clone(),
-              });
+              self.insert_terminator_if_needed(OpData::Jump { target_bb: end_bb });
             }
 
             if let Some(bb) = else_fallthrough {
               self.builder.set_current_block(bb);
-              self.insert_terminator_if_needed(OpData::Jump {
-                target_bb: end_bb.clone(),
-              });
+              self.insert_terminator_if_needed(OpData::Jump { target_bb: end_bb });
             }
 
             self.builder.set_current_block(end_bb);
@@ -962,26 +956,24 @@ impl Emit {
             (
               self
                 .builder
-                .create_new_block(&mut self.program, self.builder.current_function.clone()),
+                .create_new_block(&mut self.program, self.builder.current_function),
               self
                 .builder
-                .create_new_block(&mut self.program, self.builder.current_function.clone()),
+                .create_new_block(&mut self.program, self.builder.current_function),
             )
           };
 
           let cond = emit_rval(self, condition);
           self.insert_terminator_if_needed(OpData::Br {
             cond,
-            then_bb: then_bb.clone(),
-            else_bb: end_bb.clone(),
+            then_bb,
+            else_bb: end_bb,
           });
 
           self.builder.set_current_block(then_bb);
           self.emit(then_block);
           if self.has_active_insertion_point() {
-            self.insert_terminator_if_needed(OpData::Jump {
-              target_bb: end_bb.clone(),
-            });
+            self.insert_terminator_if_needed(OpData::Jump { target_bb: end_bb });
           }
 
           self.builder.set_current_block(end_bb);
@@ -999,33 +991,33 @@ impl Emit {
         let (while_entry, while_body, while_end) = {
           let while_entry = self
             .builder
-            .create_new_block(&mut self.program, self.builder.current_function.clone());
+            .create_new_block(&mut self.program, self.builder.current_function);
           let while_body = self
             .builder
-            .create_new_block(&mut self.program, self.builder.current_function.clone());
+            .create_new_block(&mut self.program, self.builder.current_function);
           let while_end = self
             .builder
-            .create_new_block(&mut self.program, self.builder.current_function.clone());
+            .create_new_block(&mut self.program, self.builder.current_function);
 
           (while_entry, while_body, while_end)
         };
 
         self.insert_terminator_if_needed(OpData::Jump {
-          target_bb: while_entry.clone(),
+          target_bb: while_entry,
         });
 
-        self.builder.set_current_block(while_entry.clone());
+        self.builder.set_current_block(while_entry);
         let cond = emit_rval(self, condition);
         self.insert_terminator_if_needed(OpData::Br {
           cond,
-          then_bb: while_body.clone(),
-          else_bb: while_end.clone(),
+          then_bb: while_body,
+          else_bb: while_end,
         });
 
         self.builder.set_current_block(while_body);
         self.builder.push_loop(LoopInfo {
-          while_entry: Some(while_entry.clone()),
-          end_block: Some(while_end.clone()),
+          while_entry: Some(while_entry),
+          end_block: Some(while_end),
         });
         self.emit(body);
         self.builder.pop_loop();
@@ -1049,7 +1041,7 @@ impl Emit {
           .last()
           .unwrap_or_else(|| panic!("Break statement not inside a loop"));
         self.insert_terminator_and_unplug(OpData::Jump {
-          target_bb: loop_info.end_block.clone().unwrap(),
+          target_bb: loop_info.end_block.unwrap(),
         });
         None
       }
@@ -1064,7 +1056,7 @@ impl Emit {
           .unwrap_or_else(|| panic!("Continue statement not inside a loop"));
 
         self.insert_terminator_and_unplug(OpData::Jump {
-          target_bb: loop_info.while_entry.clone().unwrap(),
+          target_bb: loop_info.while_entry.unwrap(),
         });
         None
       }
@@ -1081,7 +1073,7 @@ impl Emit {
           .unwrap_or_else(|| panic!("Assignment lhs should be address expression"));
         self.builder.create(
           &mut self.program,
-          self.builder.current_function.clone(),
+          self.builder.current_function,
           mid::Op::new(
             Type::Void,
             vec![],
@@ -1095,9 +1087,9 @@ impl Emit {
       }
       Node::VarAccess { name, .. } => {
         if let Some(ptr_addr) = self.syms.get(name) {
-          Some(ptr_addr.clone())
+          Some(*ptr_addr)
         } else if let Some(global_id) = self.globals.get(name) {
-          Some(global_id.clone())
+          Some(*global_id)
         } else {
           panic!("VarAccess: variable {} not found in syms or globals", name)
         }
@@ -1125,7 +1117,7 @@ impl Emit {
         ) -> Operand {
           let arr_typ = match ptr {
             Operand::Value(id) => {
-              let dfg = &program.funcs[current_function.clone().unwrap()].dfg;
+              let dfg = &program.funcs[current_function.unwrap()].dfg;
               match dfg[id].typ.clone() {
                 Type::Pointer { base } => *base,
                 _ => panic!("Expected pointer type for array access"),
@@ -1148,12 +1140,12 @@ impl Emit {
               };
               builder.create(
                 program,
-                current_function.clone(),
+                current_function,
                 mid::Op::new(
                   ptr_typ,
                   vec![],
                   OpData::GEP {
-                    base: ptr.clone(),
+                    base: ptr,
                     indices: std::iter::once(Operand::Int(0)).chain(indices).collect(),
                   },
                 ),
@@ -1164,15 +1156,15 @@ impl Emit {
                 // Load the pointer first, then use GEP to reach the element
                 let loaded_ptr = builder.create(
                   program,
-                  current_function.clone(),
-                  mid::Op::new(arr_typ, vec![], OpData::Load { addr: ptr.clone() }),
+                  current_function,
+                  mid::Op::new(arr_typ, vec![], OpData::Load { addr: ptr }),
                 );
                 let ptr_typ = Type::Pointer {
                   base: Box::new(typ.clone()),
                 };
                 builder.create(
                   program,
-                  current_function.clone(),
+                  current_function,
                   mid::Op::new(
                     ptr_typ,
                     vec![],
@@ -1190,13 +1182,13 @@ impl Emit {
           }
         }
 
-        let current_function = self.builder.current_function.clone();
+        let current_function = self.builder.current_function;
         let ptr_addr = if let Some(local_ptr) = self.syms.get(&name) {
           load_arr(
             &mut self.builder,
             &mut self.program,
             current_function,
-            local_ptr.clone(),
+            *local_ptr,
             index_ops,
             typ,
           )
@@ -1211,7 +1203,7 @@ impl Emit {
             &mut self.builder,
             &mut self.program,
             current_function,
-            global_id.clone(),
+            *global_id,
             index_ops,
             typ,
           )
@@ -1220,7 +1212,7 @@ impl Emit {
             &mut self.builder,
             &mut self.program,
             current_function,
-            global_id.clone(),
+            *global_id,
             index_ops,
             typ,
           )
@@ -1247,7 +1239,7 @@ impl Emit {
         }
         let call_op = self.builder.create(
           &mut self.program,
-          self.builder.current_function.clone(),
+          self.builder.current_function,
           mid::Op::new(
             typ,
             vec![Attr::FuncName(func_name.clone())],
@@ -1446,7 +1438,7 @@ impl Emit {
               let (result_alloca, rhs_block, end_block) = {
                 let result_alloca = self.builder.create(
                   &mut self.program,
-                  self.builder.current_function.clone(),
+                  self.builder.current_function,
                   mid::Op::new(
                     Type::Pointer {
                       base: Box::new(Type::Bool),
@@ -1457,12 +1449,12 @@ impl Emit {
                 );
                 self.builder.create(
                   &mut self.program,
-                  self.builder.current_function.clone(),
+                  self.builder.current_function,
                   mid::Op::new(
                     Type::Void,
                     vec![],
                     OpData::Store {
-                      addr: result_alloca.clone(),
+                      addr: result_alloca,
                       value: Operand::Bool(false),
                     },
                   ),
@@ -1471,10 +1463,10 @@ impl Emit {
                   result_alloca,
                   self
                     .builder
-                    .create_new_block(&mut self.program, self.builder.current_function.clone()),
+                    .create_new_block(&mut self.program, self.builder.current_function),
                   self
                     .builder
-                    .create_new_block(&mut self.program, self.builder.current_function.clone()),
+                    .create_new_block(&mut self.program, self.builder.current_function),
                 )
               };
 
@@ -1488,14 +1480,14 @@ impl Emit {
               {
                 self.builder.create(
                   &mut self.program,
-                  self.builder.current_function.clone(),
+                  self.builder.current_function,
                   mid::Op::new(
                     Type::Void,
                     vec![],
                     OpData::Br {
                       cond: lhs_op,
-                      then_bb: rhs_block.clone(),
-                      else_bb: end_block.clone(),
+                      then_bb: rhs_block,
+                      else_bb: end_block,
                     },
                   ),
                 );
@@ -1506,24 +1498,24 @@ impl Emit {
               {
                 self.builder.create(
                   &mut self.program,
-                  self.builder.current_function.clone(),
+                  self.builder.current_function,
                   mid::Op::new(
                     Type::Void,
                     vec![],
                     OpData::Store {
-                      addr: result_alloca.clone(),
+                      addr: result_alloca,
                       value: rhs_op,
                     },
                   ),
                 );
                 self.builder.create(
                   &mut self.program,
-                  self.builder.current_function.clone(),
+                  self.builder.current_function,
                   mid::Op::new(
                     Type::Void,
                     vec![],
                     OpData::Jump {
-                      target_bb: end_block.clone(),
+                      target_bb: end_block,
                     },
                   ),
                 );
@@ -1532,7 +1524,7 @@ impl Emit {
               self.builder.set_current_block(end_block);
               let load_result = self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
+                self.builder.current_function,
                 mid::Op::new(
                   Type::Bool,
                   vec![],
@@ -1548,7 +1540,7 @@ impl Emit {
               let (result_alloca, rhs_block, end_block) = {
                 let result_alloca = self.builder.create(
                   &mut self.program,
-                  self.builder.current_function.clone(),
+                  self.builder.current_function,
                   mid::Op::new(
                     Type::Pointer {
                       base: Box::new(Type::Bool),
@@ -1559,12 +1551,12 @@ impl Emit {
                 );
                 self.builder.create(
                   &mut self.program,
-                  self.builder.current_function.clone(),
+                  self.builder.current_function,
                   mid::Op::new(
                     Type::Void,
                     vec![],
                     OpData::Store {
-                      addr: result_alloca.clone(),
+                      addr: result_alloca,
                       value: Operand::Bool(true),
                     },
                   ),
@@ -1573,10 +1565,10 @@ impl Emit {
                   result_alloca,
                   self
                     .builder
-                    .create_new_block(&mut self.program, self.builder.current_function.clone()),
+                    .create_new_block(&mut self.program, self.builder.current_function),
                   self
                     .builder
-                    .create_new_block(&mut self.program, self.builder.current_function.clone()),
+                    .create_new_block(&mut self.program, self.builder.current_function),
                 )
               };
 
@@ -1584,14 +1576,14 @@ impl Emit {
               {
                 self.builder.create(
                   &mut self.program,
-                  self.builder.current_function.clone(),
+                  self.builder.current_function,
                   mid::Op::new(
                     Type::Void,
                     vec![],
                     OpData::Br {
                       cond: lhs_op,
-                      then_bb: end_block.clone(),
-                      else_bb: rhs_block.clone(),
+                      then_bb: end_block,
+                      else_bb: rhs_block,
                     },
                   ),
                 );
@@ -1602,24 +1594,24 @@ impl Emit {
               {
                 self.builder.create(
                   &mut self.program,
-                  self.builder.current_function.clone(),
+                  self.builder.current_function,
                   mid::Op::new(
                     Type::Void,
                     vec![],
                     OpData::Store {
-                      addr: result_alloca.clone(),
+                      addr: result_alloca,
                       value: rhs_op,
                     },
                   ),
                 );
                 self.builder.create(
                   &mut self.program,
-                  self.builder.current_function.clone(),
+                  self.builder.current_function,
                   mid::Op::new(
                     Type::Void,
                     vec![],
                     OpData::Jump {
-                      target_bb: end_block.clone(),
+                      target_bb: end_block,
                     },
                   ),
                 );
@@ -1628,7 +1620,7 @@ impl Emit {
               self.builder.set_current_block(end_block);
               let load_result = self.builder.create(
                 &mut self.program,
-                self.builder.current_function.clone(),
+                self.builder.current_function,
                 mid::Op::new(
                   Type::Bool,
                   vec![],
@@ -1658,7 +1650,7 @@ impl Emit {
           let rhs_op = emit_rval(self, rhs);
           let lhs_typ = self.get_type(&lhs_op);
           let rhs_typ = self.get_type(&rhs_op);
-          let current_function = self.builder.current_function.clone();
+          let current_function = self.builder.current_function;
           let new_op_id = emit_code(
             &mut self.builder,
             &mut self.program,
@@ -1739,7 +1731,7 @@ impl Emit {
 
         let un_op = self.builder.create(
           &mut self.program,
-          self.builder.current_function.clone(),
+          self.builder.current_function,
           mid::Op::new(typ, vec![], op_data),
         );
         Some(un_op)
@@ -1756,7 +1748,7 @@ impl Emit {
         };
         let global_alloca = self.builder.create(
           &mut self.program,
-          self.builder.current_function.clone(),
+          self.builder.current_function,
           mid::Op::new(
             Type::Pointer {
               base: Box::new(typ.clone()),
@@ -1779,7 +1771,7 @@ impl Emit {
         let ptr_typ = decay(typ).unwrap_or_else(|e| panic!("{}", e));
         let ptr_addr = self.builder.create(
           &mut self.program,
-          self.builder.current_function.clone(),
+          self.builder.current_function,
           mid::Op::new(
             ptr_typ,
             vec![],
@@ -1800,7 +1792,7 @@ impl Emit {
       for (name, typ) in lib.iter() {
         self.builder.create(
           &mut self.program,
-          self.builder.current_function.clone(),
+          self.builder.current_function,
           mid::Op::new(
             Type::Void,
             vec![],

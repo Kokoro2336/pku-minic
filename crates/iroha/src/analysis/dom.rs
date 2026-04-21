@@ -61,7 +61,7 @@ impl<'a> BuildDomTree<'a> {
   }
 
   fn init(&mut self, func_id: Operand) {
-    self.current_function = Some(func_id.clone());
+    self.current_function = Some(func_id);
     let func = &self.program.funcs[func_id];
 
     let n = func.cfg.storage.len();
@@ -88,17 +88,17 @@ impl<'a> BuildDomTree<'a> {
     self.rev[dfs_num] = src;
     self.dfn_cnt += 1;
 
-    let func_id = self.current_function.clone().unwrap();
+    let func_id = self.current_function.unwrap();
 
     let succs_len = {
-      let func = &self.program.funcs[func_id.clone()];
+      let func = &self.program.funcs[func_id];
       let block = &func.cfg[src];
       block.succs.len()
     };
 
     (0..succs_len).for_each(|i| {
       let succ = {
-        let func = &self.program.funcs[func_id.clone()];
+        let func = &self.program.funcs[func_id];
         let block = &func.cfg[src];
         match &block.succs[i] {
           (Operand::BB(id), _) => *id,
@@ -161,7 +161,7 @@ impl<'a> BuildDomTree<'a> {
         let u = self.rev[i];
 
         let preds_num = {
-          let func = &self.program.funcs[self.current_function.clone().unwrap()];
+          let func = &self.program.funcs[self.current_function.unwrap()];
           let block = &func.cfg[u];
           block.preds.len()
         };
@@ -169,7 +169,7 @@ impl<'a> BuildDomTree<'a> {
         // find sdom[u]
         for idx in 0..preds_num {
           let pred = {
-            let func = &self.program.funcs[self.current_function.clone().unwrap()];
+            let func = &self.program.funcs[self.current_function.unwrap()];
             let block = &func.cfg[u];
             match &block.preds[idx] {
               (Operand::BB(id), _) => *id,
@@ -264,13 +264,13 @@ impl<'a> BuildDomFrontier<'a> {
 
   pub fn init(&mut self, func_id: Operand) {
     let func_idx = func_id.get_func_id();
-    let func = &self.program.funcs[func_id.clone()];
+    let func = &self.program.funcs[func_id];
     self.current_function = Some(func_id);
     self.frontiers[func_idx] = vec![vec![]; func.cfg.storage.len()];
   }
 
   pub fn is_dom(&self, dominator: usize, dominatee: usize) -> bool {
-    let func_id = self.current_function.clone().unwrap().get_func_id();
+    let func_id = self.current_function.unwrap().get_func_id();
 
     let dom_num = {
       let dom_tree = &self.dom_trees[func_id];
@@ -291,7 +291,7 @@ impl<'a> BuildDomFrontier<'a> {
   }
 
   pub fn compute(&mut self, bb_id: usize) {
-    let func_id = self.current_function.clone().unwrap().get_func_id();
+    let func_id = self.current_function.unwrap().get_func_id();
 
     let succs = {
       let func = &self.program.funcs[func_id];

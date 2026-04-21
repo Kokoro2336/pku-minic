@@ -24,7 +24,7 @@ pub struct RemoveTrivialPhi<'a> {
 impl<'a> RemoveTrivialPhi<'a> {
   fn check(program: &IR, current_function: Operand, phi: Operand) -> CheckType {
     let dfg = &program.funcs[current_function].dfg;
-    let phi_op = &dfg[phi.clone()];
+    let phi_op = &dfg[phi];
     match &phi_op.data {
       OpData::Phi { incomings } => {
         let mut distinct: Vec<(Operand, Operand)> = vec![];
@@ -39,7 +39,7 @@ impl<'a> RemoveTrivialPhi<'a> {
           }
 
           if distinct.iter().all(|(v, _)| *v != *value) {
-            distinct.push((value.clone(), bb_id.clone()));
+            distinct.push((*value, *bb_id));
             if distinct.len() > 1 {
               return CheckType::Ignore;
             }
@@ -59,9 +59,9 @@ impl<'a> RemoveTrivialPhi<'a> {
   }
 
   fn init(&mut self, func_id: Operand) {
-    self.builder.set_current_func(Some(func_id.clone()));
+    self.builder.set_current_func(Some(func_id));
     let program = self.program.as_deref_mut().unwrap();
-    let func = &program.funcs[func_id.clone()];
+    let func = &program.funcs[func_id];
 
     self.op_to_bb.clear();
     self.op_to_bb.resize(func.dfg.storage.len(), Operand::BB(0));
@@ -78,17 +78,13 @@ impl<'a> RemoveTrivialPhi<'a> {
         }
       });
 
-    self.phi_ids = program.get_all_ops(self.builder.current_function.clone(), OpType::Phi);
+    self.phi_ids = program.get_all_ops(self.builder.current_function, OpType::Phi);
     self.worklist = self
       .phi_ids
       .iter()
       .map(|phi_id| {
-        let check_result = Self::check(program, func_id.clone(), phi_id.clone());
-        (
-          phi_id.clone(),
-          self.op_to_bb[phi_id.get_op_id()].clone(),
-          check_result,
-        )
+        let check_result = Self::check(program, func_id, *phi_id);
+        (*phi_id, self.op_to_bb[phi_id.get_op_id()], check_result)
       })
       .collect();
   }
@@ -97,22 +93,22 @@ impl<'a> RemoveTrivialPhi<'a> {
     // Check whether the phi_ids are valid
     while let Some((phi_id, bb_id, check_result)) = self.worklist.pop() {
       let uses = {
-        let func_id = match self.builder.current_function.clone() {
+        let func_id = match self.builder.current_function {
           Some(id) => id,
           None => panic!("RemoveTrivialPhi: no current function"),
         };
         let func = &mut self.program.as_mut().unwrap().funcs[func_id];
-        let phi_op = &mut func.dfg[phi_id.clone()];
+        let phi_op = &mut func.dfg[phi_id];
         // Remove OldIdx Attr
         phi_op.attrs.retain(|attr| !matches!(attr, Attr::OldIdx(_)));
         phi_op.users.clone()
       };
-      let current_function = self.builder.current_function.clone().unwrap();
+      let current_function = self.builder.current_function.unwrap();
       match check_result {
         CheckType::Empty => {
           self.program.as_deref_mut().unwrap().replace_all_uses(
-            self.builder.current_function.clone(),
-            phi_id.clone(),
+            self.builder.current_function,
+            phi_id,
             Operand::Undefined,
           );
           for (user, _) in uses {
@@ -120,68 +116,60 @@ impl<'a> RemoveTrivialPhi<'a> {
             if user == phi_id {
               continue;
             }
-            let check_result = Self::check(
-              self.program.as_ref().unwrap(),
-              current_function.clone(),
-              user.clone(),
-            );
+            let check_result = Self::check(self.program.as_ref().unwrap(), current_function, user);
             if matches!(check_result, CheckType::Empty | CheckType::Single(_)) {
               if let Some((id, bb)) = self
                 .phi_ids
                 .iter()
                 .find(|id| **id == user)
-                .map(|id| (id.clone(), self.op_to_bb[id.get_op_id()].clone()))
+                .map(|id| (*id, self.op_to_bb[id.get_op_id()]))
               {
                 // We should check whether the user phi is already in the worklist to avoid duplicate entries.
                 let pos = self.worklist.iter().position(|(w_id, _, _)| *w_id == id);
                 if let Some(pos) = pos {
-                  self.worklist[pos] = (id.clone(), bb.clone(), check_result);
+                  self.worklist[pos] = (id, bb, check_result);
                 } else {
-                  self.worklist.push((id.clone(), bb.clone(), check_result));
+                  self.worklist.push((id, bb, check_result));
                 }
               }
             }
           }
           self.program.as_deref_mut().unwrap().remove_op(
-            self.builder.current_function.clone(),
+            self.builder.current_function,
             phi_id,
             Some(bb_id),
           );
         }
         CheckType::Single(value) => {
           self.program.as_deref_mut().unwrap().replace_all_uses(
-            self.builder.current_function.clone(),
-            phi_id.clone(),
+            self.builder.current_function,
+            phi_id,
             value,
           );
           for (user, _) in uses {
             if user == phi_id {
               continue;
             }
-            let check_result = Self::check(
-              self.program.as_ref().unwrap(),
-              current_function.clone(),
-              user.clone(),
-            );
+            let check_result = Self::check(self.program.as_ref().unwrap(), current_function, user);
             if matches!(check_result, CheckType::Empty | CheckType::Single(_)) {
               if let Some((id, bb)) = self
                 .phi_ids
                 .iter()
                 .find(|id| **id == user)
-                .map(|id| (id.clone(), self.op_to_bb[id.get_op_id()].clone()))
+                .map(|id| (*id, self.op_to_bb[id.get_op_id()]))
               {
                 // We should check whether the user phi is already in the worklist to avoid duplicate entries.
                 let pos = self.worklist.iter().position(|(w_id, _, _)| *w_id == id);
                 if let Some(pos) = pos {
-                  self.worklist[pos] = (id.clone(), bb.clone(), check_result);
+                  self.worklist[pos] = (id, bb, check_result);
                 } else {
-                  self.worklist.push((id.clone(), bb.clone(), check_result));
+                  self.worklist.push((id, bb, check_result));
                 }
               }
             }
           }
           self.program.as_deref_mut().unwrap().remove_op(
-            self.builder.current_function.clone(),
+            self.builder.current_function,
             phi_id,
             Some(bb_id),
           );

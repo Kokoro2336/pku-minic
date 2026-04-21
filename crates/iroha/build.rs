@@ -1,6 +1,5 @@
-/**
- * Build script for the pku-minic project.
- * */
+//! Build script of the compiler.
+
 fn main() {
   lalrpop::Configuration::new()
     .use_cargo_dir_conventions()
