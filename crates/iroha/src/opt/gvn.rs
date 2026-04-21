@@ -156,8 +156,18 @@ impl GVN<'_> {
 
       // Start GVN
       for inst in insts {
+        let op_data = &self.get_func(func_id).dfg[inst.get_op_id()].data;
+        if let OpData::GEP { base, indices } = op_data {
+          if indices.iter().all(|index| matches!(index, Operand::Int(0))) {
+            // We can canonicalize GEP with all zero indices to its base pointer.
+            self.replace_all_uses(inst, *base);
+            continue;
+          }
+        }
+
+        // Canonicalize the instruction
         let canonical_expr: CanonicalExpr =
-          (&self.get_func(func_id).dfg[inst.get_op_id()].data).into();
+          op_data.into();
 
         if let Some(value) = self.symbols.get(&canonical_expr) {
           // Replace the instruction with the existing value.
