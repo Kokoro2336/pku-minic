@@ -29,11 +29,11 @@ enum CanonicalExpr {
   Zext(Operand),
   /// Phi's operands are sorted by the block id.
   Phi(Vec<PhiIncoming>),
-  /// TODO: GEP's operands can't be sorted.
-  // GEP(Operand, Vec<Operand>),
 
-  // Though Load produce a value, we don't consider it as memory is not constrained by SSA form.
+  // - Load produce a value, we don't consider it as memory is not constrained by SSA form.
+  // - GEP is not to be canonicalized too.
   // TODO: When we can determine whether a function has side effects, we can add Call here.
+
   /// For other operations that we don't consider, we represent then as None.
   None,
 }
@@ -110,10 +110,10 @@ impl From<&OpData> for CanonicalExpr {
         });
         CanonicalExpr::Phi(sorted_incomings)
       }
-      // TODO: What to do with GEP?
-      OpData::GEP { .. } => CanonicalExpr::None,
 
-      OpData::Alloca(_)
+      // In GVN, GEP is not to be canonicalized.
+      OpData::GEP { .. }
+      | OpData::Alloca(_)
       | OpData::Declare { .. }
       | OpData::Load { .. }
       | OpData::Store { .. }
@@ -168,6 +168,11 @@ impl GVN<'_> {
         // Canonicalize the instruction
         let canonical_expr: CanonicalExpr =
           op_data.into();
+
+        // If it's not the target of GVN, we skip it.
+        if canonical_expr == CanonicalExpr::None {
+          continue;
+        }
 
         if let Some(value) = self.symbols.get(&canonical_expr) {
           // Replace the instruction with the existing value.
