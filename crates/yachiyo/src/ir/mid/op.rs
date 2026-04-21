@@ -200,7 +200,7 @@ pub enum OpData {
   },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum PhiIncoming {
   Data { value: Operand, bb: Operand },
   None,
