@@ -84,11 +84,7 @@ impl<'a> RemoveTrivialPhi<'a> {
       .iter()
       .map(|phi_id| {
         let check_result = Self::check(program, func_id, *phi_id);
-        (
-          *phi_id,
-          self.op_to_bb[phi_id.get_op_id()],
-          check_result,
-        )
+        (*phi_id, self.op_to_bb[phi_id.get_op_id()], check_result)
       })
       .collect();
   }
@@ -120,11 +116,7 @@ impl<'a> RemoveTrivialPhi<'a> {
             if user == phi_id {
               continue;
             }
-            let check_result = Self::check(
-              self.program.as_ref().unwrap(),
-              current_function,
-              user,
-            );
+            let check_result = Self::check(self.program.as_ref().unwrap(), current_function, user);
             if matches!(check_result, CheckType::Empty | CheckType::Single(_)) {
               if let Some((id, bb)) = self
                 .phi_ids
@@ -158,11 +150,7 @@ impl<'a> RemoveTrivialPhi<'a> {
             if user == phi_id {
               continue;
             }
-            let check_result = Self::check(
-              self.program.as_ref().unwrap(),
-              current_function,
-              user,
-            );
+            let check_result = Self::check(self.program.as_ref().unwrap(), current_function, user);
             if matches!(check_result, CheckType::Empty | CheckType::Single(_)) {
               if let Some((id, bb)) = self
                 .phi_ids

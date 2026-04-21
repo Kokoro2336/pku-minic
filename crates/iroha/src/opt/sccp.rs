@@ -427,9 +427,8 @@ impl<'a> SCCP<'a> {
         }
 
         // If to only has only one outgoing edge, push succ to edge_list.
-        let cfg = &mut self.program.as_mut().unwrap().funcs
-          [self.builder.current_function.unwrap()]
-        .cfg;
+        let cfg =
+          &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].cfg;
         if cfg[to.get_bb_id()].succs.len() == 1 {
           let (succ, _) = cfg[to.get_bb_id()].succs[0];
           self.edge_list.push((to, succ));
@@ -441,9 +440,8 @@ impl<'a> SCCP<'a> {
         // Critical: remove the inst first.
         self.in_inst_list.remove(op_id.get_op_id());
 
-        let dfg = &mut self.program.as_mut().unwrap().funcs
-          [self.builder.current_function.unwrap()]
-        .dfg;
+        let dfg =
+          &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
         let op_data = dfg[op_id].data.clone();
         if op_data.is(OpType::Phi) {
           self.visit_phi(op_id);
@@ -485,9 +483,8 @@ impl<'a> SCCP<'a> {
 
     // Replace br with jump if the condition is a constant.
     for br_op in self.br_ops.iter() {
-      let dfg = &mut self.program.as_mut().unwrap().funcs
-        [self.builder.current_function.unwrap()]
-      .dfg;
+      let dfg =
+        &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
       let op = dfg[*br_op].clone();
       if let OpData::Br {
         cond,
@@ -532,9 +529,8 @@ impl<'a> SCCP<'a> {
       .unwrap()
       .get_all_ops(self.builder.current_function, OpType::Phi);
     for phi_op in &phis {
-      let dfg = &mut self.program.as_mut().unwrap().funcs
-        [self.builder.current_function.unwrap()]
-      .dfg;
+      let dfg =
+        &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
       let op = dfg[*phi_op].clone();
       if let OpData::Phi { incomings } = op.data {
         for incoming in incomings.iter() {
@@ -578,29 +574,26 @@ impl<'a> SCCP<'a> {
       );
     });
 
-    let dead_blocks = self.program.as_ref().unwrap().funcs
-      [self.builder.current_function.unwrap()]
-    .cfg
-    .collect()
-    .into_iter()
-    .filter(|bb_id| !self.visited.contains(*bb_id))
-    .collect::<FxHashSet<usize>>();
+    let dead_blocks = self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()]
+      .cfg
+      .collect()
+      .into_iter()
+      .filter(|bb_id| !self.visited.contains(*bb_id))
+      .collect::<FxHashSet<usize>>();
 
     // Phase 1: Isolate the dead blocks, disconnect the edges from live blocks to dead blocks.
     dead_blocks.iter().for_each(|bb_id| {
       let (last, terminator) = {
-        let cfg = &mut self.program.as_mut().unwrap().funcs
-          [self.builder.current_function.unwrap()]
-        .cfg;
+        let cfg =
+          &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].cfg;
         let bb = &cfg[*bb_id];
         let last = match bb.cur.last() {
           Some(last) => *last,
           None => return,
         };
         let data = {
-          let dfg = &mut self.program.as_mut().unwrap().funcs
-            [self.builder.current_function.unwrap()]
-          .dfg;
+          let dfg =
+            &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
           dfg[last].data.clone()
         };
         (last, data)
@@ -617,9 +610,8 @@ impl<'a> SCCP<'a> {
 
     // Phase 2: Check users in dead blocks.
     for bb_id in &dead_blocks {
-      let cfg = &mut self.program.as_mut().unwrap().funcs
-        [self.builder.current_function.unwrap()]
-      .cfg;
+      let cfg =
+        &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].cfg;
       let cur = cfg[*bb_id].cur.clone();
 
       // Split users check and removal due to data dependency.
@@ -740,13 +732,11 @@ impl<'a> SCCP<'a> {
 
     // Phase 3: Remove the instructions in dead blocks directly by dfg.
     for bb_id in &dead_blocks {
-      let cfg = &mut self.program.as_mut().unwrap().funcs
-        [self.builder.current_function.unwrap()]
-      .cfg;
+      let cfg =
+        &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].cfg;
       let cur = cfg[*bb_id].cur.clone();
-      let dfg = &mut self.program.as_mut().unwrap().funcs
-        [self.builder.current_function.unwrap()]
-      .dfg;
+      let dfg =
+        &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
       for inst in cur.iter().rev() {
         // Remove the uses
         dfg.remove(inst.get_op_id());
@@ -756,9 +746,8 @@ impl<'a> SCCP<'a> {
     // Phase 4: Remove the blocks directly by cfg.
     for bb_id in dead_blocks {
       // remove the block from cfg
-      let cfg = &mut self.program.as_mut().unwrap().funcs
-        [self.builder.current_function.unwrap()]
-      .cfg;
+      let cfg =
+        &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].cfg;
       cfg.remove(bb_id);
     }
   }

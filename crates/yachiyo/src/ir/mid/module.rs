@@ -217,10 +217,7 @@ impl IR {
     };
 
     let inst_id = {
-      let cfg = self.cfg_mut_or_panic(
-        current_function,
-        "IR create_at_head: no current function",
-      );
+      let cfg = self.cfg_mut_or_panic(current_function, "IR create_at_head: no current function");
       let bb = &cfg[bb_id];
       if bb.cur.is_empty() {
         None
@@ -370,10 +367,7 @@ impl IR {
     new_op: Op,
   ) -> Operand {
     let pos = {
-      let cfg = self.cfg_mut_or_panic(
-        current_function,
-        "IR replace_op: no current function",
-      );
+      let cfg = self.cfg_mut_or_panic(current_function, "IR replace_op: no current function");
       let bb = &cfg[bb_id];
       bb.cur
         .iter()
@@ -387,10 +381,7 @@ impl IR {
     };
 
     let next_inst = {
-      let cfg = self.cfg_mut_or_panic(
-        current_function,
-        "IR replace_op: no current function",
-      );
+      let cfg = self.cfg_mut_or_panic(current_function, "IR replace_op: no current function");
       let bb = &cfg[bb_id.get_bb_id()];
       bb.cur.get(pos + 1).cloned()
     };
@@ -497,10 +488,7 @@ impl IR {
     let phi_id = phi.get_op_id();
 
     if let OpData::Phi { incomings } = &mut dfg[phi_id].data {
-      incomings[idx] = PhiIncoming::Data {
-        value,
-        bb,
-      };
+      incomings[idx] = PhiIncoming::Data { value, bb };
       dfg.add_use(value, (phi, idx));
     } else {
       panic!("IR add_phi_incoming: not a phi node");

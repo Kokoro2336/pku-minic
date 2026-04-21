@@ -167,7 +167,7 @@ pub enum OpData {
   Zext {
     value: Operand,
   }, // bool to int
-  
+
   // SysY doesn't support bitwise shift for float
   /// Memory operations
   Store {
@@ -200,7 +200,7 @@ pub enum OpData {
   },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PhiIncoming {
   Data { value: Operand, bb: Operand },
   None,

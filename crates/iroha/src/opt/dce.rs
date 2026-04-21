@@ -116,8 +116,7 @@ impl<'a> Pass<'a> for DCE<'a> {
         let bb_id = self.op_to_bb[op_id.get_op_id()];
 
         if let Operand::Value(id) = op_id {
-          let func =
-            &self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()];
+          let func = &self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()];
           let bb = bb_id.get_bb_id();
           if !func.cfg[bb].cur.iter().any(|inst| inst.get_op_id() == id) {
             continue;

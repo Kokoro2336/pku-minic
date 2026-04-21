@@ -250,8 +250,7 @@ impl<'a> Renaming<'a> {
     self.var_counter = 0;
 
     let (entry, bbs) = {
-      let func =
-        &self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()];
+      let func = &self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()];
       let entry = match func.cfg.entry {
         Some(id) => id,
         None => panic!("Renaming: function has no entry block"),
@@ -351,8 +350,8 @@ impl<'a> Renaming<'a> {
             // We can't hold `op` borrow across replace_all_uses (which takes &mut ctx).
             // So we clone the necessary data or just check type first.
             let (op_data, op_attrs) = {
-              let func = &self.program.as_ref().unwrap().funcs
-                [self.builder.current_function.unwrap()];
+              let func =
+                &self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()];
               let op = &func.dfg[inst];
               (op.data.clone(), op.attrs.clone())
             };
@@ -418,8 +417,8 @@ impl<'a> Renaming<'a> {
           for (succ, _) in succs {
             // Calculate k (predecessor index)
             let k = {
-              let func = &self.program.as_ref().unwrap().funcs
-                [self.builder.current_function.unwrap()];
+              let func =
+                &self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()];
               let succ_block = &func.cfg[succ];
               succ_block
                 .preds
@@ -444,8 +443,8 @@ impl<'a> Renaming<'a> {
               // Check if this phi is one we track (has a var_id)
               // Update phi incoming
               let op_id = {
-                let func = &self.program.as_ref().unwrap().funcs
-                  [self.builder.current_function.unwrap()];
+                let func =
+                  &self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()];
                 let phi_op = &func.dfg[phi];
                 let op_id = phi_op
                   .attrs
@@ -491,8 +490,8 @@ impl<'a> Renaming<'a> {
 
           // 4. Process children in domtree
           // Clone children list to avoid borrow
-          let children = self.dom_trees
-            [self.builder.current_function.unwrap().get_func_id()][bb_id]
+          let children = self.dom_trees[self.builder.current_function.unwrap().get_func_id()]
+            [bb_id]
             .iter()
             .map(|bb_id| RenamingPhase::Enter(*bb_id))
             .collect::<Vec<RenamingPhase>>();

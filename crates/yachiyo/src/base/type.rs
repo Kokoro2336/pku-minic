@@ -35,8 +35,14 @@ impl PartialEq for Type {
       (Type::Void, Type::Void) => true,
       (Type::Bool, Type::Bool) => true,
       (
-        Type::Array { base: base1, dims: dims1 },
-        Type::Array { base: base2, dims: dims2 },
+        Type::Array {
+          base: base1,
+          dims: dims1,
+        },
+        Type::Array {
+          base: base2,
+          dims: dims2,
+        },
       ) => base1 == base2 && dims1 == dims2,
       (
         Type::Function {
@@ -76,12 +82,16 @@ impl Hash for Type {
 
     // Hash the fields of the enum variant
     match self {
-      Type::Int | Type::Void | Type::Float | Type::Bool | Type::Char => {/*do nothing for scalar*/}
+      Type::Int | Type::Void | Type::Float | Type::Bool | Type::Char => { /*do nothing for scalar*/
+      }
       Type::Array { base, dims } => {
         base.hash(state);
         dims.hash(state);
       }
-      Type::Function { return_type, param_types } => {
+      Type::Function {
+        return_type,
+        param_types,
+      } => {
         return_type.hash(state);
         param_types.hash(state);
       }

@@ -705,13 +705,7 @@ impl Emit {
               let current_idx = self.builder.create(
                 &mut self.program,
                 self.builder.current_function,
-                mid::Op::new(
-                  Type::Int,
-                  vec![],
-                  OpData::Load {
-                    addr: loop_var,
-                  },
-                ),
+                mid::Op::new(Type::Int, vec![], OpData::Load { addr: loop_var }),
               );
               let limit_idx = self.builder.create(
                 &mut self.program,
@@ -944,16 +938,12 @@ impl Emit {
 
             if let Some(bb) = then_fallthrough {
               self.builder.set_current_block(bb);
-              self.insert_terminator_if_needed(OpData::Jump {
-                target_bb: end_bb,
-              });
+              self.insert_terminator_if_needed(OpData::Jump { target_bb: end_bb });
             }
 
             if let Some(bb) = else_fallthrough {
               self.builder.set_current_block(bb);
-              self.insert_terminator_if_needed(OpData::Jump {
-                target_bb: end_bb,
-              });
+              self.insert_terminator_if_needed(OpData::Jump { target_bb: end_bb });
             }
 
             self.builder.set_current_block(end_bb);
@@ -983,9 +973,7 @@ impl Emit {
           self.builder.set_current_block(then_bb);
           self.emit(then_block);
           if self.has_active_insertion_point() {
-            self.insert_terminator_if_needed(OpData::Jump {
-              target_bb: end_bb,
-            });
+            self.insert_terminator_if_needed(OpData::Jump { target_bb: end_bb });
           }
 
           self.builder.set_current_block(end_bb);
