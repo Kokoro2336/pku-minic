@@ -5,12 +5,12 @@ use yachiyo::ir::mid::{Function, Operand};
 use yachiyo::utils::set::BitSet;
 
 #[derive(Default)]
-pub struct ReachabilityAnalysis<'a> {
+pub struct Reachability<'a> {
   func: Option<&'a Function>,
   visited: BitSet,
 }
 
-impl ReachabilityAnalysis<'_> {
+impl Reachability<'_> {
   fn dfs(&mut self, bb_id: Operand) {
     if self.visited.contains(bb_id.get_bb_id()) {
       return;
@@ -23,7 +23,7 @@ impl ReachabilityAnalysis<'_> {
   }
 }
 
-impl<'a> Analysis<'a> for ReachabilityAnalysis<'a> {
+impl<'a> Analysis<'a> for Reachability<'a> {
   type Input = Function;
   type Output = BitSet;
 

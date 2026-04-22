@@ -8,11 +8,11 @@ use crate::utils::r#match::match_some;
 
 #[derive(Debug, Clone)]
 pub struct IR {
-  // Including:
-  // 1. global variables
-  // 2. SysY library functions
+  /// Including:
+  /// 1. global variables
+  /// 2. SysY library functions
   pub globals: DFG,
-  // global funcs
+  /// global funcs
   pub funcs: CG,
 }
 

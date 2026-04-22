@@ -207,10 +207,12 @@ pub enum PhiIncoming {
 }
 
 impl OpData {
+  #[inline(always)]
   pub fn is(&self, op_typ: OpType) -> bool {
     OpType::from(self) == op_typ
   }
 
+  #[inline(always)]
   pub fn is_impure(&self) -> bool {
     matches!(
       self,
@@ -223,6 +225,14 @@ impl OpData {
         | OpData::Alloca(_)
         | OpData::GlobalAlloca(_)
         | OpData::Declare { .. }
+    )
+  }
+
+  #[inline(always)]
+  pub fn is_terminator(&self) -> bool {
+    matches!(
+      self,
+      OpData::Br { .. } | OpData::Jump { .. } | OpData::Ret { .. }
     )
   }
 }
