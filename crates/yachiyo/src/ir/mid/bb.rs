@@ -11,8 +11,10 @@ pub type CFG = IndexedArena<BasicBlock>;
 
 #[derive(Debug, Clone, Default)]
 pub struct BasicBlock {
+  /// (Pred BBId, Control Flow OpId).
   pub preds: Vec<(Operand, Operand)>,
   pub cur: Vec<Operand>,
+  /// (Succ BBId, Control Flow OpId).
   pub succs: Vec<(Operand, Operand)>,
 }
 

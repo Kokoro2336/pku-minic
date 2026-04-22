@@ -17,7 +17,7 @@ impl<T: std::hash::Hash + Eq, U> SymbolTable<T, U> {
   pub fn new() -> Self {
     Self::default()
   }
-  
+
   pub fn clear(&mut self) {
     self.tables.clear();
   }

@@ -1,8 +1,8 @@
 //! Reachability Analysis.
 
-use yachiyo::utils::set::BitSet;
 use yachiyo::analysis::Analysis;
 use yachiyo::ir::mid::{Function, Operand};
+use yachiyo::utils::set::BitSet;
 
 #[derive(Default)]
 pub struct ReachabilityAnalysis<'a> {
