@@ -110,10 +110,7 @@ impl Builder {
     current_function: Option<Operand>,
     inst_id: Option<Operand>,
   ) {
-    let cfg = program.cfg_mut_or_panic(
-      current_function,
-      "Builder set_before_inst: no current function",
-    );
+    let cfg = &mut program.funcs[current_function.unwrap()].cfg;
     if self.current_block.is_none() {
       panic!("Builder set_before_inst: current_block is None");
     }
@@ -140,10 +137,7 @@ impl Builder {
     current_function: Option<Operand>,
     inst_id: Option<Operand>,
   ) {
-    let cfg = program.cfg_mut_or_panic(
-      current_function,
-      "Builder set_after_inst: no current function",
-    );
+    let cfg = &mut program.funcs[current_function.unwrap()].cfg;
     if self.current_block.is_none() {
       panic!("Builder set_after_inst: current_block is None");
     }

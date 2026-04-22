@@ -2,7 +2,7 @@
 
 use super::{
   BBuilder, BBuilderGuard, BOp, BOpData, BOperand, BssInfo, DataInfo, LOpData, MOpData, Reg,
-  RoDataInfo, VirtReg, BCFG, BCG, BDFG,
+  RoDataInfo, VirtReg, BCFG, BCG,
 };
 use crate::utils::arena::ArenaItem;
 use crate::utils::r#match::{match_rd, match_some};
@@ -38,16 +38,6 @@ impl BackIR {
   ) -> &mut BCFG {
     let idx = current_function.unwrap_or_else(|| panic!("{}", msg));
     &mut self.funcs[idx].cfg
-  }
-
-  fn cfg_dfg_mut_or_panic(
-    &mut self,
-    current_function: Option<BOperand>,
-    msg: &str,
-  ) -> (&mut BCFG, &mut BDFG) {
-    let idx = current_function.unwrap_or_else(|| panic!("{}", msg));
-    let func = &mut self.funcs[idx];
-    (&mut func.cfg, &mut func.dfg)
   }
 
   pub fn add_uses(&mut self, current_function: Option<BOperand>, op: BOperand) {
@@ -273,10 +263,9 @@ impl BackIR {
     op: BOperand,
     bb: BOperand,
   ) {
-    let (cfg, dfg) = self.cfg_dfg_mut_or_panic(
-      current_function,
-      "BackIR add_control_flow: no current function",
-    );
+    let current_function = current_function.unwrap();
+    let func = &mut self.funcs[current_function];
+    let (cfg, dfg) = (&mut func.cfg, &mut func.dfg);
     let data = dfg[op.get_inst_id()].data.clone();
 
     match data {
@@ -338,10 +327,9 @@ impl BackIR {
     op: BOperand,
     bb: BOperand,
   ) {
-    let (cfg, dfg) = self.cfg_dfg_mut_or_panic(
-      current_function,
-      "BackIR remove_control_flow: no current function",
-    );
+    let current_function = current_function.unwrap();
+    let func = &mut self.funcs[current_function];
+    let (cfg, dfg) = (&mut func.cfg, &mut func.dfg);
     let data = dfg[op.get_inst_id()].data.clone();
 
     match data {
@@ -406,47 +394,50 @@ impl BackIR {
     #[cfg(feature = "debug")]
     crate::debug::info!("Creating op {:?} in function {:?}", op, current_function);
 
-    let (cfg, dfg) =
-      self.cfg_dfg_mut_or_panic(current_function, "BackIR create: no current function");
+    let current_function = current_function.unwrap();
+    let op_id = {
+      let func = &mut self.funcs[current_function];
+      let (cfg, dfg) = (&mut func.cfg, &mut func.dfg);
 
-    let new_id = dfg.alloc(op);
-    let current_block = if let Some(block) = &builder.current_block {
-      block.get_bb_id()
-    } else {
-      panic!("BackIR create: current_block is None");
-    };
-    let bb = &mut cfg[current_block];
+      let new_id = dfg.alloc(op);
+      let current_block = if let Some(block) = &builder.current_block {
+        block.get_bb_id()
+      } else {
+        panic!("BackIR create: current_block is None");
+      };
+      let bb = &mut cfg[current_block];
 
-    let op_id = if let Some(current_inst) = &builder.current_inst {
-      let pos = bb
-        .cur
-        .iter()
-        .position(|id| id.get_inst_id() == current_inst.get_inst_id())
-        .unwrap_or_else(|| {
-          panic!(
-            "BackIR create: current_inst {:?} not found in current_block {:?}",
-            current_inst, builder.current_block
-          )
-        });
-      let op_id = BOperand::Inst(new_id);
-      bb.cur.insert(pos, op_id);
-      op_id
-    } else {
-      let op_id = BOperand::Inst(new_id);
-      bb.cur.push(op_id);
-      op_id
+      if let Some(current_inst) = &builder.current_inst {
+        let pos = bb
+          .cur
+          .iter()
+          .position(|id| id.get_inst_id() == current_inst.get_inst_id())
+          .unwrap_or_else(|| {
+            panic!(
+              "BackIR create: current_inst {:?} not found in current_block {:?}",
+              current_inst, builder.current_block
+            )
+          });
+        let op_id = BOperand::Inst(new_id);
+        bb.cur.insert(pos, op_id);
+        op_id
+      } else {
+        let op_id = BOperand::Inst(new_id);
+        bb.cur.push(op_id);
+        op_id
+      }
     };
 
     #[cfg(feature = "debug")]
 
     crate::debug::info!("Created op {:?} in block {:?}", op_id, current_block);
 
-    self.bind(current_function, op_id);
-    self.add_uses(current_function, op_id);
+    self.bind(Some(current_function), op_id);
+    self.add_uses(Some(current_function), op_id);
     let current_block = builder
       .current_block
       .unwrap_or_else(|| panic!("BackIR create: current_block is None"));
-    self.add_control_flow(current_function, op_id, current_block);
+    self.add_control_flow(Some(current_function), op_id, current_block);
     op_id
   }
 
@@ -569,16 +560,14 @@ impl BackIR {
     current_function: Option<BOperand>,
     op: BOp,
   ) -> BOperand {
+    let current_function = current_function.unwrap();
     let bb_id = match &builder.current_block {
       Some(block) => block.get_bb_id(),
       None => panic!("BackIR create_at_head: current_block is None"),
     };
 
     let inst_id = {
-      let cfg = self.cfg_mut_or_panic(
-        current_function,
-        "BackIR create_at_head: no current function",
-      );
+      let cfg = &self.funcs[current_function].cfg;
       let bb = &cfg[bb_id];
       if bb.cur.is_empty() {
         None
@@ -587,15 +576,13 @@ impl BackIR {
       }
     };
 
-    builder.set_before_inst(self, current_function, inst_id);
-    self.create(builder, current_function, op)
+    builder.set_before_inst(self, Some(current_function), inst_id);
+    self.create(builder, Some(current_function), op)
   }
 
   pub fn create_new_block(&mut self, current_function: Option<BOperand>) -> BOperand {
-    let cfg = self.cfg_mut_or_panic(
-      current_function,
-      "BackIR create_new_block: no current function",
-    );
+    let current_function = current_function.unwrap();
+    let cfg = &mut self.funcs[current_function].cfg;
     let bb_id = cfg.alloc(super::BBasicBlock::default());
     BOperand::BB(bb_id)
   }
@@ -620,8 +607,9 @@ impl BackIR {
       self.remove_control_flow(current_function, op, bb_id);
     }
 
-    let (cfg, dfg) =
-      self.cfg_dfg_mut_or_panic(current_function, "BackIR remove_op: no current function");
+    let current_function = current_function.unwrap();
+    let func = &mut self.funcs[current_function];
+    let (cfg, dfg) = (&mut func.cfg, &mut func.dfg);
 
     let op_id = op.get_inst_id();
     let bb_id = bb
@@ -680,11 +668,10 @@ impl BackIR {
       current_function
     );
 
+    let current_function = current_function.unwrap();
+
     let pos = {
-      let cfg = self.cfg_mut_or_panic(
-        current_function,
-        "BackIR replace_op_no_rauw: no current function",
-      );
+      let cfg = &self.funcs[current_function].cfg;
       let bb = &cfg[bb_id];
       bb.cur
         .iter()
@@ -698,10 +685,7 @@ impl BackIR {
     };
 
     let next_inst = {
-      let cfg = self.cfg_mut_or_panic(
-        current_function,
-        "BackIR replace_op_no_rauw: no current function",
-      );
+      let cfg = &self.funcs[current_function].cfg;
       let bb = &cfg[bb_id.get_bb_id()];
       bb.cur.get(pos + 1).cloned()
     };
@@ -710,10 +694,10 @@ impl BackIR {
       let mut guard = BBuilderGuard::new(builder);
       guard.set_current_block(bb_id);
       // We won't bind the new operation with the old vreg. We create a new one directly.
-      guard.set_before_inst(self, current_function, next_inst);
+      guard.set_before_inst(self, Some(current_function), next_inst);
       // Remove the old operation.
-      self.remove_op(current_function, op_id, Some(bb_id));
-      self.create(&guard, current_function, new_op)
+      self.remove_op(Some(current_function), op_id, Some(bb_id));
+      self.create(&guard, Some(current_function), new_op)
     }
   }
 
@@ -734,11 +718,10 @@ impl BackIR {
       current_function
     );
 
+    let current_function = current_function.unwrap();
+
     let pos = {
-      let cfg = self.cfg_mut_or_panic(
-        current_function,
-        "BackIR replace_op_rauw: no current function",
-      );
+      let cfg = &self.funcs[current_function].cfg;
       let bb = &cfg[bb_id];
       bb.cur
         .iter()
@@ -752,10 +735,7 @@ impl BackIR {
     };
 
     let next_inst = {
-      let cfg = self.cfg_mut_or_panic(
-        current_function,
-        "BackIR replace_op_rauw: no current function",
-      );
+      let cfg = &self.funcs[current_function].cfg;
       let bb = &cfg[bb_id.get_bb_id()];
       bb.cur.get(pos + 1).cloned()
     };
@@ -764,12 +744,12 @@ impl BackIR {
       let mut guard = BBuilderGuard::new(builder);
       guard.set_current_block(bb_id);
       // We won't bind the new operation with the old vreg. We create a new one directly.
-      guard.set_before_inst(self, current_function, next_inst);
-      let new_op_id = self.create(&guard, current_function, new_op);
+      guard.set_before_inst(self, Some(current_function), next_inst);
+      let new_op_id = self.create(&guard, Some(current_function), new_op);
       // RAUW
-      self.replace_all_uses(current_function, op_id, new_op_id);
+      self.replace_all_uses(Some(current_function), op_id, new_op_id);
       // Remove the old operation.
-      self.remove_op(current_function, op_id, Some(bb_id));
+      self.remove_op(Some(current_function), op_id, Some(bb_id));
       new_op_id
     }
   }
@@ -782,10 +762,8 @@ impl BackIR {
     new_bb: BOperand,
     pos: Option<BOperand>,
   ) {
-    let cfg = self.cfg_mut_or_panic(
-      current_function,
-      "BackIR move_op_to_bb_at: no current function",
-    );
+    let current_function = current_function.unwrap();
+    let cfg = &mut self.funcs[current_function].cfg;
 
     let op_id = op.get_inst_id();
     let old_bb_id = old_bb.get_bb_id();
