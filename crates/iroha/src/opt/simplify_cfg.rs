@@ -81,7 +81,7 @@ impl<'a> SimplifyCFG<'a> {
       .ir
       .as_deref_mut()
       .unwrap()
-      .append_phi_incoming(func_id, phi_id, bb_id, value);
+      .append_phi_incoming(func_id, phi_id, value, bb_id);
   }
 
   #[inline(always)]
