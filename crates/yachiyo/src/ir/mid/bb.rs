@@ -93,14 +93,10 @@ impl Arena<BasicBlock> for IndexedArena<BasicBlock> {
 
 impl CFG {
   pub fn add_succ(&mut self, bb_idx: Operand, succ_idx: (Operand, Operand)) {
-    if !self[bb_idx.get_bb_id()].succs.contains(&succ_idx) {
-      self[bb_idx.get_bb_id()].succs.push(succ_idx);
-    }
+    self[bb_idx.get_bb_id()].succs.push(succ_idx);
   }
   pub fn add_pred(&mut self, bb_idx: Operand, pred_idx: (Operand, Operand)) {
-    if !self[bb_idx.get_bb_id()].preds.contains(&pred_idx) {
-      self[bb_idx.get_bb_id()].preds.push(pred_idx);
-    }
+    self[bb_idx.get_bb_id()].preds.push(pred_idx);
   }
   pub fn remove_succ(&mut self, bb_idx: Operand, succ_idx: (Operand, Operand)) {
     if let Some(pos) = self[bb_idx.get_bb_id()]

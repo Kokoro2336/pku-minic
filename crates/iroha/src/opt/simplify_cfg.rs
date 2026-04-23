@@ -161,11 +161,6 @@ impl<'a> SimplifyCFG<'a> {
   }
 
   pub fn simplify(&mut self, bb_id: Operand) {
-    #[cfg(feature = "debug")]
-    yachiyo::debug::info!(
-      "Processing {:?}", bb_id
-    );
-
     let func_id = self.builder.current_function.unwrap();
     let mut is_dead = false;
 
@@ -186,6 +181,7 @@ impl<'a> SimplifyCFG<'a> {
         None => unreachable!(),
       };
 
+      // It's impossible that such block contains any phi nodes.
       for inst in cur.iter().take(cur.len() - 1) {
         self.move_op_to_bb_at(*inst, bb_id, pred_id, Some(pred_term_id));
       }
