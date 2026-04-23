@@ -6,6 +6,7 @@ use yachiyo::pass::Pass;
 use yachiyo::utils::arena::Arena;
 use yachiyo::utils::r#match::match_some;
 use yachiyo::utils::set::BitSet;
+use yachiyo::utils::worklist::WorklistTrait;
 
 use crate::analysis::Reachability;
 
@@ -137,7 +138,7 @@ impl<'a> SimplifyCFG<'a> {
     let cur = self.get_func(func_id).cfg[bb_id].cur.clone();
 
     // Remove the uses of normal instructions
-    for inst in cur.iter().rev() {
+    for inst in cur.iter().rev().skip(1) {
       let src_tuple = self
         .get_src_tuple(*inst)
         .iter()
@@ -375,14 +376,15 @@ impl<'a> Pass<'a> for SimplifyCFG<'a> {
   }
   fn run(&mut self) {
     // We can only simplify CFG at the end of all other optimizations, since it may change the structure of CFG and thus invalidate the assumptions of other optimizations.
-    for func_id in self.ir.as_ref().unwrap().funcs.ids() {
-      let func_op = Operand::Func(func_id);
-      self.init(func_op);
-      let entry = match self.get_func(func_op).cfg.entry {
-        Some(entry) => Operand::BB(entry),
-        None => continue,
-      };
-      self.simplify(entry);
+    for func_id in self.ir.as_ref().unwrap().funcs.collect_internal() {
+      let func_id = Operand::Func(func_id);
+      self.init(func_id);
+
+      let mut dfs = self.get_func(func_id).dpo();
+      // Reverse post order
+      while let Some(bb_id) = dfs.pop_back() {
+        self.simplify(bb_id);
+      }
       self.rewrite();
     }
   }
