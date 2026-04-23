@@ -181,7 +181,7 @@ impl<'a> SimplifyCFG<'a> {
         None => unreachable!(),
       };
 
-      for inst in cur.iter() {
+      for inst in cur.iter().rev().skip(1) {
         self.move_op_to_bb_at(*inst, bb_id, pred_id, Some(pred_term_id));
       }
 
