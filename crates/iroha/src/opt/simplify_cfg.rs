@@ -285,7 +285,9 @@ impl<'a> SimplifyCFG<'a> {
                 self.slay_phi_incoming(phi_id, bb_id);
               }
               // Check whether the value comes from trampoline.
-              let new_incomings = if self.op_to_bb[value.get_op_id()] == bb_id {
+              let new_incomings = if matches!(value, Operand::Value(_))
+                && self.op_to_bb[value.get_op_id()] == bb_id
+              {
                 let tramp_phi = &self.get_func_mut(func_id).dfg[value];
                 if let OpData::Phi {
                   incomings: tramp_incomings,

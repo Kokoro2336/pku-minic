@@ -7,8 +7,8 @@ use crate::base::Type;
 use crate::ir::mid::{BasicBlock, Op, OpData, Operand, PhiIncoming, CFG, DFG};
 use crate::utils::arena::*;
 use crate::utils::r#match::match_some;
-use crate::utils::worklist::{Worklist, WorklistTrait};
 use crate::utils::set::BitSet;
+use crate::utils::worklist::{Worklist, WorklistTrait};
 use std::ops::{Index, IndexMut};
 
 pub type CG = IndexedArena<Function>;
