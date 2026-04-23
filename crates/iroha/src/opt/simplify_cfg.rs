@@ -123,13 +123,13 @@ impl<'a> SimplifyCFG<'a> {
   }
 
   #[inline(always)]
-  fn remove_op(&mut self, op_id: Operand, bb_id: Operand) {
+  fn remove_control_flow(&mut self, op_id: Operand, bb_id: Operand) {
     let func_id = self.builder.current_function;
     self
       .ir
       .as_mut()
       .unwrap()
-      .remove_op(func_id, op_id, Some(bb_id));
+      .remove_control_flow(func_id, op_id, bb_id);
   }
 
   /// Cut off data flow and control flow edges of dead blocks.
@@ -137,8 +137,34 @@ impl<'a> SimplifyCFG<'a> {
     let func_id = self.builder.current_function.unwrap();
     let cur = self.get_func(func_id).cfg[bb_id].cur.clone();
 
+    // Remove control flow edges.
+    if let Some(last) = cur.last() {
+      let dfg = &mut self.get_func_mut(func_id).dfg;
+      let last_op_data = &dfg[*last].data;
+      assert!(last_op_data.is_terminator());
+
+      // CAUTION: If the block is the entry, we should set the entry to its succ.
+      if self.get_func(func_id).cfg.entry == Some(bb_id.get_bb_id()) {
+        let succs = self.get_func(func_id).cfg[bb_id].succs.clone();
+        // If there are multiple successors, the entry can't be eliminated.
+        if succs.len() > 1 {
+          return;
+        }
+        if let Some((new_entry, _)) = succs.first() {
+          self
+            .get_func_mut(func_id)
+            .cfg
+            .set_entry(Some(new_entry.get_bb_id()));
+        } else {
+          // If there is no successor, we can just set entry to None. It doesn't matter since the function is dead.
+          self.get_func_mut(func_id).cfg.set_entry(None);
+        }
+      }
+
+      self.remove_control_flow(*last, bb_id);
+    }
     // Remove the uses of normal instructions
-    for inst in cur.iter().rev().skip(1) {
+    for inst in cur.iter().rev() {
       let src_tuple = self
         .get_src_tuple(*inst)
         .iter()
@@ -148,13 +174,6 @@ impl<'a> SimplifyCFG<'a> {
       for (src, idx) in src_tuple {
         dfg.remove_use(src, (*inst, idx));
       }
-    }
-    // Remove terminator directly.
-    if let Some(last) = cur.last() {
-      let dfg = &mut self.get_func_mut(func_id).dfg;
-      let last_op_data = &dfg[*last].data;
-      assert!(last_op_data.is_terminator());
-      self.remove_op(*last, bb_id);
     }
     // Update the block as processed dead.
     self.processed.insert(bb_id.get_bb_id());

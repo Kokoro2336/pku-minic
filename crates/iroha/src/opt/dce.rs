@@ -61,12 +61,8 @@ impl<'a> DCE<'a> {
     for block_id in func.cfg.collect() {
       let block = &func.cfg[block_id];
       for inst_id in block.cur.iter() {
-        let op_id = match inst_id {
-          Operand::Value(id) => *id,
-          _ => panic!("DCE: instruction id is not a value"),
-        };
         let is_impure = {
-          let inst = &func.dfg[op_id];
+          let inst = &func.dfg[*inst_id];
           inst.is_impure()
         };
         if self.is_dead(inst_id) && !is_impure {
@@ -104,9 +100,12 @@ impl<'a> Pass<'a> for DCE<'a> {
             this.worklist.push_back(*operand);
           }
         }
-        Operand::Int(_) | Operand::Float(_) | Operand::Undefined | Operand::Param { .. } => { /* do nothing */
-        }
-        _ => panic!("DCE: operand is not a value or basic block: {:?}", operand),
+        Operand::Int(_)
+        | Operand::Float(_)
+        | Operand::Bool(_)
+        | Operand::Undefined
+        | Operand::Param { .. } => { /* do nothing */ }
+        Operand::BB(_) | Operand::Func(_) => unreachable!("Unexpected operand: {:?}", operand),
       }
     }
     let func_ids = self.program.as_ref().unwrap().funcs.collect_internal();

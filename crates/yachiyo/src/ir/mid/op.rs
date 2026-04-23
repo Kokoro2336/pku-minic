@@ -781,14 +781,14 @@ impl Arena<Op> for IndexedArena<Op> {
 
         // rewrite Attr
         node.attrs.iter_mut().for_each(|attr| {
-                    match attr {
-                        Attr::OldIdx(op) => remap_value(op, &old_arena),
-                        Attr::GlobalArray { .. }
-                        | Attr::Name(_)
-                        | Attr::Promotion
-                        | Attr::FuncName(_) => { /* no idx to rewrite */ }
-                    }
-                });
+          match attr {
+            Attr::OldIdx(op) => remap_value(op, &old_arena),
+            Attr::GlobalArray { .. }
+            | Attr::Name(_)
+            | Attr::Promotion
+            | Attr::FuncName(_) => { /* no idx to rewrite */ }
+          }
+        });
 
         // rewrite operands excluding BBId
         match_src! {

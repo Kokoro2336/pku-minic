@@ -45,7 +45,7 @@ fn main() -> Result<()> {
       .parse(&mut parser, &input_str)
       .unwrap();
     // set entry point to the root of the AST
-    parser.ast.set_entry(root_id);
+    parser.ast.set_entry(Some(root_id));
     // Clean up the AST.
     parser.ast.gc();
     parser.take()
