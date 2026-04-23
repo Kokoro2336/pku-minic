@@ -161,6 +161,11 @@ impl<'a> SimplifyCFG<'a> {
   }
 
   pub fn simplify(&mut self, bb_id: Operand) {
+    #[cfg(feature = "debug")]
+    yachiyo::debug::info!(
+      "Processing {:?}", bb_id
+    );
+
     let func_id = self.builder.current_function.unwrap();
     let mut is_dead = false;
 
@@ -181,7 +186,7 @@ impl<'a> SimplifyCFG<'a> {
         None => unreachable!(),
       };
 
-      for inst in cur.iter().rev().skip(1) {
+      for inst in cur.iter().take(cur.len() - 1) {
         self.move_op_to_bb_at(*inst, bb_id, pred_id, Some(pred_term_id));
       }
 
@@ -223,6 +228,7 @@ impl<'a> SimplifyCFG<'a> {
         let op_data = &dfg[*inst_id].data;
         op_data.is_terminator() || op_data.is(OpType::Phi)
       })
+      && bb.succs[0].0 != bb_id
     {
       is_dead = true;
 
