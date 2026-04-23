@@ -144,7 +144,7 @@ impl Arena<Function> for IndexedArena<Function> {
       *bb_idx = match old_arena_cfg.get(old_idx) {
         Some(ArenaItem::NewIndex(new_idx)) => Operand::BB(*new_idx),
         _ => {
-          panic!("Compaction gc: BB index {} in Op not found", old_idx);
+          panic!("Compaction gc: {:?} points to None or NewIndex", old_idx);
         }
       };
     };

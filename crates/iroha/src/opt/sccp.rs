@@ -3,7 +3,7 @@
 //! Reference: https://dl.acm.org/doi/10.1145/103135.103136
 
 use yachiyo::base::Type;
-use yachiyo::ir::mid::{Builder, Op, OpData, OpType, Operand, PhiIncoming, IR};
+use yachiyo::ir::mid::{Builder, Op, OpData, OpType, Operand, PhiIncoming, IR, Function};
 use yachiyo::pass::Pass;
 use yachiyo::utils::arena::ArenaItem;
 use yachiyo::utils::r#match::match_src;
@@ -90,6 +90,23 @@ impl<'a> SCCP<'a> {
         operand
       ),
     }
+  }
+
+  #[inline(always)]
+  fn slay_phi_incoming(&mut self, phi_id: Operand, bb_id: Operand) {
+    let func_id = self.builder.current_function;
+    self.program.as_deref_mut().unwrap().slay_phi_incoming(func_id, phi_id, bb_id);
+  }
+
+  #[inline(always)]
+  fn get_func(&self, func_id: Operand) -> &yachiyo::ir::mid::Function {
+    &self.program.as_ref().unwrap().funcs[func_id]
+  }
+
+  #[inline(always)]
+  fn get_all_ops_in_block(&self, bb_id: Operand, op_typ: OpType) -> Vec<Operand> {
+    let func_id = self.builder.current_function;
+    self.program.as_ref().unwrap().get_all_ops_in_block(func_id, bb_id, op_typ)
   }
 
   fn fold(lhs: Lattice, rhs: Lattice, op_typ: OpType) -> Lattice {
@@ -460,6 +477,7 @@ impl<'a> SCCP<'a> {
 
   // Rewrite the program based on the results of propagation. And then return the existing phi nodes after rewriting.
   fn rewrite(&mut self) {
+    let func_id = self.builder.current_function.unwrap();
     // Replace optimizable instructions with constants.
     self
       .lattices
@@ -477,10 +495,10 @@ impl<'a> SCCP<'a> {
       });
 
     // Replace br with jump if the condition is a constant.
-    for br_op in self.br_ops.iter() {
+    for br_op in std::mem::take(&mut self.br_ops) {
       let dfg =
         &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
-      let op = dfg[*br_op].clone();
+      let op = dfg[br_op].clone();
       if let OpData::Br {
         cond,
         then_bb,
@@ -491,13 +509,13 @@ impl<'a> SCCP<'a> {
         match cond_lattice {
           Lattice::Constant(c) => {
             if let Operand::Bool(b) = c {
-              let target_bb = if b { then_bb } else { else_bb };
+              let (target_bb, other_bb) = if b { (then_bb, else_bb) } else { (else_bb, then_bb) };
               let bb_id = self.op_to_bb[br_op.get_op_id()];
               let current_function = self.builder.current_function;
               self.program.as_deref_mut().unwrap().replace_op(
                 &mut self.builder,
                 current_function,
-                *br_op,
+                br_op,
                 bb_id,
                 Op {
                   typ: Type::Void,
@@ -506,8 +524,24 @@ impl<'a> SCCP<'a> {
                   users: vec![],
                 },
               );
+              // Slay the phi incoming in other_bb.
+              let other_bb_phis = self.get_all_ops_in_block(other_bb, OpType::Phi);
+              for phi_id in other_bb_phis {
+                let phi = self.get_func(func_id).dfg[phi_id].data.clone();
+                if let OpData::Phi { incomings } = phi {
+                  for incoming in incomings.iter() {
+                    if let PhiIncoming::Data { bb, .. } = incoming {
+                      if *bb == bb_id {
+                        self.slay_phi_incoming(phi_id, bb_id);
+                      }
+                    }
+                  }
+                } else {
+                  unreachable!()
+                }
+              }
             } else {
-              panic!("SCCP: condition of br must be a boolean constant");
+              unreachable!()
             }
           }
           _ => { /*do nothing*/ }
