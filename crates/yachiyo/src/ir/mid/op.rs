@@ -878,7 +878,7 @@ impl IndexedArena<Op> {
     node.users.push(user_tuple);
   }
 
-  // Remove use_idx from the users of op_idx.
+  // Remove user_tuple from the users of op_idx.
   pub fn remove_use(&mut self, op_id: Operand, user_tuple: (Operand, usize)) {
     let op_id = match_some! {
         target: op_id,

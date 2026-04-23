@@ -58,6 +58,12 @@ impl<'a> SimplifyCFG<'a> {
   }
 
   #[inline(always)]
+  fn get_src_tuple(&self, op_id: Operand) -> Vec<(&Operand, usize)> {
+    let func_id = self.builder.current_function;
+    self.ir.as_ref().unwrap().get_src_tuple(func_id, op_id)
+  }
+
+  #[inline(always)]
   fn slay_phi_incoming(&mut self, phi_id: Operand, bb_id: Operand) {
     let func_id = self.builder.current_function;
     self
@@ -129,10 +135,18 @@ impl<'a> SimplifyCFG<'a> {
   fn process_dead(&mut self, bb_id: Operand) {
     let func_id = self.builder.current_function.unwrap();
     let cur = self.get_func(func_id).cfg[bb_id].cur.clone();
-    let dfg = &mut self.get_func_mut(func_id).dfg;
+
     // Remove the uses of normal instructions
     for inst in cur.iter().rev() {
-      dfg.remove(inst.get_op_id());
+      let src_tuple = self
+        .get_src_tuple(*inst)
+        .iter()
+        .map(|(src, idx)| (**src, *idx))
+        .collect::<Vec<_>>();
+      let dfg = &mut self.get_func_mut(func_id).dfg;
+      for (src, idx) in src_tuple {
+        dfg.remove_use(src, (*inst, idx));
+      }
     }
     // Remove terminator directly.
     if let Some(last) = cur.last() {
@@ -169,7 +183,7 @@ impl<'a> SimplifyCFG<'a> {
       for inst in cur.iter() {
         self.move_op_to_bb_at(*inst, bb_id, pred_id, Some(pred_term_id));
       }
-      
+
       // Replace the terminator of the predecessor with the terminator of the current block.
       let bb = &self.get_func(func_id).cfg[bb_id];
       let bb_term_id = match bb.cur.last() {
@@ -202,13 +216,15 @@ impl<'a> SimplifyCFG<'a> {
         }
       }
     // Case 2: 1 succ and the block has only terminator and phi nodes.
-    } else if bb.succs.len() == 1 && bb.cur.iter().all(|inst_id| {
-      let dfg = &self.get_func(func_id).dfg;
-      let op_data = &dfg[*inst_id].data;
-      op_data.is_terminator() || op_data.is(OpType::Phi)
-    }) {
+    } else if bb.succs.len() == 1
+      && bb.cur.iter().all(|inst_id| {
+        let dfg = &self.get_func(func_id).dfg;
+        let op_data = &dfg[*inst_id].data;
+        op_data.is_terminator() || op_data.is(OpType::Phi)
+      })
+    {
       is_dead = true;
-      
+
       // Update the terminators of preds.
       let bb = &self.get_func(func_id).cfg[bb_id];
       let succ_id = bb.succs[0].0;
@@ -258,24 +274,43 @@ impl<'a> SimplifyCFG<'a> {
         let phi_op = &self.get_func_mut(func_id).dfg[phi_id];
         if let OpData::Phi { incomings } = phi_op.data.clone() {
           for incoming in incomings {
-            if let PhiIncoming::Data { bb: incoming_bb, value } = incoming {
-              // Check whether the value comes from trampoline.
+            if let PhiIncoming::Data {
+              bb: incoming_bb,
+              value,
+            } = incoming
+            {
+              // Cut off the old edge first.
               if incoming_bb == bb_id {
                 self.slay_phi_incoming(phi_id, bb_id);
               }
+              // Check whether the value comes from trampoline.
               let new_incomings = if self.op_to_bb[value.get_op_id()] == bb_id {
                 let tramp_phi = &self.get_func_mut(func_id).dfg[value];
-                if let OpData::Phi { incomings: tramp_incomings } = tramp_phi.data.clone() {
+                if let OpData::Phi {
+                  incomings: tramp_incomings,
+                } = tramp_phi.data.clone()
+                {
                   tramp_incomings
                 } else {
                   unreachable!()
                 }
               } else {
                 let bb = &self.get_func(func_id).cfg[bb_id];
-                bb.preds.iter().map(|(pred_id, _)| PhiIncoming::Data { bb: *pred_id, value }).collect::<Vec<PhiIncoming>>()
+                bb.preds
+                  .iter()
+                  .map(|(pred_id, _)| PhiIncoming::Data {
+                    bb: *pred_id,
+                    value,
+                  })
+                  .collect::<Vec<PhiIncoming>>()
               };
+              // Append new edges.
               for incoming in new_incomings {
-                if let PhiIncoming::Data { bb: incoming_bb, value: incoming_value } = incoming {
+                if let PhiIncoming::Data {
+                  bb: incoming_bb,
+                  value: incoming_value,
+                } = incoming
+                {
                   self.append_phi_incoming(phi_id, incoming_bb, incoming_value);
                 } else {
                   unreachable!()

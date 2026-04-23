@@ -94,7 +94,7 @@ fn main() -> Result<()> {
     .register(Box::new(Mem2Reg::default()))
     .register(Box::new(RemoveTrivialPhi::default()))
     .register(Box::new(SCCP::default()))
-    // .register(Box::new(SimplifyCFG::default()))
+    .register(Box::new(SimplifyCFG::default()))
     .register(Box::new(RemoveTrivialPhi::default()))
     .register(Box::new(GVN::default()))
     .register(Box::new(DCE::default()))

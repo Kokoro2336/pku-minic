@@ -403,7 +403,7 @@ impl BackIR {
       let current_block = if let Some(block) = &builder.current_block {
         block.get_bb_id()
       } else {
-        panic!("BackIR create: current_block is None");
+        unreachable!()
       };
       let bb = &mut cfg[current_block];
 
@@ -428,15 +428,9 @@ impl BackIR {
       }
     };
 
-    #[cfg(feature = "debug")]
-
-    crate::debug::info!("Created op {:?} in block {:?}", op_id, current_block);
-
     self.bind(Some(current_function), op_id);
     self.add_uses(Some(current_function), op_id);
-    let current_block = builder
-      .current_block
-      .unwrap_or_else(|| panic!("BackIR create: current_block is None"));
+    let current_block = builder.current_block.unwrap();
     self.add_control_flow(Some(current_function), op_id, current_block);
     op_id
   }
