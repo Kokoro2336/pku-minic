@@ -319,7 +319,7 @@ impl Lowering {
         Type::Bool | Type::Int | Type::Pointer { .. } => Reg::X(x_params.remove(0)),
         Type::Array { .. } | Type::Function { .. } | Type::Void | Type::Char => {
           unreachable!(
-            "Array, Function, Void and Char type should not be directly passed as parameters"
+            "Unexpected type: {:?}", param_type
           )
         }
       })
@@ -585,7 +585,7 @@ impl Lowering {
                         Type::Float => Reg::F(FReg::Fa0),
                         Type::Bool | Type::Int | Type::Pointer { .. } => Reg::X(XReg::A0),
                         Type::Array { .. } | Type::Function { .. } | Type::Void | Type::Char => {
-                            unreachable!("Array, Function, Void and Char type should not be directly returned")
+                            unreachable!("Unexpected return type: {:?}", ret_typ)
                         }
                     };
                     self.create_and_map_lop(
@@ -693,7 +693,7 @@ impl Lowering {
                         Type::Float => Reg::F(FReg::Fa0),
                         Type::Bool | Type::Int | Type::Pointer { .. } => Reg::X(XReg::A0),
                         Type::Array { .. } | Type::Function { .. } | Type::Void | Type::Char => {
-                            unreachable!("Array, Function, Void and Char type should not be directly returned")
+                            unreachable!("Unexpected return type: {:?}", move_typ)
                         }
                     };
                     self.create(BOp::new(

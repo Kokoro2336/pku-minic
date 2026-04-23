@@ -3,7 +3,7 @@
 //! Reference: https://dl.acm.org/doi/10.1145/103135.103136
 
 use yachiyo::base::Type;
-use yachiyo::ir::mid::{Builder, Op, OpData, OpType, Operand, PhiIncoming, IR, Function};
+use yachiyo::ir::mid::{Builder, Function, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::Pass;
 use yachiyo::utils::arena::ArenaItem;
 use yachiyo::utils::r#match::match_src;
@@ -95,18 +95,26 @@ impl<'a> SCCP<'a> {
   #[inline(always)]
   fn slay_phi_incoming(&mut self, phi_id: Operand, bb_id: Operand) {
     let func_id = self.builder.current_function;
-    self.program.as_deref_mut().unwrap().slay_phi_incoming(func_id, phi_id, bb_id);
+    self
+      .program
+      .as_deref_mut()
+      .unwrap()
+      .slay_phi_incoming(func_id, phi_id, bb_id);
   }
 
   #[inline(always)]
-  fn get_func(&self, func_id: Operand) -> &yachiyo::ir::mid::Function {
+  fn get_func(&self, func_id: Operand) -> &Function {
     &self.program.as_ref().unwrap().funcs[func_id]
   }
 
   #[inline(always)]
   fn get_all_ops_in_block(&self, bb_id: Operand, op_typ: OpType) -> Vec<Operand> {
     let func_id = self.builder.current_function;
-    self.program.as_ref().unwrap().get_all_ops_in_block(func_id, bb_id, op_typ)
+    self
+      .program
+      .as_ref()
+      .unwrap()
+      .get_all_ops_in_block(func_id, bb_id, op_typ)
   }
 
   fn fold(lhs: Lattice, rhs: Lattice, op_typ: OpType) -> Lattice {
@@ -509,7 +517,11 @@ impl<'a> SCCP<'a> {
         match cond_lattice {
           Lattice::Constant(c) => {
             if let Operand::Bool(b) = c {
-              let (target_bb, other_bb) = if b { (then_bb, else_bb) } else { (else_bb, then_bb) };
+              let (target_bb, other_bb) = if b {
+                (then_bb, else_bb)
+              } else {
+                (else_bb, then_bb)
+              };
               let bb_id = self.op_to_bb[br_op.get_op_id()];
               let current_function = self.builder.current_function;
               self.program.as_deref_mut().unwrap().replace_op(

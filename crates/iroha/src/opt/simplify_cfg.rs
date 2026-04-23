@@ -161,6 +161,29 @@ impl<'a> SimplifyCFG<'a> {
         }
       }
 
+      // Slay phi incomings in successor blocks first to avoid dangling phi incomings after removing control flow edges.
+      let bb = &self.get_func(func_id).cfg[bb_id];
+      for (succ_id, _) in bb.succs.clone() {
+        let succ_phis = self.get_all_ops_in_block(succ_id, OpType::Phi);
+        for phi_id in succ_phis {
+          let phi_op = self.get_func(func_id).dfg[phi_id].data.clone();
+          if let OpData::Phi { incomings } = phi_op {
+            for incoming in incomings {
+              if let PhiIncoming::Data {
+                bb: incoming_bb, ..
+              } = incoming
+              {
+                if incoming_bb == bb_id {
+                  self.slay_phi_incoming(phi_id, bb_id);
+                }
+              }
+            }
+          } else {
+            unreachable!()
+          }
+        }
+      }
+
       self.remove_control_flow(*last, bb_id);
     }
     // Remove the uses of normal instructions
@@ -222,12 +245,13 @@ impl<'a> SimplifyCFG<'a> {
       for (succ_id, _) in bb.succs.clone() {
         let succ_phis = self.get_all_ops_in_block(succ_id, OpType::Phi);
         for phi_id in succ_phis {
-          let phi_op = &mut self.get_func_mut(func_id).dfg[phi_id];
-          if let OpData::Phi { incomings } = &mut phi_op.data {
-            for incoming in incomings.iter_mut() {
-              if let PhiIncoming::Data { bb, .. } = incoming {
-                if *bb == bb_id {
-                  *bb = pred_id;
+          let phi_op_data = self.get_func(func_id).dfg[phi_id].data.clone();
+          if let OpData::Phi { incomings } = phi_op_data {
+            for incoming in incomings {
+              if let PhiIncoming::Data { bb, value } = incoming {
+                if bb == bb_id {
+                  self.slay_phi_incoming(phi_id, bb_id);
+                  self.append_phi_incoming(phi_id, pred_id, value);
                 }
               }
             }
@@ -238,10 +262,25 @@ impl<'a> SimplifyCFG<'a> {
       }
     // Case 2: 1 succ and the block has only terminator and phi nodes.
     } else if bb.succs.len() == 1
+      && bb.preds.iter().all(|(pred_id, _)| {
+        let pred = &self.get_func(func_id).cfg[*pred_id];
+        pred.succs.len() == 1 && *pred_id != bb_id
+      })
       && bb.cur.iter().all(|inst_id| {
         let dfg = &self.get_func(func_id).dfg;
-        let op_data = &dfg[*inst_id].data;
-        op_data.is_terminator() || op_data.is(OpType::Phi)
+        let succs = &bb.succs;
+        let op = &dfg[*inst_id];
+        let (op_data, users) = (&op.data, &op.users);
+        if op_data.is_terminator() {
+          true
+        } else if let OpData::Phi { .. } = op_data {
+          users.iter().all(|(user, _)| {
+            let bb_id = self.op_to_bb[user.get_op_id()];
+            succs[0].0 == bb_id && self.get_func(func_id).dfg[*user].data.is(OpType::Phi)
+          })
+        } else {
+          false
+        }
       })
       && bb.succs[0].0 != bb_id
     {
