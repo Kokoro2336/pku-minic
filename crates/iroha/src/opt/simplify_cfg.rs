@@ -3,7 +3,7 @@
 use yachiyo::analysis::analyze;
 use yachiyo::ir::mid::{Builder, Function, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::Pass;
-use yachiyo::utils::arena::Arena;
+use yachiyo::utils::arena::{Arena, ArenaItem};
 use yachiyo::utils::r#match::match_some;
 use yachiyo::utils::set::BitSet;
 use yachiyo::utils::worklist::WorklistTrait;
@@ -146,11 +146,28 @@ impl<'a> SimplifyCFG<'a> {
   fn isolate_dead(&mut self, bb_id: Operand) {
     let func_id = self.builder.current_function.unwrap();
     let cur = self.get_func(func_id).cfg[bb_id].cur.clone();
-    // Remove control flow edges.
-    if let Some(last) = cur.last() {
-      self.remove_control_flow(*last, bb_id);
+    let succs = self.get_func(func_id).cfg[bb_id].succs.clone();
+    {
+      let func = self.get_func_mut(func_id);
+      for item in func.dfg.storage.iter_mut() {
+        if let ArenaItem::Data(op) = item {
+          op.users.clear();
+        }
+      }
     }
-    // Remove the uses of normal instructions
+    let blocks = self
+      .get_func(func_id)
+      .cfg
+      .collect()
+      .into_iter()
+      .map(|bb| self.get_func(func_id).cfg[Operand::BB(bb)].cur.clone())
+      .collect::<Vec<_>>();
+    for ops in blocks {
+      for op_id in ops {
+        self.ir.as_deref_mut().unwrap().add_uses(Some(func_id), op_id);
+      }
+    }
+
     for inst in cur.iter().rev() {
       let src_tuple = self
         .get_src_tuple(*inst)
@@ -159,27 +176,48 @@ impl<'a> SimplifyCFG<'a> {
         .collect::<Vec<_>>();
       let dfg = &mut self.get_func_mut(func_id).dfg;
       for (src, idx) in src_tuple {
-        // remove the use of src in inst
         dfg.remove_use(src, (*inst, idx));
       }
-      // CAUTION: If the users of the instruction are phi nodes, we need to slay the edge.
       for (user, _) in dfg[*inst].users.clone() {
         let dfg = &self.get_func_mut(func_id).dfg;
         let op_data = dfg[user].data.clone();
         if let OpData::Phi { incomings } = op_data {
           for incoming in incomings {
-            if let PhiIncoming::Data { value, .. } = incoming {
+            if let PhiIncoming::Data { value, bb: incoming_bb } = incoming {
               if value == *inst {
-                self.slay_phi_incoming(user, bb_id);
+                self.slay_phi_incoming(user, incoming_bb);
               }
             }
           }
         }
       }
-      // RAUW the users
       self.replace_all_uses(*inst, Operand::Undefined);
     }
-    // Update the block as processed dead.
+
+    for (succ_id, _) in succs {
+      let succ_phis = self.get_all_ops_in_block(succ_id, OpType::Phi);
+      for phi_id in succ_phis {
+        loop {
+          let op_data = self.get_func(func_id).dfg[phi_id].data.clone();
+          let has_incoming = if let OpData::Phi { incomings } = op_data {
+            incomings.iter().any(|incoming| {
+              matches!(incoming, PhiIncoming::Data { bb, .. } if *bb == bb_id)
+            })
+          } else {
+            false
+          };
+          if !has_incoming {
+            break;
+          }
+          self.slay_phi_incoming(phi_id, bb_id);
+        }
+      }
+    }
+
+    if let Some(last) = cur.last() {
+      self.remove_control_flow(*last, bb_id);
+    }
+
     self.processed.insert(bb_id.get_bb_id());
   }
 
@@ -256,10 +294,11 @@ impl<'a> SimplifyCFG<'a> {
           if let OpData::Phi { incomings } = phi_op_data {
             for incoming in incomings {
               if let PhiIncoming::Data { bb, value } = incoming {
-                if bb == bb_id {
-                  self.slay_phi_incoming(phi_id, bb_id);
-                  self.append_phi_incoming(phi_id, pred_id, value);
+                if bb != bb_id {
+                  continue;
                 }
+                self.slay_phi_incoming(phi_id, bb_id);
+                self.append_phi_incoming(phi_id, pred_id, value);
               }
             }
           } else {
@@ -349,11 +388,10 @@ impl<'a> SimplifyCFG<'a> {
               value,
             } = incoming
             {
-              // Cut off the old edge first.
-              if incoming_bb == bb_id {
-                self.slay_phi_incoming(phi_id, bb_id);
+              if incoming_bb != bb_id {
+                continue;
               }
-              // Check whether the value comes from trampoline.
+              self.slay_phi_incoming(phi_id, bb_id);
               let new_incomings = if matches!(value, Operand::Value(_))
                 && self.op_to_bb[value.get_op_id()] == bb_id
               {
@@ -376,7 +414,6 @@ impl<'a> SimplifyCFG<'a> {
                   })
                   .collect::<Vec<PhiIncoming>>()
               };
-              // Append new edges.
               for incoming in new_incomings {
                 if let PhiIncoming::Data {
                   bb: incoming_bb,
@@ -402,7 +439,6 @@ impl<'a> SimplifyCFG<'a> {
 
   fn rewrite(&mut self) {
     let func_id = self.builder.current_function.unwrap();
-    // Run reachability analysis
     let visited = analyze::<Reachability>(self.get_func(func_id));
     let dead_blocks = self
       .get_func(func_id)
@@ -412,7 +448,6 @@ impl<'a> SimplifyCFG<'a> {
       .map(Operand::BB)
       .collect::<Vec<Operand>>();
 
-    // Process unreachable blocks which is not processed in simplify step.
     for bb_id in dead_blocks.iter() {
       if self.processed.contains(bb_id.get_bb_id()) {
         continue;
@@ -420,7 +455,6 @@ impl<'a> SimplifyCFG<'a> {
       self.isolate_dead(*bb_id);
     }
 
-    // Remove the instructions in dead blocks directly by dfg.
     for bb_id in dead_blocks.iter() {
       let cur = self.get_func(func_id).cfg[*bb_id].cur.clone();
       let dfg = &mut self.get_func_mut(func_id).dfg;
@@ -429,10 +463,29 @@ impl<'a> SimplifyCFG<'a> {
       }
     }
 
-    // Remove the blocks directly by cfg.
     for bb_id in dead_blocks.iter() {
-      // remove the block from cfg
       self.get_func_mut(func_id).cfg.remove(bb_id.get_bb_id());
+    }
+
+    {
+      let func = self.get_func_mut(func_id);
+      for item in func.dfg.storage.iter_mut() {
+        if let ArenaItem::Data(op) = item {
+          op.users.clear();
+        }
+      }
+    }
+    let blocks = self
+      .get_func(func_id)
+      .cfg
+      .collect()
+      .into_iter()
+      .map(|bb| self.get_func(func_id).cfg[Operand::BB(bb)].cur.clone())
+      .collect::<Vec<_>>();
+    for ops in blocks {
+      for op_id in ops {
+        self.ir.as_deref_mut().unwrap().add_uses(Some(func_id), op_id);
+      }
     }
   }
 }
