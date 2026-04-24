@@ -339,9 +339,9 @@ impl<'a> SimplifyCFG<'a> {
       let succ_id = bb.succs[0].0;
       let preds = bb.preds.clone();
 
-      for (pred_id, _) in preds {
+      for (pred_id, _) in preds.iter() {
         let cfg = &mut self.get_func_mut(func_id).cfg;
-        let pred = &mut cfg[pred_id];
+        let pred = &mut cfg[*pred_id];
         let pred_term = match pred.cur.last() {
           Some(id) => *id,
           None => unreachable!(),
@@ -374,7 +374,7 @@ impl<'a> SimplifyCFG<'a> {
             unreachable!()
           }
         }
-        self.replace_op(pred_term, pred_id, pred_term_op);
+        self.replace_op(pred_term, *pred_id, pred_term_op);
       }
 
       // Update the phi nodes in successor block.
@@ -405,8 +405,7 @@ impl<'a> SimplifyCFG<'a> {
                   unreachable!()
                 }
               } else {
-                let bb = &self.get_func(func_id).cfg[bb_id];
-                bb.preds
+                preds
                   .iter()
                   .map(|(pred_id, _)| PhiIncoming::Data {
                     bb: *pred_id,
