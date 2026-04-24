@@ -911,7 +911,7 @@ impl IndexedArena<Op> {
   /// - old: the old use we want to replace with e.g. %1 in "add %1, %2"
   /// - new: the new use we want to replace with e.g. %3 in "add %3, %2"
   pub fn replace_use(&mut self, op_tuple: (Operand, usize), old: Operand, new: Operand) {
-    let op_id = op_tuple.0;
+    let (op_id, operand_idx) = op_tuple;
     let op_id = match_some! {
         target: op_id,
         enu: Operand,
@@ -925,8 +925,8 @@ impl IndexedArena<Op> {
         uni_arm: return
     };
     let src_tuples = self.get_src_tuple_mut(Operand::Value(op_id));
-    for (src, _) in src_tuples {
-      if *src == old {
+    for (src, idx) in src_tuples {
+      if *src == old && idx == operand_idx {
         *src = new;
       }
     }

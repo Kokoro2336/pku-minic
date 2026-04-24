@@ -59,6 +59,16 @@ impl<'a> SimplifyCFG<'a> {
   }
 
   #[inline(always)]
+  fn replace_all_uses(&mut self, old: Operand, new: Operand) {
+    let func_id = self.builder.current_function;
+    self
+      .ir
+      .as_deref_mut()
+      .unwrap()
+      .replace_all_uses(func_id, old, new);
+  }
+
+  #[inline(always)]
   fn get_src_tuple(&self, op_id: Operand) -> Vec<(&Operand, usize)> {
     let func_id = self.builder.current_function;
     self.ir.as_ref().unwrap().get_src_tuple(func_id, op_id)
@@ -133,57 +143,11 @@ impl<'a> SimplifyCFG<'a> {
   }
 
   /// Cut off data flow and control flow edges of dead blocks.
-  fn process_dead(&mut self, bb_id: Operand) {
+  fn isolate_dead(&mut self, bb_id: Operand) {
     let func_id = self.builder.current_function.unwrap();
     let cur = self.get_func(func_id).cfg[bb_id].cur.clone();
-
     // Remove control flow edges.
     if let Some(last) = cur.last() {
-      let dfg = &mut self.get_func_mut(func_id).dfg;
-      let last_op_data = &dfg[*last].data;
-      assert!(last_op_data.is_terminator());
-
-      // CAUTION: If the block is the entry, we should set the entry to its succ.
-      if self.get_func(func_id).cfg.entry == Some(bb_id.get_bb_id()) {
-        let succs = self.get_func(func_id).cfg[bb_id].succs.clone();
-        // If there are multiple successors, the entry can't be eliminated.
-        if succs.len() > 1 {
-          return;
-        }
-        if let Some((new_entry, _)) = succs.first() {
-          self
-            .get_func_mut(func_id)
-            .cfg
-            .set_entry(Some(new_entry.get_bb_id()));
-        } else {
-          // If there is no successor, we can just set entry to None. It doesn't matter since the function is dead.
-          self.get_func_mut(func_id).cfg.set_entry(None);
-        }
-      }
-
-      // Slay phi incomings in successor blocks first to avoid dangling phi incomings after removing control flow edges.
-      let bb = &self.get_func(func_id).cfg[bb_id];
-      for (succ_id, _) in bb.succs.clone() {
-        let succ_phis = self.get_all_ops_in_block(succ_id, OpType::Phi);
-        for phi_id in succ_phis {
-          let phi_op = self.get_func(func_id).dfg[phi_id].data.clone();
-          if let OpData::Phi { incomings } = phi_op {
-            for incoming in incomings {
-              if let PhiIncoming::Data {
-                bb: incoming_bb, ..
-              } = incoming
-              {
-                if incoming_bb == bb_id {
-                  self.slay_phi_incoming(phi_id, bb_id);
-                }
-              }
-            }
-          } else {
-            unreachable!()
-          }
-        }
-      }
-
       self.remove_control_flow(*last, bb_id);
     }
     // Remove the uses of normal instructions
@@ -195,11 +159,54 @@ impl<'a> SimplifyCFG<'a> {
         .collect::<Vec<_>>();
       let dfg = &mut self.get_func_mut(func_id).dfg;
       for (src, idx) in src_tuple {
+        // remove the use of src in inst
         dfg.remove_use(src, (*inst, idx));
       }
+      // CAUTION: If the users of the instruction are phi nodes, we need to slay the edge.
+      for (user, _) in dfg[*inst].users.clone() {
+        let dfg = &self.get_func_mut(func_id).dfg;
+        let op_data = dfg[user].data.clone();
+        if let OpData::Phi { incomings } = op_data {
+          for incoming in incomings {
+            if let PhiIncoming::Data { value, .. } = incoming {
+              if value == *inst {
+                self.slay_phi_incoming(user, bb_id);
+              }
+            }
+          }
+        }
+      }
+      // RAUW the users
+      self.replace_all_uses(*inst, Operand::Undefined);
     }
     // Update the block as processed dead.
     self.processed.insert(bb_id.get_bb_id());
+  }
+
+  fn process_moved_instructions(
+    &mut self,
+    op_id: Operand,
+    from_bb: Operand,
+    to_bb: Operand,
+    before_op: Option<Operand>,
+  ) {
+    self.move_op_to_bb_at(op_id, from_bb, to_bb, before_op);
+    // If a user of the moved instruction is a phi node in the original block, we need to update the phi node to point to the new block.
+    let func_id = self.builder.current_function.unwrap();
+    let users = self.get_func(func_id).dfg[op_id].users.clone();
+    for (user, _) in users {
+      let user_op_data = self.get_func(func_id).dfg[user].data.clone();
+      if let OpData::Phi { incomings } = user_op_data {
+        for incoming in incomings {
+          if let PhiIncoming::Data { bb, .. } = incoming {
+            if bb == from_bb {
+              self.slay_phi_incoming(user, from_bb);
+              self.append_phi_incoming(user, to_bb, op_id);
+            }
+          }
+        }
+      }
+    }
   }
 
   pub fn simplify(&mut self, bb_id: Operand) {
@@ -225,7 +232,7 @@ impl<'a> SimplifyCFG<'a> {
 
       // It's impossible that such block contains any phi nodes.
       for inst in cur.iter().take(cur.len() - 1) {
-        self.move_op_to_bb_at(*inst, bb_id, pred_id, Some(pred_term_id));
+        self.process_moved_instructions(*inst, bb_id, pred_id, Some(pred_term_id));
       }
 
       // Replace the terminator of the predecessor with the terminator of the current block.
@@ -283,6 +290,8 @@ impl<'a> SimplifyCFG<'a> {
         }
       })
       && bb.succs[0].0 != bb_id
+      // Ignore entry block.
+      && bb_id != Operand::BB(self.get_func(func_id).cfg.entry.unwrap())
     {
       is_dead = true;
 
@@ -387,11 +396,11 @@ impl<'a> SimplifyCFG<'a> {
 
     // Process dead on the fly
     if is_dead {
-      self.process_dead(bb_id);
+      self.isolate_dead(bb_id);
     }
   }
 
-  pub fn rewrite(&mut self) {
+  fn rewrite(&mut self) {
     let func_id = self.builder.current_function.unwrap();
     // Run reachability analysis
     let visited = analyze::<Reachability>(self.get_func(func_id));
@@ -408,7 +417,7 @@ impl<'a> SimplifyCFG<'a> {
       if self.processed.contains(bb_id.get_bb_id()) {
         continue;
       }
-      self.process_dead(*bb_id);
+      self.isolate_dead(*bb_id);
     }
 
     // Remove the instructions in dead blocks directly by dfg.
@@ -416,7 +425,6 @@ impl<'a> SimplifyCFG<'a> {
       let cur = self.get_func(func_id).cfg[*bb_id].cur.clone();
       let dfg = &mut self.get_func_mut(func_id).dfg;
       for inst in cur.iter().rev() {
-        // Remove the uses
         dfg.remove(inst.get_op_id());
       }
     }

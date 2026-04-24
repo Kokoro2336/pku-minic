@@ -318,9 +318,7 @@ impl Lowering {
         Type::Float => Reg::F(f_params.remove(0)),
         Type::Bool | Type::Int | Type::Pointer { .. } => Reg::X(x_params.remove(0)),
         Type::Array { .. } | Type::Function { .. } | Type::Void | Type::Char => {
-          unreachable!(
-            "Unexpected type: {:?}", param_type
-          )
+          unreachable!("Unexpected type: {:?}", param_type)
         }
       })
       .collect::<Vec<Reg>>()
