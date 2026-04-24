@@ -2,6 +2,7 @@
 
 #[cfg(feature = "debug")]
 use crate::debug::info;
+
 use crate::ir::back::{
   BBasicBlock, BOp, BOpData, BOperand, FrameInfo, LOpData, MOpData, Reg, VirtReg, BCFG, BDFG,
 };
@@ -96,13 +97,13 @@ impl VRegs {
   pub fn add_use(&mut self, vreg_id: BOperand, use_op_id: (BOperand, usize)) {
     #[cfg(feature = "debug")]
     crate::debug::info!("Add use {:?} to vreg {:?}", use_op_id, vreg_id);
+
     let op_id = match_some! {
         target: vreg_id,
         enu: BOperand,
         minor_arms: {
             BOperand::Reg(Reg::Virt(id)) => id,
-            BOperand::Reg(Reg::X(_))
-            | BOperand::Reg(Reg::F(_)) => return,
+            BOperand::Reg(Reg::X(_) | Reg::F(_)) => return,
         },
         uni_ops: [IntImm, FloatImm, Func, Inst, Slot, Data, RoData, Bss, BB, Undef],
         uni_arm: return
@@ -120,8 +121,7 @@ impl VRegs {
         enu: BOperand,
         minor_arms: {
             BOperand::Reg(Reg::Virt(id)) => id,
-            BOperand::Reg(Reg::X(_))
-            | BOperand::Reg(Reg::F(_)) => return,
+            BOperand::Reg(Reg::X(_) | Reg::F(_)) => return,
         },
         uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, Bss, BB, Undef],
         uni_arm: return
@@ -143,8 +143,7 @@ impl VRegs {
         enu: BOperand,
         minor_arms: {
             BOperand::Reg(Reg::Virt(id)) => id,
-            BOperand::Reg(Reg::X(_))
-            | BOperand::Reg(Reg::F(_)) => return,
+            BOperand::Reg(Reg::X(_) | Reg::F(_)) => return,
         },
         uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, Bss, BB, Undef],
         uni_arm: return

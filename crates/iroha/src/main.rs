@@ -45,7 +45,7 @@ fn main() -> Result<()> {
       .parse(&mut parser, &input_str)
       .unwrap();
     // set entry point to the root of the AST
-    parser.ast.set_entry(root_id);
+    parser.ast.set_entry(Some(root_id));
     // Clean up the AST.
     parser.ast.gc();
     parser.take()
@@ -94,6 +94,8 @@ fn main() -> Result<()> {
     .register(Box::new(Mem2Reg::default()))
     .register(Box::new(RemoveTrivialPhi::default()))
     .register(Box::new(SCCP::default()))
+    .register(Box::new(RemoveTrivialPhi::default()))
+    .register(Box::new(SimplifyCFG::default()))
     .register(Box::new(RemoveTrivialPhi::default()))
     .register(Box::new(GVN::default()))
     .register(Box::new(DCE::default()))

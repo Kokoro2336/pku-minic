@@ -3,8 +3,8 @@
 use yachiyo::analysis::analyze;
 use yachiyo::ir::mid::{Builder, Function, OpData, Operand, PhiIncoming, IR};
 use yachiyo::pass::Pass;
-use yachiyo::utils::table::SymbolTable;
 use yachiyo::utils::set::BitSet;
+use yachiyo::utils::table::SymbolTable;
 
 use crate::analysis::{DomAnalysis, DomTree};
 
@@ -168,7 +168,6 @@ impl GVN<'_> {
     // Post-order traversal.
     self.dfs_post_order.push(bb_id);
   }
-
 
   #[inline(always)]
   fn replace_all_uses(&mut self, old: Operand, new: Operand) {

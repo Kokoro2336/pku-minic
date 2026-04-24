@@ -81,15 +81,17 @@ where
     idx
   }
 
-  pub fn set_entry(&mut self, idx: usize) {
-    if idx >= self.storage.len() {
-      panic!(
-        "IndexedArena set_entry: index {} out of bounds, len: {}",
-        idx,
-        self.storage.len()
-      );
+  pub fn set_entry(&mut self, idx: Option<usize>) {
+    if let Some(idx) = idx {
+      if idx >= self.storage.len() {
+        panic!(
+          "IndexedArena set_entry: index {} out of bounds, len: {}",
+          idx,
+          self.storage.len()
+        );
+      }
     }
-    self.entry = Some(idx);
+    self.entry = idx;
   }
 
   pub fn get_by_name(&self, name: String) -> Option<&T> {
