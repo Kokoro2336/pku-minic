@@ -130,17 +130,17 @@ impl BackIR {
     vregs.add_def(new_operand, inst_id);
 
     // Replace the old_vreg_id with new_operand in all uses.
-    for use_tuple in uses {
-      let src = self.get_src_mut(current_function, use_tuple.0);
-      for operand in src {
-        if *operand == old_vreg_id {
+    for (user, use_idx) in uses {
+      let src = self.get_src_tuple_mut(current_function, user);
+      for (operand, operand_idx) in src {
+        if *operand == old_vreg_id && operand_idx == use_idx {
           *operand = new_operand;
         }
       }
 
       let vregs = &mut self.funcs[current_function.unwrap()].vregs;
-      vregs.remove_use(old_vreg_id, use_tuple);
-      vregs.add_use(new_operand, use_tuple);
+      vregs.remove_use(old_vreg_id, (user, use_idx));
+      vregs.add_use(new_operand, (user, use_idx));
     }
   }
 

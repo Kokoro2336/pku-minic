@@ -58,8 +58,8 @@ impl IR {
   ) {
     let current_function = current_function.unwrap();
     let dfg = &mut self.funcs[current_function].dfg;
-    let uses = dfg[old.get_op_id()].users.clone();
-    for use_op in uses {
+    let users = dfg[old.get_op_id()].users.clone();
+    for use_op in users {
       dfg.replace_use(use_op, old, new);
     }
   }
