@@ -125,11 +125,16 @@ impl<'a> SimplifyCFG<'a> {
   #[inline(always)]
   fn replace_op(&mut self, op_id: Operand, bb_id: Operand, new_op: Op) -> Operand {
     let func_id = self.builder.current_function;
-    self
-      .ir
-      .as_mut()
-      .unwrap()
-      .replace_op(&mut self.builder, func_id, op_id, bb_id, new_op)
+    let new_op_id =
+      self
+        .ir
+        .as_mut()
+        .unwrap()
+        .replace_op(&mut self.builder, func_id, op_id, bb_id, new_op);
+    // Update op_to_bb mapping.
+    self.op_to_bb[new_op_id.get_op_id()] = bb_id;
+    self.op_to_bb[op_id.get_op_id()] = Operand::Undefined;
+    new_op_id
   }
 
   #[inline(always)]
@@ -164,7 +169,11 @@ impl<'a> SimplifyCFG<'a> {
       .collect::<Vec<_>>();
     for ops in blocks {
       for op_id in ops {
-        self.ir.as_deref_mut().unwrap().add_uses(Some(func_id), op_id);
+        self
+          .ir
+          .as_deref_mut()
+          .unwrap()
+          .add_uses(Some(func_id), op_id);
       }
     }
 
@@ -183,7 +192,11 @@ impl<'a> SimplifyCFG<'a> {
         let op_data = dfg[user].data.clone();
         if let OpData::Phi { incomings } = op_data {
           for incoming in incomings {
-            if let PhiIncoming::Data { value, bb: incoming_bb } = incoming {
+            if let PhiIncoming::Data {
+              value,
+              bb: incoming_bb,
+            } = incoming
+            {
               if value == *inst {
                 self.slay_phi_incoming(user, incoming_bb);
               }
@@ -200,9 +213,9 @@ impl<'a> SimplifyCFG<'a> {
         loop {
           let op_data = self.get_func(func_id).dfg[phi_id].data.clone();
           let has_incoming = if let OpData::Phi { incomings } = op_data {
-            incomings.iter().any(|incoming| {
-              matches!(incoming, PhiIncoming::Data { bb, .. } if *bb == bb_id)
-            })
+            incomings
+              .iter()
+              .any(|incoming| matches!(incoming, PhiIncoming::Data { bb, .. } if *bb == bb_id))
           } else {
             false
           };
@@ -483,7 +496,11 @@ impl<'a> SimplifyCFG<'a> {
       .collect::<Vec<_>>();
     for ops in blocks {
       for op_id in ops {
-        self.ir.as_deref_mut().unwrap().add_uses(Some(func_id), op_id);
+        self
+          .ir
+          .as_deref_mut()
+          .unwrap()
+          .add_uses(Some(func_id), op_id);
       }
     }
   }
@@ -502,6 +519,7 @@ impl<'a> Pass<'a> for SimplifyCFG<'a> {
       let func_id = Operand::Func(func_id);
       self.init(func_id);
 
+      // TODO: fixed point iteration.
       let mut dfs = self.get_func(func_id).dpo();
       // Reverse post order
       while let Some(bb_id) = dfs.pop_back() {
