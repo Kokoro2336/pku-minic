@@ -132,6 +132,9 @@ impl<'a> SimplifyCFG<'a> {
         .unwrap()
         .replace_op(&mut self.builder, func_id, op_id, bb_id, new_op);
     // Update op_to_bb mapping.
+    if new_op_id.get_op_id() >= self.op_to_bb.len() {
+      self.op_to_bb.resize(new_op_id.get_op_id() + 1, Operand::Undefined);
+    }
     self.op_to_bb[new_op_id.get_op_id()] = bb_id;
     self.op_to_bb[op_id.get_op_id()] = Operand::Undefined;
     new_op_id
