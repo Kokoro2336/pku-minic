@@ -96,6 +96,8 @@ fn main() -> Result<()> {
     .register(Box::new(SCCP::default()))
     .register(Box::new(SimplifyCFG::default()))
     .register(Box::new(RemoveTrivialPhi::default()))
+    .register(Box::new(LoopSimplify::default()))
+    .register(Box::new(RemoveTrivialPhi::default()))
     .register(Box::new(GVN::default()))
     .register(Box::new(DCE::default()))
     .register(Box::new(Compaction::default()))
