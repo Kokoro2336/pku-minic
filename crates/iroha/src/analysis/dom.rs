@@ -8,8 +8,44 @@ use yachiyo::analysis::Analysis;
 use yachiyo::ir::mid::{Function, Operand};
 use yachiyo::utils::set::BitSet;
 
+use std::ops::{Index, IndexMut};
+
+#[derive(Default, Clone)]
 /// Vertex number -> its children in the dominator tree
-pub type DomTree = Vec<Vec<usize>>;
+pub struct DomTree(Vec<Vec<usize>>);
+
+impl DomTree {
+  pub fn with_len(len: usize) -> Self {
+    Self(vec![vec![]; len])
+  }
+  pub fn is_dom(&self, dominator: usize, dominatee: usize) -> bool {
+    if dominator == dominatee {
+      return true;
+    }
+    let mut stack = vec![dominator];
+    while let Some(node) = stack.pop() {
+      if node == dominatee {
+        return true;
+      }
+      stack.extend(self[node].iter().copied());
+    }
+    false
+  }
+}
+
+impl Index<usize> for DomTree {
+  type Output = Vec<usize>;
+
+  fn index(&self, index: usize) -> &Self::Output {
+    &self.0[index]
+  }
+}
+
+impl IndexMut<usize> for DomTree {
+  fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+    &mut self.0[index]
+  }
+}
 
 struct BuildDomTree<'a> {
   func: &'a Function,
@@ -222,11 +258,32 @@ impl<'a> BuildDomTree<'a> {
         dom_tree[idom].push(idx);
       }
     }
-    dom_tree
+    DomTree(dom_tree)
   }
 }
 
-pub type DomFrontier = Vec<Vec<usize>>;
+#[derive(Default, Clone)]
+pub struct DomFrontier(Vec<Vec<usize>>);
+
+impl DomFrontier {
+  pub fn with_len(len: usize) -> Self {
+    Self(vec![vec![]; len])
+  }
+}
+
+impl Index<usize> for DomFrontier {
+  type Output = Vec<usize>;
+
+  fn index(&self, index: usize) -> &Self::Output {
+    &self.0[index]
+  }
+}
+
+impl IndexMut<usize> for DomFrontier {
+  fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+    &mut self.0[index]
+  }
+}
 
 struct BuildDomFrontier<'a> {
   func: &'a Function,
@@ -240,7 +297,7 @@ impl<'a> BuildDomFrontier<'a> {
     Self {
       func,
       dom_tree,
-      frontier: vec![],
+      frontier: DomFrontier::default(),
     }
   }
 
@@ -302,7 +359,7 @@ impl<'a> BuildDomFrontier<'a> {
   #[inline(always)]
   fn init(&mut self) {
     let n = self.func.cfg.storage.len();
-    self.frontier = vec![vec![]; n];
+    self.frontier = DomFrontier::with_len(n);
   }
 
   pub fn build(&mut self) -> DomFrontier {

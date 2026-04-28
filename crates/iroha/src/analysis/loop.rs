@@ -52,20 +52,6 @@ impl LoopAnalysis<'_> {
     self.block_to_loop.resize(cfg_len, None);
   }
 
-  fn is_dom(dom_tree: &DomTree, dominator: usize, dominatee: usize) -> bool {
-    if dominator == dominatee {
-      return true;
-    }
-    let mut stack = vec![dominator];
-    while let Some(node) = stack.pop() {
-      if node == dominatee {
-        return true;
-      }
-      stack.extend(dom_tree[node].iter().copied());
-    }
-    false
-  }
-
   /// Traverse the CFG in reverse post-order and find natural loops.
   fn find_loop_header(&mut self, dom_tree: &DomTree) {
     let mut bbs_dpo = self.func.unwrap().dpo();
@@ -74,7 +60,7 @@ impl LoopAnalysis<'_> {
     while let Some(bb_id) = bbs_dpo.pop_back() {
       let bb = &self.func.unwrap().cfg[bb_id];
       for (pred_id, _) in &bb.preds {
-        if Self::is_dom(dom_tree, bb_id.get_bb_id(), pred_id.get_bb_id()) {
+        if dom_tree.is_dom(bb_id.get_bb_id(), pred_id.get_bb_id()) {
           self.loops.push(LoopData::new(bb_id));
           self.block_to_loop[bb_id.get_bb_id()] = Some(self.loops.len() - 1);
           break;
@@ -95,7 +81,7 @@ impl LoopAnalysis<'_> {
             .preds
             .iter()
             .filter(|(pred_id, _)| {
-              Self::is_dom(dom_tree, lp.header.get_bb_id(), pred_id.get_bb_id())
+              dom_tree.is_dom(lp.header.get_bb_id(), pred_id.get_bb_id())
             })
             .map(|(pred_id, _)| *pred_id),
         );
