@@ -1,11 +1,12 @@
 //! SSA construction & Mem2Reg based on Cytron et al. 1991's algorithm.
 //! Reference: https://dl.acm.org/doi/pdf/10.1145/75277.75280
 
+#[cfg(feature = "debug")]
+use yachiyo::debug::info;
+
 use crate::analysis::{DomAnalysis, DomFrontier, DomTree};
 use yachiyo::analysis::analyze;
 use yachiyo::base::Type;
-#[cfg(feature = "debug")]
-use yachiyo::debug::info;
 use yachiyo::ir::mid::{Attr, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::ir::mid::{Builder, BuilderGuard};
 use yachiyo::pass::Pass;
@@ -580,19 +581,32 @@ impl<'a> Pass<'a> for Mem2Reg<'a> {
     self.program = Some(program);
   }
   fn run(&mut self) {
-    let program = self.program.as_mut().unwrap();
-    let (dom_trees, frontiers) = analyze::<DomAnalysis>(program);
+    let func_num = self.program.as_ref().unwrap().funcs.len();
+    let (mut dom_trees, mut frontiers) = (vec![vec![]; func_num], vec![vec![]; func_num]);
+
+    for func_id in self.program.as_ref().unwrap().funcs.collect_internal() {
+      let func_id = Operand::Func(func_id);
+      let func = &self.program.as_ref().unwrap().funcs[func_id];
+      let (dom_tree, frontier) = analyze::<DomAnalysis>(func);
+      dom_trees[func_id.get_func_id()] = dom_tree;
+      frontiers[func_id.get_func_id()] = frontier;
+    }
+
+    let program = self.program.as_deref_mut().unwrap();
 
     // 3. Insert Phi nodes
     #[cfg(feature = "debug")]
     info!("Start inserting phi nodes.");
+
     InsertPhi::new(program, frontiers).run();
+
     #[cfg(feature = "debug")]
     info!("Phi nodes inserted.");
 
     // 4. Rename variables
     #[cfg(feature = "debug")]
     info!("Start renaming variables.");
+
     let mut renamer = Renaming::new(program, dom_trees);
     renamer.run();
     #[cfg(feature = "debug")]

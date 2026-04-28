@@ -257,10 +257,11 @@ impl<'a> Pass<'a> for GVN<'a> {
 
   fn run(&mut self) {
     // run dominance analysis to get the dominator tree
-    let (dom_trees, _) = analyze::<DomAnalysis>(self.ir.as_ref().unwrap());
     for func_id in self.ir.as_ref().unwrap().funcs.collect_internal() {
-      let dom_tree = &dom_trees[func_id];
       let func_id = Operand::Func(func_id);
+      let func = self.get_func(func_id);
+      let (dom_tree, _) = analyze::<DomAnalysis>(func);
+
       self.init(func_id);
       let entry = Operand::BB(self.get_func(func_id).cfg.entry.unwrap());
       self.dfs(entry);
@@ -270,7 +271,7 @@ impl<'a> Pass<'a> for GVN<'a> {
 
       // Update stack and symbol table.
       self.enter_scope(entry);
-      self.run(dom_tree);
+      self.run(&dom_tree);
     }
   }
 }
