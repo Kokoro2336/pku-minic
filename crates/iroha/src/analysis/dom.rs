@@ -265,7 +265,7 @@ impl<'a> BuildDomFrontier<'a> {
 
   pub fn compute(&mut self, bb_id: usize) {
     let succs = {
-      let func = &self.func;
+      let func = self.func;
       let block = &func.cfg[bb_id];
       let mut succs = Vec::new();
       for op in &block.succs {
@@ -283,6 +283,7 @@ impl<'a> BuildDomFrontier<'a> {
         self.frontier[bb_id].push(succ);
       }
     }
+
     // Upward frontier
     let children_num = self.dom_tree[bb_id].len();
     for child_idx in 0..children_num {
@@ -298,12 +299,19 @@ impl<'a> BuildDomFrontier<'a> {
     }
   }
 
+  #[inline(always)]
+  fn init(&mut self) {
+    let n = self.func.cfg.storage.len();
+    self.frontier = vec![vec![]; n];
+  }
+
   pub fn build(&mut self) -> DomFrontier {
     let func = &self.func;
     let head = match func.cfg.entry {
       Some(id) => id,
       None => unreachable!(),
     };
+    self.init();
     self.compute(head);
     std::mem::take(&mut self.frontier)
   }
