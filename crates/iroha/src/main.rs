@@ -91,15 +91,21 @@ fn main() -> Result<()> {
 
   // Run optimizations.
   PassManager::new(&cli)
+    // Mem2Reg
     .register(Box::new(Mem2Reg::default()))
     .register(Box::new(RemoveTrivialPhi::default()))
+    // Constant propagation and control flow simplification
     .register(Box::new(SCCP::default()))
     .register(Box::new(SimplifyCFG::default()))
     .register(Box::new(RemoveTrivialPhi::default()))
+    // GVN
+    .register(Box::new(GVN::default()))
+    // DCE
+    .register(Box::new(DCE::default()))
+    // Loop Optimizations
     .register(Box::new(LoopSimplify::default()))
     .register(Box::new(RemoveTrivialPhi::default()))
-    .register(Box::new(GVN::default()))
-    .register(Box::new(DCE::default()))
+    // Final clean up before going into the backend.
     .register(Box::new(Compaction::default()))
     .run(&mut ir);
 
