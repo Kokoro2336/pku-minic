@@ -77,8 +77,17 @@ impl LICM<'_> {
 
   #[inline(always)]
   fn is_invariant(&self, lp_id: LoopId, value: Operand) -> bool {
-    if value.is_literal() {
-      return true;
+    match value {
+      Operand::Int(_)
+      | Operand::Float(_)
+      | Operand::Bool(_)
+      | Operand::Param(_)
+      // Global can only be address, which is constant too.
+      | Operand::Global(_) => return true,
+      // Actually, BB is also invariant too. But we won't hoist an op with such operand, so we return false.
+      // TODO: Func might be hoisted if we can prove it's pure.
+      Operand::BB(_) | Operand::Func(_) | Operand::Undefined => return false,
+      Operand::Value(_) => {}
     }
 
     let func_id = self.builder.current_function.unwrap();
