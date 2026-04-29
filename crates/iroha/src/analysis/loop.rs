@@ -1,6 +1,8 @@
 //! Loop Analysis, constructing loop forest and finding natural loops.
 //! Referencing Cranelift's implementation: https://github.com/bytecodealliance/wasmtime/blob/9c0346ac6df9d4487565a5a7d24045cdc3754f5d/cranelift/codegen/src/loop_analysis.rs
 
+use std::ops::{Deref, DerefMut, Index, IndexMut};
+
 use crate::analysis::dom::{DomAnalysis, DomTree};
 
 use yachiyo::analysis::{analyze, Analysis};
@@ -69,10 +71,27 @@ impl LoopData {
 }
 
 #[derive(Default)]
+pub struct Loops(Vec<LoopData>);
+
+impl Index<LoopId> for Loops {
+  type Output = LoopData;
+
+  fn index(&self, index: LoopId) -> &Self::Output {
+    &self.0[usize::from(index)]
+  }
+}
+
+impl IndexMut<LoopId> for Loops {
+  fn index_mut(&mut self, index: LoopId) -> &mut Self::Output {
+    &mut self.0[usize::from(index)]
+  }
+}
+
+#[derive(Default)]
 pub struct LoopAnalysis<'a> {
   func: Option<&'a Function>,
   /// LoopId -> LoopData
-  loops: Vec<LoopData>,
+  loops: Loops,
   /// BBId -> LoopId
   block_to_loop: Vec<Option<LoopId>>,
 }
@@ -108,7 +127,7 @@ impl LoopAnalysis<'_> {
     for lp_id in (0..self.loops.len()).rev() {
       // Start from the dominated pred of the header.
       {
-        let lp = &self.loops[lp_id];
+        let lp = &self.loops[lp_id.into()];
         stack.extend(
           self.func.unwrap().cfg[lp.header]
             .preds
@@ -119,7 +138,7 @@ impl LoopAnalysis<'_> {
       }
       while let Some(node) = stack.pop() {
         // Add the block to the loop
-        self.loops[lp_id].blocks.insert(node.get_bb_id());
+        self.loops[lp_id.into()].blocks.insert(node.get_bb_id());
 
         let continue_dfs: Option<Operand>;
         match self.block_to_loop[node.get_bb_id()] {
@@ -132,13 +151,13 @@ impl LoopAnalysis<'_> {
             continue_dfs = Some(node);
           }
           Some(mut node_loop) => {
-            let mut node_loop_parent_option = self.loops[usize::from(node_loop)].parent;
+            let mut node_loop_parent_option = self.loops[node_loop].parent;
             while let Some(node_loop_parent) = node_loop_parent_option {
               if node_loop_parent == lp_id.into() {
                 break;
               } else {
                 node_loop = node_loop_parent;
-                node_loop_parent_option = self.loops[usize::from(node_loop)].parent;
+                node_loop_parent_option = self.loops[node_loop].parent;
               }
             }
             match node_loop_parent_option {
@@ -148,9 +167,9 @@ impl LoopAnalysis<'_> {
                   continue_dfs = None;
                 } else {
                   // Unknown inner loop of lp
-                  self.loops[usize::from(node_loop)].parent = Some(lp_id.into());
+                  self.loops[node_loop].parent = Some(lp_id.into());
                   // Jump to the inner loop header to continue tracing, as the inner loop header should have been assigned a loop in find_loop_header.
-                  continue_dfs = Some(self.loops[usize::from(node_loop)].header);
+                  continue_dfs = Some(self.loops[node_loop].header);
                 }
               }
               Some(_) => {
@@ -178,16 +197,16 @@ impl LoopAnalysis<'_> {
   fn assign_loop_level(&mut self) {
     let mut stack = vec![];
     for lp_id in 0..self.loops.len() {
-      let lp = &self.loops[lp_id];
+      let lp = &self.loops[lp_id.into()];
       if lp.has_invalid_level() {
-        stack.push(lp_id);
+        stack.push(lp_id.into());
         while let Some(node_id) = stack.last() {
-          if let Some(paren_id) = self.loops[*node_id].parent {
-            if self.loops[usize::from(paren_id)].has_invalid_level() {
-              stack.push(paren_id.into());
+          if let Some(parent_id) = self.loops[*node_id].parent {
+            if self.loops[parent_id].has_invalid_level() {
+              stack.push(parent_id);
             } else {
               self.loops[*node_id].level =
-                (usize::from(self.loops[usize::from(paren_id)].level) + 1usize).into();
+                (usize::from(self.loops[parent_id].level) + 1usize).into();
               stack.pop();
             }
           } else {
@@ -201,10 +220,10 @@ impl LoopAnalysis<'_> {
 
   fn fill_loop_blocks(&mut self) {
     for lp_id in (0..self.loops.len()).rev() {
-      let lp_parent = self.loops[lp_id].parent;
+      let lp_parent = self.loops[lp_id.into()].parent;
       if let Some(parent_id) = lp_parent {
-        let lp_blocks = self.loops[lp_id].blocks.clone();
-        let lp_parent = &mut self.loops[usize::from(parent_id)];
+        let lp_blocks = self.loops[lp_id.into()].blocks.clone();
+        let lp_parent = &mut self.loops[parent_id];
         lp_parent.blocks |= lp_blocks;
       }
     }
@@ -212,7 +231,7 @@ impl LoopAnalysis<'_> {
 
   fn find_exit_blocks(&mut self) {
     for lp_id in 0..self.loops.len() {
-      let lp = &mut self.loops[lp_id];
+      let lp = &mut self.loops[lp_id.into()];
       for block_id in lp.blocks.iter() {
         let block = &self.func.unwrap().cfg[block_id];
         for (succ_id, _) in &block.succs {
@@ -248,5 +267,33 @@ impl<'a> Analysis<'a> for LoopAnalysis<'a> {
       std::mem::take(&mut self.loops),
       std::mem::take(&mut self.block_to_loop),
     )
+  }
+}
+
+impl Loops {
+  pub fn is_inner(&self, outer: LoopId, inner: LoopId) -> bool {
+    let mut parent_option = self[inner].parent;
+    while let Some(parent) = parent_option {
+      if parent == outer {
+        return true;
+      } else {
+        parent_option = self[parent].parent;
+      }
+    }
+    false
+  }
+}
+
+impl Deref for Loops {
+  type Target = Vec<LoopData>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl DerefMut for Loops {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
   }
 }
