@@ -5,7 +5,6 @@ use crate::analysis::dom::{DomAnalysis, DomTree};
 
 use yachiyo::analysis::{analyze, Analysis};
 use yachiyo::ir::mid::{Function, Operand};
-use yachiyo::utils::worklist::WorklistTrait;
 
 const INVALID_LOOP_LEVEL: LoopLevel = LoopLevel(usize::MAX);
 const ROOT_LEVEL: LoopLevel = LoopLevel(0);
@@ -81,10 +80,10 @@ impl LoopAnalysis<'_> {
 
   /// Traverse the CFG in reverse post-order and find natural loops.
   fn find_loop_header(&mut self, dom_tree: &DomTree) {
-    let mut bbs_dpo = self.func.unwrap().cfg.dpo();
+    let bbs_dpo = self.func.unwrap().cfg.dpo();
 
     // RPO traversal
-    while let Some(bb_id) = bbs_dpo.pop_back() {
+    for bb_id in bbs_dpo.into_iter().rev() {
       let bb = &self.func.unwrap().cfg[bb_id];
       for (pred_id, _) in &bb.preds {
         if dom_tree.is_dom(bb_id.get_bb_id(), pred_id.get_bb_id()) {
@@ -208,6 +207,7 @@ impl<'a> Analysis<'a> for LoopAnalysis<'a> {
     self.discover_loop_blocks(&dom_tree);
     self.assign_loop_level();
     (
+      // The loops are naturally in a RPO order.
       std::mem::take(&mut self.loops),
       std::mem::take(&mut self.block_to_loop),
     )

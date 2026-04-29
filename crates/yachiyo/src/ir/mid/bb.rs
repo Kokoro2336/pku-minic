@@ -2,8 +2,12 @@
 
 #[cfg(feature = "debug")]
 use crate::debug::info;
+
 use crate::ir::mid::Operand;
 use crate::utils::arena::*;
+use crate::utils::set::BitSet;
+use crate::utils::worklist::{Worklist, WorklistTrait};
+
 use std::ops::{Index, IndexMut};
 
 #[allow(clippy::upper_case_acronyms)]
@@ -92,6 +96,29 @@ impl Arena<BasicBlock> for IndexedArena<BasicBlock> {
 }
 
 impl CFG {
+  fn dpo_rec(&self, order: &mut Vec<Operand>, visited: &mut BitSet, bb_id: Operand) {
+    if visited.contains(bb_id.get_bb_id()) {
+      return;
+    }
+    visited.insert(bb_id.get_bb_id());
+
+    let bb = &self[bb_id];
+    for (succ, _) in &bb.succs {
+      self.dpo_rec(order, visited, *succ);
+    }
+
+    // Post-order traversal.
+    order.push(bb_id);
+  }
+
+  pub fn dpo(&self) -> Vec<Operand> {
+    let mut order = vec![];
+    let mut visited = BitSet::new();
+    let entry = Operand::BB(self.entry.unwrap());
+    self.dpo_rec(&mut order, &mut visited, entry);
+    order
+  }
+
   pub fn add_succ(&mut self, bb_idx: Operand, succ_idx: (Operand, Operand)) {
     self[bb_idx.get_bb_id()].succs.push(succ_idx);
   }

@@ -242,7 +242,7 @@ impl<'a> Pass<'a> for LoopSimplify<'a> {
       let func_id = Operand::Func(func_id);
       self.init(func_id);
       let func = self.get_func(func_id);
-      let loops_data = analyze::<LoopAnalysis>(func);
+      let (loops_data, _) = analyze::<LoopAnalysis>(func);
       let (dom_tree, _) = analyze::<DomAnalysis>(func);
       self.run(&dom_tree, &loops_data);
     }

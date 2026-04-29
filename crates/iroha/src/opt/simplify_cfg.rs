@@ -6,7 +6,6 @@ use yachiyo::pass::Pass;
 use yachiyo::utils::arena::{Arena, ArenaItem};
 use yachiyo::utils::r#match::match_some;
 use yachiyo::utils::set::BitSet;
-use yachiyo::utils::worklist::WorklistTrait;
 
 use crate::analysis::Reachability;
 
@@ -133,7 +132,9 @@ impl<'a> SimplifyCFG<'a> {
         .replace_op(&mut self.builder, func_id, op_id, bb_id, new_op);
     // Update op_to_bb mapping.
     if new_op_id.get_op_id() >= self.op_to_bb.len() {
-      self.op_to_bb.resize(new_op_id.get_op_id() + 1, Operand::Undefined);
+      self
+        .op_to_bb
+        .resize(new_op_id.get_op_id() + 1, Operand::Undefined);
     }
     self.op_to_bb[new_op_id.get_op_id()] = bb_id;
     self.op_to_bb[op_id.get_op_id()] = Operand::Undefined;
@@ -523,9 +524,9 @@ impl<'a> Pass<'a> for SimplifyCFG<'a> {
       self.init(func_id);
 
       // TODO: fixed point iteration.
-      let mut dfs = self.get_func(func_id).dpo();
+      let dfs = self.get_func(func_id).cfg.dpo();
       // Reverse post order
-      while let Some(bb_id) = dfs.pop_back() {
+      for bb_id in dfs.into_iter().rev() {
         self.simplify(bb_id);
       }
       self.rewrite();
