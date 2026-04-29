@@ -76,24 +76,8 @@ impl LICM<'_> {
   }
 
   #[inline(always)]
-  fn is_invariant(&self, lp_id: LoopId, value: Operand) -> bool {
-    match value {
-      Operand::Int(_)
-      | Operand::Float(_)
-      | Operand::Bool(_)
-      | Operand::Param(_)
-      // Global can only be address, which is constant too.
-      | Operand::Global(_) => return true,
-      // Actually, BB is also invariant too. But we won't hoist an op with such operand, so we return false.
-      // TODO: Func might be hoisted if we can prove it's pure.
-      Operand::BB(_) | Operand::Func(_) | Operand::Undefined => return false,
-      Operand::Value(_) => {}
-    }
-
-    let func_id = self.builder.current_function.unwrap();
-    let op = &self.get_func(func_id).dfg[value];
-    let op_typ = OpType::from(&op.data);
-    if matches!(
+  fn unhoistable(op_typ: OpType) -> bool {
+    matches!(
       op_typ,
       // TODO: Pureness analysis. Call is potential to be hoisted.
       OpType::Call
@@ -106,7 +90,23 @@ impl LICM<'_> {
         // TODO: Hoist Load/Store after AA.
         | OpType::Load
         | OpType::Store
-    ) {
+    )
+  }
+
+  fn is_invariant(&self, lp_id: LoopId, value: Operand) -> bool {
+    match value {
+      Operand::Int(_) | Operand::Float(_) | Operand::Bool(_) | Operand::Param(_) => return true,
+      // Actually, BB is also invariant too. But we won't hoist an op with such operand, so we return false.
+      // TODO: Global requires AA to judge whether it's invariant.
+      Operand::Global(_) | Operand::Undefined => return false,
+      Operand::Value(_) => {}
+      Operand::BB(_) | Operand::Func(_) => unreachable!(),
+    }
+
+    let func_id = self.builder.current_function.unwrap();
+    let op = &self.get_func(func_id).dfg[value];
+    let op_typ = OpType::from(&op.data);
+    if Self::unhoistable(op_typ) {
       return false;
     }
 
@@ -144,8 +144,14 @@ impl LICM<'_> {
           continue;
         }
 
-        // An invariant can be hoisted continuously.
-        for inst_id in self.get_func(func_id).cfg[*bb_id].cur.clone() {
+        let cur = self.get_func(func_id).cfg[*bb_id].cur.clone();
+        // An invariant can be hoisted multiple times through different loops.
+        for inst_id in cur {
+          let op_typ = OpType::from(&self.get_func(func_id).dfg[inst_id].data);
+          if Self::unhoistable(op_typ) {
+            continue;
+          }
+
           let src = self.get_src(inst_id);
           if self.meet(lp_id.into(), &src) {
             // Mark the op as an invariant.
@@ -158,10 +164,17 @@ impl LICM<'_> {
               .filter(|(pred_id, _)| !dom_tree.is_dom(header_id.get_bb_id(), pred_id.get_bb_id()))
               .map(|(pred_id, _)| *pred_id)
               .collect::<Vec<_>>();
+
             // There should be only one pre-header block.
             assert!(pre_header_id.len() == 1);
 
-            self.move_op_to_bb_at(inst_id, *bb_id, pre_header_id[0], None);
+            let pre_header_id = pre_header_id[0];
+            let pre_header_term = *self.get_func(func_id).cfg[pre_header_id]
+              .cur
+              .last()
+              .unwrap();
+
+            self.move_op_to_bb_at(inst_id, *bb_id, pre_header_id, Some(pre_header_term));
             // We dont' need to add inst_id to the outer scope's invariants,
             // since the pass is run with a strict inner-to-outer order.
             // So just leave it as it is!
