@@ -5,6 +5,7 @@ use crate::analysis::dom::{DomAnalysis, DomTree};
 
 use yachiyo::analysis::{analyze, Analysis};
 use yachiyo::ir::mid::{Function, Operand};
+use yachiyo::utils::set::BitSet;
 
 const INVALID_LOOP_LEVEL: LoopLevel = LoopLevel(usize::MAX);
 const ROOT_LEVEL: LoopLevel = LoopLevel(0);
@@ -45,6 +46,10 @@ pub struct LoopData {
   pub header: Operand,
   pub parent: Option<LoopId>,
   pub level: LoopLevel,
+  /// All the blocks in the loop, including the header and the blocks in its inner loops.
+  pub blocks: BitSet,
+  /// The exit blocks of the loop.
+  pub exit_blocks: BitSet,
 }
 
 impl LoopData {
@@ -53,6 +58,8 @@ impl LoopData {
       header,
       parent: None,
       level: INVALID_LOOP_LEVEL,
+      blocks: BitSet::new(),
+      exit_blocks: BitSet::new(),
     }
   }
   #[inline(always)]
@@ -111,6 +118,9 @@ impl LoopAnalysis<'_> {
         );
       }
       while let Some(node) = stack.pop() {
+        // Add the block to the loop
+        self.loops[lp_id].blocks.insert(node.get_bb_id());
+
         let continue_dfs: Option<Operand>;
         match self.block_to_loop[node.get_bb_id()] {
           None => {
@@ -188,6 +198,31 @@ impl LoopAnalysis<'_> {
       }
     }
   }
+
+  fn fill_loop_blocks(&mut self) {
+    for lp_id in (0..self.loops.len()).rev() {
+      let lp_parent = self.loops[lp_id].parent;
+      if let Some(parent_id) = lp_parent {
+        let lp_blocks = self.loops[lp_id].blocks.clone();
+        let lp_parent = &mut self.loops[usize::from(parent_id)];
+        lp_parent.blocks |= lp_blocks;
+      }
+    }
+  }
+
+  fn find_exit_blocks(&mut self) {
+    for lp_id in 0..self.loops.len() {
+      let lp = &mut self.loops[lp_id];
+      for block_id in lp.blocks.iter() {
+        let block = &self.func.unwrap().cfg[block_id];
+        for (succ_id, _) in &block.succs {
+          if !lp.blocks.contains(succ_id.get_bb_id()) {
+            lp.exit_blocks.insert(succ_id.get_bb_id());
+          }
+        }
+      }
+    }
+  }
 }
 
 impl<'a> Analysis<'a> for LoopAnalysis<'a> {
@@ -206,6 +241,8 @@ impl<'a> Analysis<'a> for LoopAnalysis<'a> {
     self.find_loop_header(&dom_tree);
     self.discover_loop_blocks(&dom_tree);
     self.assign_loop_level();
+    self.fill_loop_blocks();
+    self.find_exit_blocks();
     (
       // The loops are naturally in a RPO order.
       std::mem::take(&mut self.loops),
