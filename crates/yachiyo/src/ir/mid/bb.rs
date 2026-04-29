@@ -6,7 +6,6 @@ use crate::debug::info;
 use crate::ir::mid::Operand;
 use crate::utils::arena::*;
 use crate::utils::set::BitSet;
-use crate::utils::worklist::{Worklist, WorklistTrait};
 
 use std::ops::{Index, IndexMut};
 

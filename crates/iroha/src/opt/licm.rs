@@ -77,6 +77,10 @@ impl LICM<'_> {
 
   #[inline(always)]
   fn is_invariant(&self, lp_id: LoopId, value: Operand) -> bool {
+    if value.is_literal() {
+      return true;
+    }
+
     let func_id = self.builder.current_function.unwrap();
     let op = &self.get_func(func_id).dfg[value];
     let op_typ = OpType::from(&op.data);
@@ -98,18 +102,15 @@ impl LICM<'_> {
     }
 
     self.invariants[usize::from(lp_id)].contains(value.get_op_id())
-      || value.is_literal()
       || self.block_to_loop[self.op_to_bb[value.get_op_id()].get_bb_id()].is_none()
       || self.block_to_loop[self.op_to_bb[value.get_op_id()].get_bb_id()].unwrap() != lp_id
   }
 
+  #[inline(always)]
   fn meet(&self, lp_id: LoopId, operands: &[Operand]) -> bool {
-    for operand in operands {
-      if !self.is_invariant(lp_id, *operand) {
-        return false;
-      }
-    }
-    true
+    operands
+      .iter()
+      .all(|&operand| self.is_invariant(lp_id, operand))
   }
 
   fn run(&mut self, loops_data: &[LoopData], dom_tree: &DomTree) {
@@ -123,6 +124,14 @@ impl LICM<'_> {
         let bb_lp_id_option = self.block_to_loop[bb_id.get_bb_id()];
         // Filter out those blocks that are not in the loop.
         if bb_lp_id_option.is_none() || bb_lp_id_option.unwrap() != lp_id.into() {
+          continue;
+        }
+        // Only instructions in block which dominates all the exits of the loop can be hoisted.
+        let exits = &loop_data.exit_blocks;
+        if !exits
+          .iter()
+          .all(|exit_bb_id| dom_tree.is_dom(bb_id.get_bb_id(), exit_bb_id))
+        {
           continue;
         }
 
