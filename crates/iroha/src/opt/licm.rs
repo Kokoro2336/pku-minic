@@ -1,6 +1,6 @@
 //! Loop Invariant Code Motion (LICM).
 
-use crate::analysis::{DomAnalysis, DomTree, LoopAnalysis, LoopData, LoopId};
+use crate::analysis::{DomAnalysis, DomTree, LoopAnalysis, LoopId, Loops};
 
 use yachiyo::analysis::analyze;
 use yachiyo::ir::mid::{Builder, Function, OpType, Operand, IR};
@@ -103,13 +103,6 @@ impl LICM<'_> {
       Operand::BB(_) | Operand::Func(_) => unreachable!(),
     }
 
-    let func_id = self.builder.current_function.unwrap();
-    let op = &self.get_func(func_id).dfg[value];
-    let op_typ = OpType::from(&op.data);
-    if Self::unhoistable(op_typ) {
-      return false;
-    }
-
     self.invariants[usize::from(lp_id)].contains(value.get_op_id())
       || self.block_to_loop[self.op_to_bb[value.get_op_id()].get_bb_id()].is_none()
       || self.block_to_loop[self.op_to_bb[value.get_op_id()].get_bb_id()].unwrap() != lp_id
@@ -122,17 +115,17 @@ impl LICM<'_> {
       .all(|&operand| self.is_invariant(lp_id, operand))
   }
 
-  fn run(&mut self, loops_data: &[LoopData], dom_tree: &DomTree) {
+  fn run(&mut self, loops: &Loops, dom_tree: &DomTree) {
     let func_id = self.builder.current_function.unwrap();
     // The loops are naturally in RPO order, so the traverse it in a reverse order.
     let dpo = self.get_func(func_id).cfg.dpo();
-    for lp_id in (0..loops_data.len()).rev() {
-      let loop_data = &loops_data[lp_id];
+    for lp_id in (0..loops.len()).rev() {
+      let loop_data = &loops[lp_id.into()];
       // Traverse the blocks in the loop in RPO order.
       for bb_id in dpo.iter().rev() {
         let bb_lp_id_option = self.block_to_loop[bb_id.get_bb_id()];
         // Filter out those blocks that are not in the loop.
-        if bb_lp_id_option.is_none() || bb_lp_id_option.unwrap() != lp_id.into() {
+        if bb_lp_id_option.is_none() || !loops.include(lp_id.into(), bb_lp_id_option.unwrap()) {
           continue;
         }
         // Only instructions in block which dominates all the exits of the loop can be hoisted.

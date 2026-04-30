@@ -246,7 +246,7 @@ impl LoopAnalysis<'_> {
 
 impl<'a> Analysis<'a> for LoopAnalysis<'a> {
   type Input = Function;
-  type Output = (Vec<LoopData>, Vec<Option<LoopId>>);
+  type Output = (Loops, Vec<Option<LoopId>>);
 
   fn name(&self) -> &str {
     "Loop Analysis"
@@ -271,8 +271,8 @@ impl<'a> Analysis<'a> for LoopAnalysis<'a> {
 }
 
 impl Loops {
-  pub fn is_inner(&self, outer: LoopId, inner: LoopId) -> bool {
-    let mut parent_option = self[inner].parent;
+  pub fn include(&self, outer: LoopId, inner: LoopId) -> bool {
+    let mut parent_option = Some(inner);
     while let Some(parent) = parent_option {
       if parent == outer {
         return true;
