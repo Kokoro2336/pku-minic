@@ -85,20 +85,18 @@ impl<'a> SSAUpdater<'a> {
 
         let frontier_bb_id = Operand::BB(frontier_bb_id);
         {
-          let pred_len = self.func().cfg[frontier_bb_id].preds.len();
+          let preds = self.func().cfg[frontier_bb_id]
+            .preds
+            .iter()
+            .map(|(pred, _)| *pred)
+            .collect::<Vec<_>>();
           let mut guard = BuilderGuard::new(&mut self.builder);
           guard.set_current_block(frontier_bb_id);
           // Create empty phi node.
           let new_phi_id = guard.create_at_head(
             self.ir,
             Some(self.func_id),
-            Op::new(
-              typ.clone(),
-              vec![],
-              OpData::Phi {
-                incomings: vec![PhiIncoming::None; pred_len],
-              },
-            ),
+            Op::new(typ.clone(), vec![], OpData::phi_with_undef(&preds)),
           );
           // Update the mapping from op to bb.
           if new_phi_id.get_op_id() >= self.op_to_bb.len() {
@@ -194,6 +192,8 @@ impl<'a> SSAUpdater<'a> {
             unreachable!()
           }
         }
+      } else {
+        unreachable!()
       }
     }
   }
