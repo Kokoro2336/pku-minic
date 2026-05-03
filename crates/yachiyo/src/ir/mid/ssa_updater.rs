@@ -24,10 +24,37 @@ pub struct SSAUpdater<'a> {
   available_defs: FxHashMap<Operand, Operand>,
   new_phis: BitSet,
 
-  op_to_bb: Vec<Operand>,
+  op_to_bb: &'a mut Vec<Operand>,
 }
 
 impl<'a> SSAUpdater<'a> {
+  #[allow(clippy::too_many_arguments)]
+  pub fn new(
+    ir: &'a mut IR,
+    func_id: Operand,
+    inst_id: Operand,
+    dom_tree: &'a DomTree,
+    dom_frontier: &'a DomFrontier,
+    worklist: Worklist<Operand, BitSet>,
+    inserted_blocks: BitSet,
+    available_defs: FxHashMap<Operand, Operand>,
+    op_to_bb: &'a mut Vec<Operand>,
+  ) -> Self {
+    Self {
+      ir,
+      func_id,
+      inst_id,
+      builder: Builder::default(),
+      dom_tree,
+      dom_frontier,
+      worklist,
+      inserted_blocks,
+      available_defs,
+      new_phis: BitSet::new(),
+      op_to_bb,
+    }
+  }
+
   #[inline(always)]
   fn init(&mut self) {
     self.builder.set_current_func(Some(self.func_id));

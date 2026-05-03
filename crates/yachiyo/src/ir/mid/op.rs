@@ -235,6 +235,19 @@ impl OpData {
       OpData::Br { .. } | OpData::Jump { .. } | OpData::Ret { .. }
     )
   }
+
+  #[inline(always)]
+  pub fn phi_with_undef(preds: &[Operand]) -> OpData {
+    OpData::Phi {
+      incomings: preds
+        .iter()
+        .map(|&bb| PhiIncoming::Data {
+          value: Operand::Undefined,
+          bb,
+        })
+        .collect(),
+    }
+  }
 }
 
 impl std::fmt::Display for Op {
