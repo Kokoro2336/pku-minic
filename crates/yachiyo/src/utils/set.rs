@@ -4,7 +4,8 @@
 
 use std::fmt;
 use std::ops::{
-  BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, IndexMut, Sub, SubAssign,
+  BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, IndexMut, Not, Sub,
+  SubAssign,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -412,6 +413,27 @@ macro_rules! impl_bitop {
 impl_bitop!(BitAnd, bitand, BitAndAssign, bitand_assign, &);
 impl_bitop!(BitOr, bitor, BitOrAssign, bitor_assign, |);
 impl_bitop!(BitXor, bitxor, BitXorAssign, bitxor_assign, ^);
+
+impl Not for &BitSet {
+  type Output = BitSet;
+
+  fn not(self) -> Self::Output {
+    BitSet {
+      bits: self.bits.iter().map(|&word| !word).collect(),
+    }
+  }
+}
+
+impl Not for BitSet {
+  type Output = BitSet;
+
+  fn not(mut self) -> Self::Output {
+    for word in &mut self.bits {
+      *word = !*word;
+    }
+    self
+  }
+}
 
 // Difference is slightly different (lhs & !rhs), so we impl manually or make macro more generic.
 // But set difference usually means remove items in rhs from lhs.

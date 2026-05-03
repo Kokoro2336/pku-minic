@@ -358,192 +358,202 @@ impl IndexMut<Operand> for DFG {
 }
 
 impl DFG {
-  pub fn get_src_tuple(&self, op_id: Operand) -> Vec<(&Operand, usize)> {
-    let op = &self[op_id];
-    let data = &op.data;
-
+  pub fn match_src_tuple(data: &OpData) -> Vec<(&Operand, usize)> {
     match_src! {
-        target: data,
-        bin_ops: [
-            AddI, SubI, MulI, DivI, ModI,
-            SNe, SEq, SGt, SLt, SGe, SLe,
-            Xor, Shl, Shr, Sar,
-            AddF, SubF, MulF, DivF,
-            ONe, OEq, OGt, OLt, OGe, OLe
-        ],
-        bin_arm: OpData { lhs, rhs } => {
-            vec![(lhs, 0), (rhs, 1)]
-        },
-        un_ops: [Sitofp, Fptosi, Uitofp, Zext],
-        un_arm: OpData { value } => {
-            vec![(value, 0)]
-        },
-        fallback: {
-            OpData::Load { addr } => {
-                if matches!(addr, Operand::Global(_)) {
-                    vec![]
-                } else if matches!(addr, Operand::Value(_)) {
-                    vec![(addr, 0)]
-                } else {
-                    panic!("DFG get_src_tuple: Load address operand is not Value or Global");
-                }
-            }
-            OpData::Store { addr, value } => {
-                let mut srcs = Vec::new();
-                if matches!(addr, Operand::Global(_)) {
-                } else if matches!(addr, Operand::Value(_)) {
-                    srcs.push((addr, 0));
-                } else {
-                    panic!("DFG get_src_tuple: Store address operand is not Value or Global");
-                }
-                srcs.push((value, 1));
-                srcs
-            }
-            OpData::Br { cond, .. } => vec![(cond, 0)],
-            OpData::Call { args, .. } => {
-                args
-                    .iter()
-                    .enumerate()
-                    .map(|(i, arg)| (arg, i + 1))
-                    .collect()
-            }
-            OpData::Ret { value } => {
-                if let Some(val) = value {
-                    vec![(val, 0)]
-                } else {
-                    vec![]
-                }
-            }
-            OpData::Phi { incomings } => {
-                let mut srcs = Vec::new();
-                for (i, phi_incoming) in incomings.iter().enumerate() {
-                    if let PhiIncoming::Data { value, .. } = phi_incoming {
-                        srcs.push((value, i));
-                    }
-                }
-                srcs
-            }
-            OpData::GEP { base, indices } => {
-                let mut srcs = Vec::new();
-                if matches!(base, Operand::Global(_)) {
-                } else if matches!(base, Operand::Value(_)) {
-                    srcs.push((base, 0));
-                } else {
-                    panic!("DFG get_src_tuple: GEP base operand is not Value or Global");
-                }
-                for (i, index) in indices.iter().enumerate() {
-                    srcs.push((index, i + 1));
-                }
-                srcs
-            }
-            OpData::GlobalAlloca(_)
-            | OpData::Alloca(_)
-            | OpData::Jump { .. }
-            | OpData::Declare { .. } => vec![],
+      target: data,
+      bin_ops: [
+        AddI, SubI, MulI, DivI, ModI,
+        SNe, SEq, SGt, SLt, SGe, SLe,
+        Xor, Shl, Shr, Sar,
+        AddF, SubF, MulF, DivF,
+        ONe, OEq, OGt, OLt, OGe, OLe
+      ],
+      bin_arm: OpData { lhs, rhs } => {
+        vec![(lhs, 0), (rhs, 1)]
+      },
+      un_ops: [Sitofp, Fptosi, Uitofp, Zext],
+      un_arm: OpData { value } => {
+        vec![(value, 0)]
+      },
+      fallback: {
+        OpData::Load { addr } => {
+          if matches!(addr, Operand::Global(_)) {
+            vec![]
+          } else if matches!(addr, Operand::Value(_)) {
+            vec![(addr, 0)]
+          } else {
+            panic!("DFG match_src_tuple: Load address operand is not Value or Global");
+          }
         }
+        OpData::Store { addr, value } => {
+          let mut srcs = Vec::new();
+          if matches!(addr, Operand::Global(_)) {
+          } else if matches!(addr, Operand::Value(_)) {
+            srcs.push((addr, 0));
+          } else {
+            panic!("DFG match_src_tuple: Store address operand is not Value or Global");
+          }
+          srcs.push((value, 1));
+          srcs
+        }
+        OpData::Br { cond, .. } => vec![(cond, 0)],
+        OpData::Call { args, .. } => {
+          args
+            .iter()
+            .enumerate()
+            .map(|(i, arg)| (arg, i + 1))
+            .collect()
+        }
+        OpData::Ret { value } => {
+          if let Some(val) = value {
+            vec![(val, 0)]
+          } else {
+            vec![]
+          }
+        }
+        OpData::Phi { incomings } => {
+          let mut srcs = Vec::new();
+          for (i, phi_incoming) in incomings.iter().enumerate() {
+            if let PhiIncoming::Data { value, .. } = phi_incoming {
+              srcs.push((value, i));
+            }
+          }
+          srcs
+        }
+        OpData::GEP { base, indices } => {
+          let mut srcs = Vec::new();
+          if matches!(base, Operand::Global(_)) {
+          } else if matches!(base, Operand::Value(_)) {
+            srcs.push((base, 0));
+          } else {
+            panic!("DFG match_src_tuple: GEP base operand is not Value or Global");
+          }
+          for (i, index) in indices.iter().enumerate() {
+            srcs.push((index, i + 1));
+          }
+          srcs
+        }
+        OpData::GlobalAlloca(_)
+        | OpData::Alloca(_)
+        | OpData::Jump { .. }
+        | OpData::Declare { .. } => vec![],
+      }
     }
   }
 
-  pub fn get_src(&self, op_id: Operand) -> Vec<&Operand> {
-    self
-      .get_src_tuple(op_id)
+  pub fn match_src_tuple_mut(data: &mut OpData) -> Vec<(&mut Operand, usize)> {
+    match_src! {
+      target: data,
+      bin_ops: [
+        AddI, SubI, MulI, DivI, ModI,
+        SNe, SEq, SGt, SLt, SGe, SLe,
+        Xor, Shl, Shr, Sar,
+        AddF, SubF, MulF, DivF,
+        ONe, OEq, OGt, OLt, OGe, OLe
+      ],
+      bin_arm: OpData { lhs, rhs } => {
+        vec![(lhs, 0), (rhs, 1)]
+      },
+      un_ops: [Sitofp, Fptosi, Uitofp, Zext],
+      un_arm: OpData { value } => {
+        vec![(value, 0)]
+      },
+      fallback: {
+        OpData::Load { addr } => {
+          if matches!(addr, Operand::Global(_)) {
+            vec![]
+          } else if matches!(addr, Operand::Value(_)) {
+            vec![(addr, 0)]
+          } else {
+            panic!("DFG match_src_tuple_mut: Load address operand is not Value or Global");
+          }
+        }
+        OpData::Store { addr, value } => {
+          let mut srcs = Vec::new();
+          if matches!(addr, Operand::Global(_)) {
+          } else if matches!(addr, Operand::Value(_)) {
+            srcs.push((addr, 0));
+          } else {
+            panic!("DFG match_src_tuple_mut: Store address operand is not Value or Global");
+          }
+          srcs.push((value, 1));
+          srcs
+        }
+        OpData::Br { cond, .. } => vec![(cond, 0)],
+        OpData::Call { args, .. } => {
+          let mut srcs = Vec::new();
+          for (i, arg) in args.iter_mut().enumerate() {
+            srcs.push((arg, i + 1));
+          }
+          srcs
+        }
+        OpData::Ret { value } => {
+          if let Some(val) = value.as_mut() {
+            vec![(val, 0)]
+          } else {
+            vec![]
+          }
+        }
+        OpData::Phi { incomings } => {
+          let mut srcs = Vec::new();
+          for (i, phi_incoming) in incomings.iter_mut().enumerate() {
+            if let PhiIncoming::Data { value, .. } = phi_incoming {
+              srcs.push((value, i));
+            }
+          }
+          srcs
+        }
+        OpData::GEP { base, indices } => {
+          let mut srcs = Vec::new();
+          if matches!(base, Operand::Global(_)) {
+          } else if matches!(base, Operand::Value(_)) {
+            srcs.push((base, 0));
+          } else {
+            panic!("DFG match_src_tuple_mut: GEP base operand is not Value or Global");
+          }
+          for (i, index) in indices.iter_mut().enumerate() {
+            srcs.push((index, i + 1));
+          }
+          srcs
+        }
+        OpData::GlobalAlloca(_)
+        | OpData::Alloca(_)
+        | OpData::Jump { .. }
+        | OpData::Declare { .. } => vec![],
+      }
+    }
+  }
+
+  pub fn get_src_tuple(&self, op_id: Operand) -> Vec<(&Operand, usize)> {
+    Self::match_src_tuple(&self[op_id].data)
+  }
+
+  pub fn match_src(data: &OpData) -> Vec<&Operand> {
+    Self::match_src_tuple(data)
       .into_iter()
       .map(|(src, _)| src)
       .collect()
+  }
+
+  pub fn get_src(&self, op_id: Operand) -> Vec<&Operand> {
+    Self::match_src(&self[op_id].data)
   }
 
   pub fn get_src_tuple_mut(&mut self, op_id: Operand) -> Vec<(&mut Operand, usize)> {
     let op = &mut self[op_id];
-    let data = &mut op.data;
-
-    match_src! {
-        target: data,
-        bin_ops: [
-            AddI, SubI, MulI, DivI, ModI,
-            SNe, SEq, SGt, SLt, SGe, SLe,
-            Xor, Shl, Shr, Sar,
-            AddF, SubF, MulF, DivF,
-            ONe, OEq, OGt, OLt, OGe, OLe
-        ],
-        bin_arm: OpData { lhs, rhs } => {
-            vec![(lhs, 0), (rhs, 1)]
-        },
-        un_ops: [Sitofp, Fptosi, Uitofp, Zext],
-        un_arm: OpData { value } => {
-            vec![(value, 0)]
-        },
-        fallback: {
-            OpData::Load { addr } => {
-                if matches!(addr, Operand::Global(_)) {
-                    vec![]
-                } else if matches!(addr, Operand::Value(_)) {
-                    vec![(addr, 0)]
-                } else {
-                    panic!("DFG get_src_tuple_mut: Load address operand is not Value or Global");
-                }
-            }
-            OpData::Store { addr, value } => {
-                let mut srcs = Vec::new();
-                if matches!(addr, Operand::Global(_)) {
-                } else if matches!(addr, Operand::Value(_)) {
-                    srcs.push((addr, 0));
-                } else {
-                    panic!("DFG get_src_tuple_mut: Store address operand is not Value or Global");
-                }
-                srcs.push((value, 1));
-                srcs
-            }
-            OpData::Br { cond, .. } => vec![(cond, 0)],
-            OpData::Call { args, .. } => {
-                let mut srcs = Vec::new();
-                for (i, arg) in args.iter_mut().enumerate() {
-                    srcs.push((arg, i + 1));
-                }
-                srcs
-            }
-            OpData::Ret { value } => {
-                if let Some(val) = value.as_mut() {
-                    vec![(val, 0)]
-                } else {
-                    vec![]
-                }
-            }
-            OpData::Phi { incomings } => {
-                let mut srcs = Vec::new();
-                for (i, phi_incoming) in incomings.iter_mut().enumerate() {
-                    if let PhiIncoming::Data { value, .. } = phi_incoming {
-                        srcs.push((value, i));
-                    }
-                }
-                srcs
-            }
-            OpData::GEP { base, indices } => {
-                let mut srcs = Vec::new();
-                if matches!(base, Operand::Global(_)) {
-                } else if matches!(base, Operand::Value(_)) {
-                    srcs.push((base, 0));
-                } else {
-                    panic!("DFG get_src_tuple_mut: GEP base operand is not Value or Global");
-                }
-                for (i, index) in indices.iter_mut().enumerate() {
-                    srcs.push((index, i + 1));
-                }
-                srcs
-            }
-            OpData::GlobalAlloca(_)
-            | OpData::Alloca(_)
-            | OpData::Jump { .. }
-            | OpData::Declare { .. } => vec![],
-        }
-    }
+    Self::match_src_tuple_mut(&mut op.data)
   }
 
-  pub fn get_src_mut(&mut self, op_id: Operand) -> Vec<&mut Operand> {
-    self
-      .get_src_tuple_mut(op_id)
+  pub fn match_src_mut(data: &mut OpData) -> Vec<&mut Operand> {
+    Self::match_src_tuple_mut(data)
       .into_iter()
       .map(|(src, _)| src)
       .collect()
+  }
+
+  pub fn get_src_mut(&mut self, op_id: Operand) -> Vec<&mut Operand> {
+    let op = &mut self[op_id];
+    Self::match_src_mut(&mut op.data)
   }
 }
 

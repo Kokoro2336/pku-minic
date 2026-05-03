@@ -5,47 +5,9 @@
 use yachiyo::debug::info;
 
 use yachiyo::analysis::Analysis;
+pub use yachiyo::analysis::{DomFrontier, DomTree};
 use yachiyo::ir::mid::{Function, Operand};
 use yachiyo::utils::set::BitSet;
-
-use std::ops::{Index, IndexMut};
-
-#[derive(Default, Clone)]
-/// Vertex number -> its children in the dominator tree
-pub struct DomTree(Vec<Vec<usize>>);
-
-impl DomTree {
-  pub fn with_len(len: usize) -> Self {
-    Self(vec![vec![]; len])
-  }
-  pub fn is_dom(&self, dominator: usize, dominatee: usize) -> bool {
-    if dominator == dominatee {
-      return true;
-    }
-    let mut stack = vec![dominator];
-    while let Some(node) = stack.pop() {
-      if node == dominatee {
-        return true;
-      }
-      stack.extend(self[node].iter().copied());
-    }
-    false
-  }
-}
-
-impl Index<usize> for DomTree {
-  type Output = Vec<usize>;
-
-  fn index(&self, index: usize) -> &Self::Output {
-    &self.0[index]
-  }
-}
-
-impl IndexMut<usize> for DomTree {
-  fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-    &mut self.0[index]
-  }
-}
 
 struct BuildDomTree<'a> {
   func: &'a Function,
@@ -251,37 +213,14 @@ impl<'a> BuildDomTree<'a> {
 
   // FuncId -> DomTree
   pub fn export(&mut self) -> DomTree {
-    let mut dom_tree = vec![vec![]; self.idom.len()];
+    let mut dom_tree = DomTree::with_len(self.idom.len());
     for idx in 0..self.idom.len() {
       let idom = self.idom[idx];
       if idom != idx {
         dom_tree[idom].push(idx);
       }
     }
-    DomTree(dom_tree)
-  }
-}
-
-#[derive(Default, Clone)]
-pub struct DomFrontier(Vec<Vec<usize>>);
-
-impl DomFrontier {
-  pub fn with_len(len: usize) -> Self {
-    Self(vec![vec![]; len])
-  }
-}
-
-impl Index<usize> for DomFrontier {
-  type Output = Vec<usize>;
-
-  fn index(&self, index: usize) -> &Self::Output {
-    &self.0[index]
-  }
-}
-
-impl IndexMut<usize> for DomFrontier {
-  fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-    &mut self.0[index]
+    dom_tree
   }
 }
 

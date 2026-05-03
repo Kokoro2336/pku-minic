@@ -105,6 +105,7 @@ fn main() -> Result<()> {
     // Loop Optimizations
     .register(Box::new(LoopSimplify::default()))
     .register(Box::new(RemoveTrivialPhi::default()))
+    .register(Box::new(LoopRotate::default()))
     .register(Box::new(LICM::default()))
     // Final clean up before going into the backend.
     .register(Box::new(Compaction::default()))

@@ -50,6 +50,27 @@ impl IR {
     }
   }
 
+  pub fn replace_some_uses(
+    &mut self,
+    current_function: Option<Operand>,
+    old: Operand,
+    new: Operand,
+    user_list: Vec<(Operand, usize)>,
+  ) {
+    let current_function = current_function.unwrap();
+    let dfg = &mut self.funcs[current_function].dfg;
+    let users = dfg[old.get_op_id()].users.clone();
+    for user in user_list {
+      if !users.contains(&user) {
+        panic!(
+          "IR replace_some_uses: user {:?} not found in users of operand {:?}",
+          user, old
+        );
+      }
+      dfg.replace_use(user, old, new);
+    }
+  }
+
   pub fn replace_all_uses(
     &mut self,
     current_function: Option<Operand>,

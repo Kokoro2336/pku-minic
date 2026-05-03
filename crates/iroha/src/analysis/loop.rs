@@ -3,7 +3,7 @@
 
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 
-use crate::analysis::dom::{DomAnalysis, DomTree};
+use crate::analysis::{DomAnalysis, DomTree};
 
 use yachiyo::analysis::{analyze, Analysis};
 use yachiyo::ir::mid::{Function, Operand};

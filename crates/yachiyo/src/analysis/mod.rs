@@ -3,6 +3,10 @@
 #[cfg(feature = "debug")]
 use crate::debug::info;
 
+mod dom;
+
+pub use dom::*;
+
 pub trait Analysis<'a>: Default {
   type Input;
   type Output;
