@@ -47,7 +47,7 @@ pub struct SCCP<'a> {
   in_br_ops: BitSet,
 }
 
-impl<'a> SCCP<'a> {
+impl SCCP<'_> {
   fn meet(lattices: Vec<Lattice>) -> Lattice {
     if lattices.is_empty() {
       return Lattice::Top;

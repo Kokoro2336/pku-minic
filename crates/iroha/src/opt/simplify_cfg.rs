@@ -19,7 +19,7 @@ pub struct SimplifyCFG<'a> {
   processed: BitSet,
 }
 
-impl<'a> SimplifyCFG<'a> {
+impl SimplifyCFG<'_> {
   fn init(&mut self, func_id: Operand) {
     self.builder.set_current_func(Some(func_id));
     // Init op_to_bb mapping.

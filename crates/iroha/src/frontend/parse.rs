@@ -398,7 +398,7 @@ impl Parser {
       Node::ArrayInitVal { init_vals } => {
         #[cfg(feature = "debug")]
         info!("Catch ArrayInitVal at depth {}", depth);
-        if !(new_vals.len() as u32 % *indices.last().unwrap() == 0) {
+        if new_vals.len() as u32 % *indices.last().unwrap() != 0 {
           panic!("Array has insufficient initializers");
         }
 
