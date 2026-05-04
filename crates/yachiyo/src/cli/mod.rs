@@ -15,11 +15,15 @@ pub struct Cli {
   #[arg(long = "dump-asm-after", default_value_t = String::new())]
   pub dump_asm_after: String,
 
+  /// emit assembly for -o output.
+  #[arg(short = 'S', default_value_t = false)]
+  pub emit_asm: bool,
+
   /// positional argument for input file.
   #[arg(value_name = "INPUT")]
   pub input: std::path::PathBuf,
 
   /// use this flag to specify output file.
   #[arg(short, long)]
-  pub output: std::path::PathBuf,
+  pub output: Option<std::path::PathBuf>,
 }

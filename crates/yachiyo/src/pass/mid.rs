@@ -58,7 +58,8 @@ impl<'a> PassManager<'a> {
         let filename = self
           .cli
           .output
-          .file_stem()
+          .as_ref()
+          .and_then(|path| path.file_stem())
           .and_then(|s| s.to_str())
           .unwrap_or("output")
           .to_string();
@@ -83,7 +84,8 @@ impl<'a> PassManager<'a> {
       let filename = self
         .cli
         .output
-        .file_stem()
+        .as_ref()
+        .and_then(|path| path.file_stem())
         .and_then(|s| s.to_str())
         .unwrap_or("output")
         .to_string();
