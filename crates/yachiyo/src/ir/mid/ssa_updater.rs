@@ -159,29 +159,21 @@ impl<'a> SSAUpdater<'a> {
 
   fn get_trace_bb_id(&self, op_id: Operand) -> Operand {
     let user_op = &self.func().dfg[op_id];
-    if let OpData::Phi { incomings } = user_op.data.clone() {
-      // Find the incoming edge corresponding to the current instruction.
-      *incomings
-        .iter()
-        .find(|incoming| {
-          if let PhiIncoming::Data { value, .. } = incoming {
-            *value == self.inst_id
-          } else {
-            false
-          }
-        })
-        .map(|incoming| {
-          if let PhiIncoming::Data { bb, .. } = incoming {
-            bb
-          } else {
-            unreachable!()
-          }
-        })
-        .unwrap()
-    } else {
+    let OpData::Phi { incomings } = user_op.data.clone() else {
       // For non-phi users, the trace block is simply the block containing the user.
-      self.op_to_bb[op_id.get_op_id()]
-    }
+      return self.op_to_bb[op_id.get_op_id()];
+    };
+
+    // Find the incoming edge corresponding to the current instruction.
+    incomings
+      .into_iter()
+      .find_map(|incoming| {
+        let PhiIncoming::Data { value, bb } = incoming else {
+          return None;
+        };
+        (value == self.inst_id).then_some(bb)
+      })
+      .unwrap()
   }
 
   fn update_normal_users(&mut self) {
@@ -209,18 +201,16 @@ impl<'a> SSAUpdater<'a> {
     for phi_op_id in std::mem::take(&mut self.new_phis).iter() {
       let phi_op_id = Operand::Value(phi_op_id);
       let phi_op_data = self.func_mut().dfg[phi_op_id].data.clone();
-      if let OpData::Phi { incomings } = phi_op_data {
-        for incoming in incomings {
-          if let PhiIncoming::Data { bb, .. } = incoming {
-            let latest_def = self.trace_latest_def(bb);
-            self.slay_phi_incoming(phi_op_id, bb);
-            self.append_phi_incoming(phi_op_id, bb, latest_def);
-          } else {
-            unreachable!()
-          }
-        }
-      } else {
+      let OpData::Phi { incomings } = phi_op_data else {
         unreachable!()
+      };
+      for incoming in incomings {
+        let PhiIncoming::Data { bb, .. } = incoming else {
+          unreachable!()
+        };
+        let latest_def = self.trace_latest_def(bb);
+        self.slay_phi_incoming(phi_op_id, bb);
+        self.append_phi_incoming(phi_op_id, bb, latest_def);
       }
     }
   }

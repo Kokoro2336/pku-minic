@@ -108,6 +108,7 @@ impl LoopRotate<'_> {
   fn clone_inst(
     &mut self,
     op_id: Operand,
+    header_phis: &[Operand],
     pre_header_id: Operand,
     guard_bb_id: Operand,
   ) -> Operand {
@@ -127,16 +128,19 @@ impl LoopRotate<'_> {
       } else if let OpData::Phi { incomings } =
         &self.get_func(func_id.unwrap()).dfg[*src_op_id].data
       {
+        if !header_phis.contains(src_op_id) {
+          // If the src_op is defined by a phi node but not in the header, it must be defined outside the loop. Keep it as is.
+          continue;
+        }
         // Else if the src_op is a phi node defined in the header, replace it with the initial value comes from the pre-header.
         let init_val = incomings
           .iter()
           .find_map(|incoming| {
-            if let PhiIncoming::Data { bb, value } = incoming {
-              if *bb == pre_header_id {
-                Some(value)
-              } else {
-                None
-              }
+            let PhiIncoming::Data { bb, value } = incoming else {
+              return None;
+            };
+            if *bb == pre_header_id {
+              Some(value)
             } else {
               None
             }
@@ -144,8 +148,6 @@ impl LoopRotate<'_> {
           .unwrap();
 
         *src_op_id = *init_val;
-      } else {
-        unreachable!("Unexpected usage: {:?}", src_op_id);
       }
     }
 
@@ -168,13 +170,12 @@ impl LoopRotate<'_> {
 
       if let OpData::Phi { incomings } = self.get_func(func_id).dfg[src_op_id].data.clone() {
         for incoming in incomings {
-          if let PhiIncoming::Data { value, bb } = incoming {
-            if bb == latch_id {
-              let dfg = &mut self.get_func_mut(func_id).dfg;
-              dfg.replace_use((op_id, idx), src_op_id, value);
-            }
-          } else {
+          let PhiIncoming::Data { value, bb } = incoming else {
             unreachable!();
+          };
+          if bb == latch_id {
+            let dfg = &mut self.get_func_mut(func_id).dfg;
+            dfg.replace_use((op_id, idx), src_op_id, value);
           }
         }
       }
@@ -202,10 +203,13 @@ impl LoopRotate<'_> {
         }
       }
       let (pre_header_id, latch_id) = (pre_header_id.unwrap(), latch_id.unwrap());
-      let (exit_bb_id, _) = *header_succs
+      let Some(&(exit_bb_id, _)) = header_succs
         .iter()
         .find(|(succ_id, _)| !loop_data.blocks.contains(succ_id.get_bb_id()))
-        .unwrap();
+      else {
+        // If the header has no exit path, then the loop should not be rotated.
+        continue;
+      };
 
       let pre_header_term_id = *cfg[pre_header_id].cur.last().unwrap();
       let pre_header_term_data = self.get_func(func_id).dfg[pre_header_term_id].data.clone();
@@ -265,14 +269,17 @@ impl LoopRotate<'_> {
         }
       }
 
+      let phis = self.get_all_ops_in_block(header_id, OpType::Phi);
+
       for op_id in self.get_func(func_id).cfg[header_id].cur.clone() {
         let op_data = &self.get_func(func_id).dfg[op_id].data;
-        if !matches!(op_data, OpData::Phi { .. }) {
-          // Clone non-phi instruction in the header to the guard block, including the terminator.
-          self.clone_inst(op_id, pre_header_id, guard_bb_id);
-          // Update the use in the original header block.
-          self.process_header_op(op_id, latch_id);
+        if op_data.is(OpType::Phi) {
+          continue;
         }
+        // Clone non-phi instruction in the header to the guard block, including the terminator.
+        self.clone_inst(op_id, &phis, pre_header_id, guard_bb_id);
+        // Update the use in the original header block.
+        self.process_header_op(op_id, latch_id);
       }
 
       // Update the exit blocks' phi nodes.
@@ -306,34 +313,32 @@ impl LoopRotate<'_> {
       }
 
       // Move phi nodes in the header to the loop body.
-      let phis = self.get_all_ops_in_block(header_id, OpType::Phi);
       let bb = &self.get_func(func_id).cfg[header_id];
       let (body_bb_id, _) = *bb
         .succs
         .iter()
         .find(|(succ_id, _)| loop_data.blocks.contains(succ_id.get_bb_id()))
         .unwrap();
-      let body_head_op_id = *bb.cur.first().unwrap();
+      let body_bb = &self.get_func(func_id).cfg[body_bb_id];
+      let body_head_op_id = *body_bb.cur.first().unwrap();
 
       for phi_id in phis {
         self.move_op_to_bb_at(phi_id, header_id, body_bb_id, Some(body_head_op_id));
         // Refine incoming block of the moved phi nodes.
-        if let OpData::Phi { incomings } = self.get_func(func_id).dfg[phi_id].data.clone() {
-          for incoming in incomings {
-            if let PhiIncoming::Data { bb, value } = incoming {
-              if bb == pre_header_id {
-                self.slay_phi_incoming(phi_id, bb);
-                self.append_phi_incoming(phi_id, guard_bb_id, value);
-              } else {
-                self.slay_phi_incoming(phi_id, bb);
-                self.append_phi_incoming(phi_id, header_id, value);
-              }
-            } else {
-              unreachable!();
-            }
-          }
-        } else {
+        let OpData::Phi { incomings } = self.get_func(func_id).dfg[phi_id].data.clone() else {
           unreachable!();
+        };
+        for incoming in incomings {
+          let PhiIncoming::Data { bb, value } = incoming else {
+            unreachable!();
+          };
+          if bb == pre_header_id {
+            self.slay_phi_incoming(phi_id, bb);
+            self.append_phi_incoming(phi_id, guard_bb_id, value);
+          } else {
+            self.slay_phi_incoming(phi_id, bb);
+            self.append_phi_incoming(phi_id, header_id, value);
+          }
         }
       }
     }
