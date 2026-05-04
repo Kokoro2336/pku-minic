@@ -58,7 +58,8 @@ impl<'a> BPassManager<'a> {
         let filename = self
           .cli
           .output
-          .file_stem()
+          .as_ref()
+          .and_then(|path| path.file_stem())
           .and_then(|s| s.to_str())
           .unwrap_or("output")
           .to_string();
@@ -84,9 +85,10 @@ impl<'a> BPassManager<'a> {
     let asm_filename = self
       .cli
       .output
-      .file_stem()
-      .unwrap()
-      .to_string_lossy()
+      .as_ref()
+      .and_then(|path| path.file_stem())
+      .and_then(|s| s.to_str())
+      .unwrap_or("output")
       .to_string();
     DumpASM::new(ir, asm_filename).run();
 

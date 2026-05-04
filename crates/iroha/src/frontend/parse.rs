@@ -398,7 +398,7 @@ impl Parser {
       Node::ArrayInitVal { init_vals } => {
         #[cfg(feature = "debug")]
         info!("Catch ArrayInitVal at depth {}", depth);
-        if !(new_vals.len() as u32).is_multiple_of(*indices.last().unwrap()) {
+        if new_vals.len() as u32 % *indices.last().unwrap() != 0 {
           panic!("Array has insufficient initializers");
         }
 
@@ -406,7 +406,7 @@ impl Parser {
         let mut idx = indices.len();
         for index in indices.iter().skip(depth as usize).rev() {
           acc *= *index as usize;
-          if new_vals.len().is_multiple_of(acc) {
+          if new_vals.len() % acc == 0 {
             idx -= 1;
           }
         }

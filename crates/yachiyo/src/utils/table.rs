@@ -63,13 +63,13 @@ impl<'a, T: std::hash::Hash + Eq, U> ScopeGuard<'a, T, U> {
   }
 }
 
-impl<'a, T: std::hash::Hash + Eq, U> Drop for ScopeGuard<'a, T, U> {
+impl<T: std::hash::Hash + Eq, U> Drop for ScopeGuard<'_, T, U> {
   fn drop(&mut self) {
     self.symbol_table.exit_scope();
   }
 }
 
-impl<'a, T: std::hash::Hash + Eq, U> Deref for ScopeGuard<'a, T, U> {
+impl<T: std::hash::Hash + Eq, U> Deref for ScopeGuard<'_, T, U> {
   type Target = SymbolTable<T, U>;
 
   fn deref(&self) -> &Self::Target {
@@ -77,7 +77,7 @@ impl<'a, T: std::hash::Hash + Eq, U> Deref for ScopeGuard<'a, T, U> {
   }
 }
 
-impl<'a, T: std::hash::Hash + Eq, U> DerefMut for ScopeGuard<'a, T, U> {
+impl<T: std::hash::Hash + Eq, U> DerefMut for ScopeGuard<'_, T, U> {
   fn deref_mut(&mut self) -> &mut Self::Target {
     self.symbol_table
   }

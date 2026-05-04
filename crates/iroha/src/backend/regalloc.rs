@@ -282,16 +282,16 @@ impl Allocator<'_> {
     match self.typ {
       // Callee-saved registers are preferred.
       AllocatorType::Int => CALLEE_SAVED_XREGS
-        .to_vec()
-        .into_iter()
+        .iter()
+        .copied()
         .map(Reg::X)
-        .chain(CALLER_SAVED_XREGS.to_vec().into_iter().map(Reg::X))
+        .chain(CALLER_SAVED_XREGS.iter().copied().map(Reg::X))
         .collect::<T>(),
       AllocatorType::Float => CALLEE_SAVED_FREGS
-        .to_vec()
-        .into_iter()
+        .iter()
+        .copied()
         .map(Reg::F)
-        .chain(CALLER_SAVED_FREGS.to_vec().into_iter().map(Reg::F))
+        .chain(CALLER_SAVED_FREGS.iter().copied().map(Reg::F))
         .collect::<T>(),
       AllocatorType::Vector => unimplemented!(),
     }

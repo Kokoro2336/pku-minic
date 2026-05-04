@@ -360,7 +360,7 @@ impl Semantic {
               return Ok(res_type);
             }
 
-            if op_list.len().is_multiple_of(2) {
+            if op_list.len() % 2 == 0 {
               let operand = self.ast.remove(res_id);
               self.ast.replace(node_id, operand);
               for id in op_list.into_iter().filter(|id| *id != node_id) {

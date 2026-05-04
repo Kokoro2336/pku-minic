@@ -34,6 +34,10 @@ fn main() -> Result<()> {
     Cli::parse()
   };
 
+  if cli.output.is_some() && !cli.emit_asm {
+    panic!("-o requires -S; only `-S -o <OUTPUT>` is supported to generate ASM");
+  }
+
   let input_path = cli.input.clone();
   // Get input str.
   let input_str = read_to_string(&input_path)?;
@@ -127,8 +131,9 @@ fn main() -> Result<()> {
 
     let asm_filename = cli
       .output
-      .file_stem()
-      .unwrap()
+      .as_ref()
+      .and_then(|path| path.file_stem())
+      .unwrap_or_else(|| std::ffi::OsStr::new("output"))
       .to_string_lossy()
       .to_string();
     DumpASM::new(&back_ir, asm_filename).run();

@@ -1055,46 +1055,44 @@ impl Lowering {
                 let bss = Bss::new(typ);
                 self.alloc_and_map_bss(Operand::Global(global), Some(name), bss);
               }
+            } else if let Some(values) = values {
+              // For initialized immutable global, we allocate it in .rodata section.
+              let rodata = RoData::new(typ, values);
+              self.alloc_and_map_rodata(Operand::Global(global), Some(name), rodata);
             } else {
-              if let Some(values) = values {
-                // For initialized immutable global, we allocate it in .rodata section.
-                let rodata = RoData::new(typ, values);
-                self.alloc_and_map_rodata(Operand::Global(global), Some(name), rodata);
-              } else {
-                // For uninitialized immutable global, we fill its init values manually and allocate it in .rodata section.
-                let values = match &typ {
-                  Type::Int | Type::Bool => {
-                    vec![BOperand::IntImm(0)]
-                  }
-                  Type::Float => {
-                    vec![BOperand::FloatImm(0.0f32.to_bits())]
-                  }
-                  Type::Pointer { .. } => {
-                    unimplemented!("Uninitialized global pointer is not supported yet")
-                  }
-                  Type::Array { base, dims } => {
-                    let base_value = match &**base {
-                      Type::Int | Type::Bool => BOperand::IntImm(0),
-                      Type::Float => BOperand::FloatImm(0.0f32.to_bits()),
-                      Type::Pointer { .. } => {
-                        unimplemented!("Uninitialized global pointer is not supported yet")
-                      }
-                      Type::Array { .. } => unimplemented!(
-                        "Multi-dimensional array without initializer is not supported yet"
-                      ),
-                      Type::Function { .. } | Type::Void | Type::Char => unreachable!(
-                        "Function, Void and Char type should not be in the global array"
-                      ),
-                    };
-                    vec![base_value; dims.iter().product::<u32>() as usize]
-                  }
-                  Type::Function { .. } | Type::Void | Type::Char => {
-                    unreachable!("Function type should not be in the global array")
-                  }
-                };
-                let rodata = RoData::new(typ, values);
-                self.alloc_and_map_rodata(Operand::Global(global), Some(name), rodata);
-              }
+              // For uninitialized immutable global, we fill its init values manually and allocate it in .rodata section.
+              let values = match &typ {
+                Type::Int | Type::Bool => {
+                  vec![BOperand::IntImm(0)]
+                }
+                Type::Float => {
+                  vec![BOperand::FloatImm(0.0f32.to_bits())]
+                }
+                Type::Pointer { .. } => {
+                  unimplemented!("Uninitialized global pointer is not supported yet")
+                }
+                Type::Array { base, dims } => {
+                  let base_value = match &**base {
+                    Type::Int | Type::Bool => BOperand::IntImm(0),
+                    Type::Float => BOperand::FloatImm(0.0f32.to_bits()),
+                    Type::Pointer { .. } => {
+                      unimplemented!("Uninitialized global pointer is not supported yet")
+                    }
+                    Type::Array { .. } => unimplemented!(
+                      "Multi-dimensional array without initializer is not supported yet"
+                    ),
+                    Type::Function { .. } | Type::Void | Type::Char => unreachable!(
+                      "Function, Void and Char type should not be in the global array"
+                    ),
+                  };
+                  vec![base_value; dims.iter().product::<u32>() as usize]
+                }
+                Type::Function { .. } | Type::Void | Type::Char => {
+                  unreachable!("Function type should not be in the global array")
+                }
+              };
+              let rodata = RoData::new(typ, values);
+              self.alloc_and_map_rodata(Operand::Global(global), Some(name), rodata);
             }
           }
         }

@@ -292,11 +292,11 @@ impl From<u8> for Reg {
 
 pub fn get_clobbered<S: FromIterator<Reg>>() -> S {
   let x_clobbered = CALLER_SAVED_XREGS
-    .to_vec()
-    .into_iter()
+    .iter()
+    .copied()
     .map(Reg::X)
     // RA should be included.
-    .chain(vec![Reg::X(XReg::Ra)]);
-  let f_clobbered = CALLER_SAVED_FREGS.to_vec().into_iter().map(Reg::F);
+    .chain(std::iter::once(Reg::X(XReg::Ra)));
+  let f_clobbered = CALLER_SAVED_FREGS.iter().copied().map(Reg::F);
   x_clobbered.chain(f_clobbered).collect::<S>()
 }

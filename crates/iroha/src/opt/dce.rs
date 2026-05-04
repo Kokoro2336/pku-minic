@@ -19,7 +19,7 @@ pub struct DCE<'a> {
   op_to_bb: Vec<Operand>,
 }
 
-impl<'a> DCE<'a> {
+impl DCE<'_> {
   pub fn is_dead(&self, operand: &Operand) -> bool {
     let program = self.program.as_ref().unwrap();
     let current_func = match self.builder.current_function {
