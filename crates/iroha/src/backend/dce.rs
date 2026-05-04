@@ -19,7 +19,7 @@ pub struct BDCE<'a> {
   op_to_bb: Vec<BOperand>,
 }
 
-impl<'a> BDCE<'a> {
+impl BDCE<'_> {
   #[inline(always)]
   fn current_func(&self) -> BOperand {
     self.builder.current_function.unwrap()

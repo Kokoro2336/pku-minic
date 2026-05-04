@@ -21,7 +21,7 @@ pub struct RemoveTrivialPhi<'a> {
   op_to_bb: Vec<Operand>,                       // Mapping from OpId to BBId
 }
 
-impl<'a> RemoveTrivialPhi<'a> {
+impl RemoveTrivialPhi<'_> {
   fn check(program: &IR, current_function: Operand, phi: Operand) -> CheckType {
     let dfg = &program.funcs[current_function].dfg;
     let phi_op = &dfg[phi];

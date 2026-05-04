@@ -180,16 +180,15 @@ impl Type {
   pub fn subarr_size(&self, dim_idx: usize) -> u32 {
     match self {
       Type::Array { base, dims } => {
-        if dim_idx > dims.len() {
-          panic!(
+        match dim_idx.cmp(&dims.len()) {
+          std::cmp::Ordering::Greater => panic!(
             "Dimension index out of bounds. Array has only {} dimensions, but got index {}.",
             dims.len(),
             dim_idx
-          );
-        } else if dim_idx == dims.len() {
-          return base.size();
+          ),
+          std::cmp::Ordering::Equal => base.size(),
+          std::cmp::Ordering::Less => base.size() * dims[dim_idx..].iter().product::<u32>(),
         }
-        base.size() * dims[dim_idx..].iter().product::<u32>()
       }
       _ => panic!("subarr_size can only be called on array types"),
     }

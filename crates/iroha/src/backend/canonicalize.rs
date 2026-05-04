@@ -121,22 +121,20 @@ impl Canonicalize<'_> {
                 .into(),
             ));
             *self.get_rd(lop_id).unwrap()
+          } else if !(INT_IMM_MIN..=INT_IMM_MAX).contains(&imm) {
+            // create a new LoadIntImm instruction and return the LOpId.
+            let lop_id = self.create(BOp::new(
+                Type::Int.into(),
+                vec![],
+                LOpData::LoadIntImm {
+                    rd: BOperand::Undef,
+                    imm,
+                }
+                .into(),
+            ));
+            *self.get_rd(lop_id).unwrap()
           } else {
-            if !(INT_IMM_MIN..=INT_IMM_MAX).contains(&imm) {
-                // create a new LoadIntImm instruction and return the LOpId.
-                let lop_id = self.create(BOp::new(
-                    Type::Int.into(),
-                    vec![],
-                    LOpData::LoadIntImm {
-                        rd: BOperand::Undef,
-                        imm,
-                    }
-                    .into(),
-                ));
-                *self.get_rd(lop_id).unwrap()
-            } else {
-                BOperand::IntImm(imm)
-            }
+            BOperand::IntImm(imm)
           },
           BOperand::FloatImm(imm) => {
             // Float can never reside in immediate field of any instrucitons,
