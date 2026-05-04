@@ -117,6 +117,10 @@ impl LoopRotate<'_> {
     // Update the operands.
     let src = DFG::match_src_mut(&mut op.data);
     for src_op_id in src {
+      if !matches!(*src_op_id, Operand::Value(_)) {
+        continue;
+      }
+
       if let Some(mapped_op_id) = self.inst_map.get(src_op_id) {
         // If the src_op is defined in the header, we replace it with the new op mapped by inst_map.
         *src_op_id = *mapped_op_id;
@@ -158,6 +162,10 @@ impl LoopRotate<'_> {
     let func_id = self.builder.current_function.unwrap();
     let src_tuple_mut = self.get_src_tuple(op_id);
     for (src_op_id, idx) in src_tuple_mut {
+      if !matches!(src_op_id, Operand::Value(_)) {
+        continue;
+      }
+
       if let OpData::Phi { incomings } = self.get_func(func_id).dfg[src_op_id].data.clone() {
         for incoming in incomings {
           if let PhiIncoming::Data { value, bb } = incoming {
@@ -181,7 +189,8 @@ impl LoopRotate<'_> {
       let header_id = loop_data.header;
 
       let cfg = &self.get_func(func_id).cfg;
-      let header_preds = &cfg[header_id].preds;
+      let header = &cfg[header_id];
+      let (header_preds, header_succs) = (&header.preds, &header.succs);
       assert!(header_preds.len() == 2);
 
       let (mut pre_header_id, mut latch_id) = (None, None);
@@ -193,6 +202,10 @@ impl LoopRotate<'_> {
         }
       }
       let (pre_header_id, latch_id) = (pre_header_id.unwrap(), latch_id.unwrap());
+      let (exit_bb_id, _) = *header_succs
+        .iter()
+        .find(|(succ_id, _)| !loop_data.blocks.contains(succ_id.get_bb_id()))
+        .unwrap();
 
       let pre_header_term_id = *cfg[pre_header_id].cur.last().unwrap();
       let pre_header_term_data = self.get_func(func_id).dfg[pre_header_term_id].data.clone();
@@ -262,7 +275,35 @@ impl LoopRotate<'_> {
         }
       }
 
-      // TODO: Update the exit blocks' phi nodes. Now we don't have LCSSA.
+      // Update the exit blocks' phi nodes.
+      let exit_bb_phis = self.get_all_ops_in_block(exit_bb_id, OpType::Phi);
+      for phi_id in exit_bb_phis {
+        let OpData::Phi { incomings } = self.get_func(func_id).dfg[phi_id].data.clone() else {
+          unreachable!()
+        };
+        for incoming in incomings {
+          if let PhiIncoming::Data { bb, value } = incoming {
+            if !matches!(value, Operand::Value(_)) || bb != header_id {
+              continue;
+            }
+
+            let value_op = &self.get_func(func_id).dfg[value].data;
+            let mapped_value = *self.inst_map.get(&value).unwrap();
+
+            if value_op.is(OpType::Phi) {
+              // If the value is defined by a phi node in the header, we need to update the incoming block to the guard block.
+              self.slay_phi_incoming(phi_id, bb);
+              self.append_phi_incoming(phi_id, guard_bb_id, mapped_value);
+              self.append_phi_incoming(phi_id, header_id, value);
+            } else {
+              // If the value is a normal instruction, simply append a new incoming from the guard block with the mapped value.
+              self.append_phi_incoming(phi_id, guard_bb_id, mapped_value);
+            }
+          } else {
+            unreachable!();
+          }
+        }
+      }
 
       // Move phi nodes in the header to the loop body.
       let phis = self.get_all_ops_in_block(header_id, OpType::Phi);

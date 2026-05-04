@@ -154,7 +154,7 @@ impl<'a> Pass<'a> for LCSSA<'a> {
   }
 
   fn run(&mut self) {
-    for func_id in self.ir.as_ref().unwrap().funcs.collect() {
+    for func_id in self.ir.as_ref().unwrap().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
       self.init(func_id);
       let func = self.get_func(func_id);

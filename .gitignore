@@ -15,3 +15,4 @@ dump_llvm/
 __pycache__/
 .DS_Store
 sylib.ll
+tmp/
