@@ -734,8 +734,8 @@ def main():
                 os.unlink(linked_ll_path)
             
             # Run compiler
-            # Command: ./target/debug/compiler <input> -o <output>
-            cmd = [compiler_binary, test_file, "-o", output_file_name]
+            # Command: ./target/debug/compiler <input> -S -o <output>
+            cmd = [compiler_binary, test_file, "-S", "-o", output_file_name]
             if need_emit_llvm:
                 cmd.append("--emit-llvm")
             if args.dump_llvm_after:
