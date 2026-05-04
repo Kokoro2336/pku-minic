@@ -6,6 +6,9 @@ members = [
 ]
 resolver = "2"
 
+[toolchain]
+channel = "1.85.0"
+
 [workspace.dependencies]
 # for hashing
 rustc-hash = "2.1.1"
