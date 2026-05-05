@@ -20,7 +20,10 @@ pub struct LoopRotate<'a> {
   /// OpId in the original header -> OpId in the new guard.
   inst_map: FxHashMap<Operand, Operand>,
   op_to_bb: Vec<Operand>,
+  /// The moved phis in the headers.
   moved_phis: Vec<Operand>,
+  /// The updated phis in the exit blocks.
+  updated_phis: Vec<Operand>,
 }
 
 impl LoopRotate<'_> {
@@ -118,6 +121,7 @@ impl LoopRotate<'_> {
     self.builder.set_current_func(Some(func_id));
     self.inst_map.clear();
     self.moved_phis.clear();
+    self.updated_phis.clear();
 
     self.op_to_bb.clear();
     self
@@ -212,6 +216,124 @@ impl LoopRotate<'_> {
           }
         }
       }
+    }
+  }
+
+  fn update_moved_phis(
+    &mut self,
+    func_id: Operand,
+    dom_tree: &DomTree,
+    dom_frontier: &DomFrontier,
+  ) {
+    for phi_id in std::mem::take(&mut self.moved_phis) {
+      let body_bb_id = self.op_to_bb[phi_id.get_op_id()];
+      let mut available_defs = vec![(body_bb_id, phi_id)];
+      let OpData::Phi { incomings } = self.get_func(func_id).dfg[phi_id].data.clone() else {
+        unreachable!()
+      };
+      for incoming in incomings {
+        let PhiIncoming::Data { bb, value } = incoming else {
+          unreachable!()
+        };
+        available_defs.push((bb, value));
+      }
+      let def_blocks = available_defs.iter().map(|(bb, _)| *bb).collect::<Vec<_>>();
+      let (worklist, inserted_blocks, available_defs) =
+        ssa_updater_params(def_blocks.clone(), def_blocks, available_defs);
+
+      let mut ssa_updater = SSAUpdater::new(
+        self.ir.as_mut().unwrap(),
+        func_id,
+        phi_id,
+        dom_tree,
+        dom_frontier,
+        worklist,
+        inserted_blocks,
+        available_defs,
+        &mut self.op_to_bb,
+      );
+      ssa_updater.run();
+    }
+  }
+
+  fn update_normal_insts(
+    &mut self,
+    func_id: Operand,
+    dom_tree: &DomTree,
+    dom_frontier: &DomFrontier,
+  ) {
+    let updated_phis = std::mem::take(&mut self.updated_phis);
+    for &phi_id in &updated_phis {
+      let bb_id = self.op_to_bb[phi_id.get_op_id()];
+      let mut available_defs = vec![(bb_id, phi_id)];
+      let OpData::Phi { incomings } = self.get_func(func_id).dfg[phi_id].data.clone() else {
+        unreachable!()
+      };
+      for incoming in incomings {
+        let PhiIncoming::Data { bb, value } = incoming else {
+          unreachable!()
+        };
+        available_defs.push((bb, value));
+      }
+      let def_blocks = available_defs.iter().map(|(bb, _)| *bb).collect::<Vec<_>>();
+      let (worklist, inserted_blocks, available_defs) =
+        ssa_updater_params(def_blocks.clone(), def_blocks, available_defs);
+
+      let mut ssa_updater = SSAUpdater::new(
+        self.ir.as_mut().unwrap(),
+        func_id,
+        phi_id,
+        dom_tree,
+        dom_frontier,
+        worklist,
+        inserted_blocks,
+        available_defs,
+        &mut self.op_to_bb,
+      );
+      ssa_updater.run();
+    }
+
+    let inst_map = std::mem::take(&mut self.inst_map);
+    for (orig_id, cloned_id) in inst_map {
+      if self.get_func(func_id).dfg[orig_id].typ == Type::Void {
+        continue;
+      }
+
+      let mut available_defs = vec![
+        (self.op_to_bb[orig_id.get_op_id()], orig_id),
+        (self.op_to_bb[cloned_id.get_op_id()], cloned_id),
+      ];
+
+      for &phi_id in &updated_phis {
+        let OpData::Phi { incomings } = self.get_func(func_id).dfg[phi_id].data.clone() else {
+          unreachable!()
+        };
+        if incomings.iter().any(|incoming| {
+          matches!(
+            incoming,
+            PhiIncoming::Data { value, .. } if *value == orig_id || *value == cloned_id
+          )
+        }) {
+          available_defs.push((self.op_to_bb[phi_id.get_op_id()], phi_id));
+        }
+      }
+
+      let def_blocks = available_defs.iter().map(|(bb, _)| *bb).collect::<Vec<_>>();
+      let (worklist, inserted_blocks, available_defs) =
+        ssa_updater_params(def_blocks.clone(), def_blocks, available_defs);
+
+      let mut ssa_updater = SSAUpdater::new(
+        self.ir.as_mut().unwrap(),
+        func_id,
+        orig_id,
+        dom_tree,
+        dom_frontier,
+        worklist,
+        inserted_blocks,
+        available_defs,
+        &mut self.op_to_bb,
+      );
+      ssa_updater.run();
     }
   }
 
@@ -321,6 +443,9 @@ impl LoopRotate<'_> {
         let OpData::Phi { incomings } = self.get_func(func_id).dfg[phi_id].data.clone() else {
           unreachable!()
         };
+
+        self.updated_phis.push(phi_id);
+
         for incoming in incomings {
           if let PhiIncoming::Data { bb, value } = incoming {
             if !matches!(value, Operand::Value(_)) || bb != header_id {
@@ -377,43 +502,6 @@ impl LoopRotate<'_> {
       }
     }
   }
-
-  fn update_moved_phis(
-    &mut self,
-    func_id: Operand,
-    dom_tree: &DomTree,
-    dom_frontier: &DomFrontier,
-  ) {
-    for phi_id in std::mem::take(&mut self.moved_phis) {
-      let body_bb_id = self.op_to_bb[phi_id.get_op_id()];
-      let mut available_defs = vec![(body_bb_id, phi_id)];
-      let OpData::Phi { incomings } = self.get_func(func_id).dfg[phi_id].data.clone() else {
-        unreachable!()
-      };
-      for incoming in incomings {
-        let PhiIncoming::Data { bb, value } = incoming else {
-          unreachable!()
-        };
-        available_defs.push((bb, value));
-      }
-      let def_blocks = available_defs.iter().map(|(bb, _)| *bb).collect::<Vec<_>>();
-      let (worklist, inserted_blocks, available_defs) =
-        ssa_updater_params(def_blocks.clone(), def_blocks, available_defs);
-
-      let mut ssa_updater = SSAUpdater::new(
-        self.ir.as_mut().unwrap(),
-        func_id,
-        phi_id,
-        dom_tree,
-        dom_frontier,
-        worklist,
-        inserted_blocks,
-        available_defs,
-        &mut self.op_to_bb,
-      );
-      ssa_updater.run();
-    }
-  }
 }
 
 impl<'a> Pass<'a> for LoopRotate<'a> {
@@ -437,6 +525,7 @@ impl<'a> Pass<'a> for LoopRotate<'a> {
       let func = self.get_func(func_id);
       let (dom_tree, dom_frontier) = analyze::<DomAnalysis>(func);
       self.update_moved_phis(func_id, &dom_tree, &dom_frontier);
+      self.update_normal_insts(func_id, &dom_tree, &dom_frontier);
     }
   }
 }
