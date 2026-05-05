@@ -144,10 +144,11 @@ impl LoopRotate<'_> {
     guard_bb_id: Operand,
   ) -> Operand {
     let func_id = self.builder.current_function;
-    let mut op = self.get_func(func_id.unwrap()).dfg[op_id].clone();
+    let op = &self.get_func(func_id.unwrap()).dfg[op_id];
+    let (mut op_data, typ, attrs) = (op.data.clone(), op.typ.clone(), op.attrs.clone());
 
     // Update the operands.
-    let src = DFG::match_src_mut(&mut op.data);
+    let src = DFG::match_src_mut(&mut op_data);
     for src_op_id in src {
       if !matches!(*src_op_id, Operand::Value(_)) {
         continue;
@@ -185,7 +186,11 @@ impl LoopRotate<'_> {
     let new_op_id = {
       let mut guard = BuilderGuard::new(&mut self.builder);
       guard.set_current_block(guard_bb_id);
-      guard.create(self.ir.as_mut().unwrap(), func_id, op)
+      guard.create(
+        self.ir.as_mut().unwrap(),
+        func_id,
+        Op::new(typ, attrs, op_data),
+      )
     };
     if new_op_id.get_op_id() >= self.op_to_bb.len() {
       self
