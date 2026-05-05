@@ -19,6 +19,10 @@ pub struct Cli {
   #[arg(short = 'S', default_value_t = false)]
   pub emit_asm: bool,
 
+  /// optimization level; the contest interface supports -O1.
+  #[arg(short = 'O', value_name = "LEVEL")]
+  pub opt_level: Option<String>,
+
   /// positional argument for input file.
   #[arg(value_name = "INPUT")]
   pub input: std::path::PathBuf,

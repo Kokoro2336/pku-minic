@@ -82,15 +82,14 @@ impl<'a> BPassManager<'a> {
     #[cfg(feature = "debug")]
     info!("Start Dumping Assembly.");
 
-    let asm_filename = self
-      .cli
-      .output
-      .as_ref()
-      .and_then(|path| path.file_stem())
-      .and_then(|s| s.to_str())
-      .unwrap_or("output")
-      .to_string();
-    DumpASM::new(ir, asm_filename).run();
+    if let Some(output) = &self.cli.output {
+      if let Err(e) = ir.dump_riscv_asm_to_file(output) {
+        panic!("Error writing assembly output: {}", e);
+      }
+    } else {
+      let asm_filename = "output".to_string();
+      DumpASM::new(ir, asm_filename).run();
+    }
 
     #[cfg(feature = "debug")]
     info!("Finish Dumping Assembly.");
