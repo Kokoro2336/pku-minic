@@ -128,14 +128,6 @@ impl LICM<'_> {
         if bb_lp_id_option.is_none() || !loops.include(lp_id.into(), bb_lp_id_option.unwrap()) {
           continue;
         }
-        // Only instructions in block which dominates all the exits of the loop can be hoisted.
-        let exits = &loop_data.exit_blocks;
-        if !exits
-          .iter()
-          .all(|exit_bb_id| dom_tree.is_dom(bb_id.get_bb_id(), exit_bb_id))
-        {
-          continue;
-        }
 
         let cur = self.get_func(func_id).cfg[*bb_id].cur.clone();
         // An invariant can be hoisted multiple times through different loops.
