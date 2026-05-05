@@ -1,11 +1,12 @@
 //! Loop Rotation.
 
-use crate::analysis::{DomAnalysis, DomTree, LoopAnalysis, LoopData};
+use crate::analysis::{DomAnalysis, DomFrontier, DomTree, LoopAnalysis, LoopData};
 
 use yachiyo::analysis::analyze;
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{
-  Builder, BuilderGuard, Function, Op, OpData, OpType, Operand, PhiIncoming, DFG, IR,
+  ssa_updater_params, Builder, BuilderGuard, Function, Op, OpData, OpType, Operand, PhiIncoming,
+  SSAUpdater, DFG, IR,
 };
 use yachiyo::pass::Pass;
 use yachiyo::utils::r#match::match_some;
@@ -18,6 +19,8 @@ pub struct LoopRotate<'a> {
   builder: Builder,
   /// OpId in the original header -> OpId in the new guard.
   inst_map: FxHashMap<Operand, Operand>,
+  op_to_bb: Vec<Operand>,
+  moved_phis: Vec<Operand>,
 }
 
 impl LoopRotate<'_> {
@@ -54,11 +57,21 @@ impl LoopRotate<'_> {
   #[inline(always)]
   fn replace_op(&mut self, old_op_id: Operand, bb_id: Operand, new_op: Op) -> Operand {
     let func_id = self.builder.current_function;
-    self
-      .ir
-      .as_mut()
-      .unwrap()
-      .replace_op(&mut self.builder, func_id, old_op_id, bb_id, new_op)
+    let new_op_id =
+      self
+        .ir
+        .as_mut()
+        .unwrap()
+        .replace_op(&mut self.builder, func_id, old_op_id, bb_id, new_op);
+
+    if new_op_id.get_op_id() >= self.op_to_bb.len() {
+      self
+        .op_to_bb
+        .resize(new_op_id.get_op_id() + 1, Operand::Undefined);
+    }
+    self.op_to_bb[new_op_id.get_op_id()] = bb_id;
+    self.op_to_bb[old_op_id.get_op_id()] = Operand::Undefined;
+    new_op_id
   }
 
   #[inline(always)]
@@ -75,6 +88,7 @@ impl LoopRotate<'_> {
       .as_deref_mut()
       .unwrap()
       .move_op_to_bb_at(func_id, op_id, from_bb, to_bb, before_op);
+    self.op_to_bb[op_id.get_op_id()] = to_bb;
   }
 
   #[inline(always)]
@@ -103,6 +117,19 @@ impl LoopRotate<'_> {
   fn init(&mut self, func_id: Operand) {
     self.builder.set_current_func(Some(func_id));
     self.inst_map.clear();
+    self.moved_phis.clear();
+
+    self.op_to_bb.clear();
+    self
+      .op_to_bb
+      .resize(self.get_func(func_id).dfg.len(), Operand::Undefined);
+    for bb_id in self.get_func(func_id).cfg.collect() {
+      let bb_id = Operand::BB(bb_id);
+      let cur = self.get_func(func_id).cfg[bb_id].cur.clone();
+      for inst_id in cur {
+        self.op_to_bb[inst_id.get_op_id()] = bb_id;
+      }
+    }
   }
 
   fn clone_inst(
@@ -156,6 +183,12 @@ impl LoopRotate<'_> {
       guard.set_current_block(guard_bb_id);
       guard.create(self.ir.as_mut().unwrap(), func_id, op)
     };
+    if new_op_id.get_op_id() >= self.op_to_bb.len() {
+      self
+        .op_to_bb
+        .resize(new_op_id.get_op_id() + 1, Operand::Undefined);
+    }
+    self.op_to_bb[new_op_id.get_op_id()] = guard_bb_id;
     self.inst_map.insert(op_id, new_op_id);
     new_op_id
   }
@@ -324,6 +357,7 @@ impl LoopRotate<'_> {
 
       for phi_id in phis {
         self.move_op_to_bb_at(phi_id, header_id, body_bb_id, Some(body_head_op_id));
+        self.moved_phis.push(phi_id);
         // Refine incoming block of the moved phi nodes.
         let OpData::Phi { incomings } = self.get_func(func_id).dfg[phi_id].data.clone() else {
           unreachable!();
@@ -341,6 +375,43 @@ impl LoopRotate<'_> {
           }
         }
       }
+    }
+  }
+
+  fn update_moved_phis(
+    &mut self,
+    func_id: Operand,
+    dom_tree: &DomTree,
+    dom_frontier: &DomFrontier,
+  ) {
+    for phi_id in std::mem::take(&mut self.moved_phis) {
+      let body_bb_id = self.op_to_bb[phi_id.get_op_id()];
+      let mut available_defs = vec![(body_bb_id, phi_id)];
+      let OpData::Phi { incomings } = self.get_func(func_id).dfg[phi_id].data.clone() else {
+        unreachable!()
+      };
+      for incoming in incomings {
+        let PhiIncoming::Data { bb, value } = incoming else {
+          unreachable!()
+        };
+        available_defs.push((bb, value));
+      }
+      let def_blocks = available_defs.iter().map(|(bb, _)| *bb).collect::<Vec<_>>();
+      let (worklist, inserted_blocks, available_defs) =
+        ssa_updater_params(def_blocks.clone(), def_blocks, available_defs);
+
+      let mut ssa_updater = SSAUpdater::new(
+        self.ir.as_mut().unwrap(),
+        func_id,
+        phi_id,
+        dom_tree,
+        dom_frontier,
+        worklist,
+        inserted_blocks,
+        available_defs,
+        &mut self.op_to_bb,
+      );
+      ssa_updater.run();
     }
   }
 }
@@ -362,6 +433,10 @@ impl<'a> Pass<'a> for LoopRotate<'a> {
       let (mut loops, _) = analyze::<LoopAnalysis>(func);
       let (dom_tree, _) = analyze::<DomAnalysis>(func);
       self.run(&dom_tree, &mut loops);
+
+      let func = self.get_func(func_id);
+      let (dom_tree, dom_frontier) = analyze::<DomAnalysis>(func);
+      self.update_moved_phis(func_id, &dom_tree, &dom_frontier);
     }
   }
 }

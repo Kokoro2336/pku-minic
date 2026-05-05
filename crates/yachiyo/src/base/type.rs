@@ -179,17 +179,15 @@ impl Type {
   /// Compute the size of the subarray starting from the given dimension index.
   pub fn subarr_size(&self, dim_idx: usize) -> u32 {
     match self {
-      Type::Array { base, dims } => {
-        match dim_idx.cmp(&dims.len()) {
-          std::cmp::Ordering::Greater => panic!(
-            "Dimension index out of bounds. Array has only {} dimensions, but got index {}.",
-            dims.len(),
-            dim_idx
-          ),
-          std::cmp::Ordering::Equal => base.size(),
-          std::cmp::Ordering::Less => base.size() * dims[dim_idx..].iter().product::<u32>(),
-        }
-      }
+      Type::Array { base, dims } => match dim_idx.cmp(&dims.len()) {
+        std::cmp::Ordering::Greater => panic!(
+          "Dimension index out of bounds. Array has only {} dimensions, but got index {}.",
+          dims.len(),
+          dim_idx
+        ),
+        std::cmp::Ordering::Equal => base.size(),
+        std::cmp::Ordering::Less => base.size() * dims[dim_idx..].iter().product::<u32>(),
+      },
       _ => panic!("subarr_size can only be called on array types"),
     }
   }

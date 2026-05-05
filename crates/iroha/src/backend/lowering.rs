@@ -1081,9 +1081,9 @@ impl Lowering {
                     Type::Array { .. } => unimplemented!(
                       "Multi-dimensional array without initializer is not supported yet"
                     ),
-                    Type::Function { .. } | Type::Void | Type::Char => unreachable!(
-                      "Function, Void and Char type should not be in the global array"
-                    ),
+                    Type::Function { .. } | Type::Void | Type::Char => {
+                      unreachable!("Function, Void and Char type should not be in the global array")
+                    }
                   };
                   vec![base_value; dims.iter().product::<u32>() as usize]
                 }

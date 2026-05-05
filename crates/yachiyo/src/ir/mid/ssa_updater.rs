@@ -176,15 +176,15 @@ impl<'a> SSAUpdater<'a> {
       .unwrap()
   }
 
-  fn update_normal_users(&mut self) {
-    let users = self.func().dfg[self.inst_id].users.clone();
+  fn update_original_users(&mut self) {
+    let inst_id = self.inst_id;
+    let users = self.func().dfg[inst_id].users.clone();
     for (user, _) in users {
       let trace_bb_id = self.get_trace_bb_id(user);
       // Find the latest definition for the trace block.
       let latest_def = self.trace_latest_def(trace_bb_id);
 
       // Replace the operand in the user with the latest definition.
-      let inst_id = self.inst_id;
       let src_tuple = self.get_src_tuple(user);
       let dfg = &mut self.func_mut().dfg;
       for (src_op_id, idx) in src_tuple {
@@ -215,13 +215,40 @@ impl<'a> SSAUpdater<'a> {
     }
   }
 
+  /// TODO: When CFG is changed, SSAUpdater should be able to slay the dead edge.
   pub fn run(&mut self) {
     self.init();
     // Supply phi nodes at the dominance frontier of the new definition.
     self.insert_phi_nodes();
     // Update all normal users to use the latest definition.
-    self.update_normal_users();
+    self.update_original_users();
     // Update the new phi nodes to use the latest definitions for their incoming edges.
     self.update_new_phis();
   }
+}
+
+pub fn ssa_updater_params(
+  worklist_bbs: Vec<Operand>,
+  inserted_bbs: Vec<Operand>,
+  available_defs: Vec<(Operand, Operand)>,
+) -> (
+  Worklist<Operand, BitSet>,
+  BitSet,
+  FxHashMap<Operand, Operand>,
+) {
+  let mut worklist = Worklist::new();
+  let mut inserted_blocks = BitSet::new();
+  let mut available_defs_map = FxHashMap::default();
+
+  for bb in worklist_bbs {
+    worklist.push_back(bb);
+  }
+  for bb in inserted_bbs {
+    inserted_blocks.insert(bb.get_bb_id());
+  }
+  for (bb, def) in available_defs {
+    available_defs_map.insert(bb, def);
+  }
+
+  (worklist, inserted_blocks, available_defs_map)
 }
