@@ -20,6 +20,27 @@ use yachiyo::utils::arena::Arena;
 
 lalrpop_mod!(sysy);
 
+fn validate_cli(cli: &Cli) {
+  if !cli.emit_asm {
+    eprintln!("error: missing -S; expected `compiler <input.sysy> -S -o <output.s> [-O1]`");
+    std::process::exit(1);
+  }
+
+  if cli.output.is_none() {
+    eprintln!(
+      "error: missing -o <output.s>; expected `compiler <input.sysy> -S -o <output.s> [-O1]`"
+    );
+    std::process::exit(1);
+  }
+
+  if let Some(level) = &cli.opt_level {
+    if level != "1" {
+      eprintln!("error: unsupported optimization level -O{level}; only -O1 is supported");
+      std::process::exit(1);
+    }
+  }
+}
+
 fn main() -> Result<()> {
   // setup logging
   // We need to keep this guard alive for the entire duration of the program.
@@ -34,9 +55,7 @@ fn main() -> Result<()> {
     Cli::parse()
   };
 
-  if cli.output.is_some() && !cli.emit_asm {
-    panic!("-o requires -S; only `-S -o <OUTPUT>` is supported to generate ASM");
-  }
+  validate_cli(&cli);
 
   let input_path = cli.input.clone();
   // Get input str.

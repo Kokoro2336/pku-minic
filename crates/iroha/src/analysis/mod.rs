@@ -2,10 +2,10 @@
 
 mod dom;
 mod live;
-mod reachable;
 mod r#loop;
+mod reachable;
 
 pub use dom::*;
 pub use live::*;
-pub use reachable::*;
 pub use r#loop::*;
+pub use reachable::*;

@@ -721,9 +721,8 @@ def main():
             clean_directory(dump_llvm_dir)
             clean_directory(dump_asm_dir)
             
-            # Expected output file (if any)
-            # We specify an output file in CWD, then move it.
-            output_file_name = f"{name_no_ext}.asm" if args.qemu else f"{name_no_ext}.out"
+            # The contest compiler interface always emits assembly to -o.
+            output_file_name = f"{name_no_ext}.s"
             linked_ll_name = f"{name_no_ext}.linked.ll"
             target_dir = os.path.join(work_test_output_dir, "target")
             graph_output_dir = os.path.join(work_test_output_dir, "graph")
@@ -734,8 +733,11 @@ def main():
                 os.unlink(linked_ll_path)
             
             # Run compiler
-            # Command: ./target/debug/compiler <input> -S -o <output>
+            # Functional: compiler testcase.sysy -S -o testcase.s
+            # Perf:       compiler testcase.sysy -S -o testcase.s -O1
             cmd = [compiler_binary, test_file, "-S", "-o", output_file_name]
+            if is_under_directory(test_file, perf_dir):
+                cmd.append("-O1")
             if need_emit_llvm:
                 cmd.append("--emit-llvm")
             if args.dump_llvm_after:
