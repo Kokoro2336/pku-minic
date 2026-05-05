@@ -7,8 +7,6 @@ use crate::base::Type;
 use crate::ir::mid::{BasicBlock, Op, OpData, Operand, PhiIncoming, CFG, DFG};
 use crate::utils::arena::*;
 use crate::utils::r#match::match_some;
-use crate::utils::set::BitSet;
-use crate::utils::worklist::{Worklist, WorklistTrait};
 use std::ops::{Index, IndexMut};
 
 pub type CG = IndexedArena<Function>;
@@ -34,29 +32,6 @@ impl Function {
       dfg: DFG::default(),
       params: Params::default(),
     }
-  }
-
-  fn dpo_rec(&self, order: &mut Worklist<Operand, BitSet>, visited: &mut BitSet, bb_id: Operand) {
-    if visited.contains(bb_id.get_bb_id()) {
-      return;
-    }
-    visited.insert(bb_id.get_bb_id());
-
-    let bb = &self.cfg[bb_id];
-    for (succ, _) in &bb.succs {
-      self.dpo_rec(order, visited, *succ);
-    }
-
-    // Post-order traversal.
-    order.push_back(bb_id);
-  }
-
-  pub fn dpo(&self) -> Worklist<Operand, BitSet> {
-    let mut order: Worklist<Operand, BitSet> = Worklist::new();
-    let mut visited = BitSet::new();
-    let entry = Operand::BB(self.cfg.entry.unwrap());
-    self.dpo_rec(&mut order, &mut visited, entry);
-    order
   }
 
   pub fn get_src_tuple(&self, op_id: Operand) -> Vec<(&Operand, usize)> {

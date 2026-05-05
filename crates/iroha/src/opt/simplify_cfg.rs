@@ -6,7 +6,6 @@ use yachiyo::pass::Pass;
 use yachiyo::utils::arena::{Arena, ArenaItem};
 use yachiyo::utils::r#match::match_some;
 use yachiyo::utils::set::BitSet;
-use yachiyo::utils::worklist::WorklistTrait;
 
 use crate::analysis::Reachability;
 
@@ -525,9 +524,9 @@ impl<'a> Pass<'a> for SimplifyCFG<'a> {
       self.init(func_id);
 
       // TODO: fixed point iteration.
-      let mut dfs = self.get_func(func_id).dpo();
+      let dfs = self.get_func(func_id).cfg.dpo();
       // Reverse post order
-      while let Some(bb_id) = dfs.pop_back() {
+      for bb_id in dfs.into_iter().rev() {
         self.simplify(bb_id);
       }
       self.rewrite();

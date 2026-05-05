@@ -582,7 +582,10 @@ impl<'a> Pass<'a> for Mem2Reg<'a> {
   }
   fn run(&mut self) {
     let func_num = self.program.as_ref().unwrap().funcs.len();
-    let (mut dom_trees, mut frontiers) = (vec![vec![]; func_num], vec![vec![]; func_num]);
+    let (mut dom_trees, mut frontiers) = (
+      vec![DomTree::default(); func_num],
+      vec![DomFrontier::default(); func_num],
+    );
 
     for func_id in self.program.as_ref().unwrap().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);

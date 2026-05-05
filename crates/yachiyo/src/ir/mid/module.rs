@@ -50,6 +50,27 @@ impl IR {
     }
   }
 
+  pub fn replace_some_uses(
+    &mut self,
+    current_function: Option<Operand>,
+    old: Operand,
+    new: Operand,
+    user_list: Vec<(Operand, usize)>,
+  ) {
+    let current_function = current_function.unwrap();
+    let dfg = &mut self.funcs[current_function].dfg;
+    let users = dfg[old.get_op_id()].users.clone();
+    for user in user_list {
+      if !users.contains(&user) {
+        panic!(
+          "IR replace_some_uses: user {:?} not found in users of operand {:?}",
+          user, old
+        );
+      }
+      dfg.replace_use(user, old, new);
+    }
+  }
+
   pub fn replace_all_uses(
     &mut self,
     current_function: Option<Operand>,
@@ -520,19 +541,27 @@ impl IR {
           panic!("IR slay_phi_incoming: not a phi node");
         };
 
-        // Rewrite the operand index of subsequent incomings in all the used operations' users.
-        for (_, incoming) in updated_incomings.iter().enumerate().skip(pos) {
+        // Rewrite each shifted incoming's exact use tuple once. A phi may use the
+        // same value in multiple incoming slots, so scanning by value alone can
+        // accidentally decrement the same use more than once.
+        for (new_idx, incoming) in updated_incomings.iter().enumerate().skip(pos) {
           if let PhiIncoming::Data {
             value: Operand::Value(id),
             ..
           } = incoming
           {
+            let old_idx = new_idx + 1;
             let uses = &mut dfg[*id].users;
-            for (user, use_idx) in uses.iter_mut() {
-              if user == &phi && *use_idx > pos {
-                // Emm...I know this is fragile, but anyway it's simple and stupid.
-                *use_idx -= 1;
-              }
+            if let Some((_, use_idx)) = uses
+              .iter_mut()
+              .find(|(user, use_idx)| user == &phi && *use_idx == old_idx)
+            {
+              *use_idx = new_idx;
+            } else {
+              panic!(
+                "IR slay_phi_incoming: use tuple ({:?}, {}) not found for {:?}",
+                phi, old_idx, incoming
+              );
             }
           }
         }

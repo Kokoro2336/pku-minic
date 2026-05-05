@@ -5,11 +5,9 @@
 use yachiyo::debug::info;
 
 use yachiyo::analysis::Analysis;
+pub use yachiyo::analysis::{DomFrontier, DomTree};
 use yachiyo::ir::mid::{Function, Operand};
 use yachiyo::utils::set::BitSet;
-
-/// Vertex number -> its children in the dominator tree
-pub type DomTree = Vec<Vec<usize>>;
 
 struct BuildDomTree<'a> {
   func: &'a Function,
@@ -215,7 +213,7 @@ impl<'a> BuildDomTree<'a> {
 
   // FuncId -> DomTree
   pub fn export(&mut self) -> DomTree {
-    let mut dom_tree = vec![vec![]; self.idom.len()];
+    let mut dom_tree = DomTree::with_len(self.idom.len());
     for idx in 0..self.idom.len() {
       let idom = self.idom[idx];
       if idom != idx {
@@ -225,8 +223,6 @@ impl<'a> BuildDomTree<'a> {
     dom_tree
   }
 }
-
-pub type DomFrontier = Vec<Vec<usize>>;
 
 struct BuildDomFrontier<'a> {
   func: &'a Function,
@@ -240,7 +236,7 @@ impl<'a> BuildDomFrontier<'a> {
     Self {
       func,
       dom_tree,
-      frontier: vec![],
+      frontier: DomFrontier::default(),
     }
   }
 
@@ -302,7 +298,7 @@ impl<'a> BuildDomFrontier<'a> {
   #[inline(always)]
   fn init(&mut self) {
     let n = self.func.cfg.storage.len();
-    self.frontier = vec![vec![]; n];
+    self.frontier = DomFrontier::with_len(n);
   }
 
   pub fn build(&mut self) -> DomFrontier {
