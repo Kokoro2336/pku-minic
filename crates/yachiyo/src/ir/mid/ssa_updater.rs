@@ -2,7 +2,9 @@
 
 use crate::analysis::{DomFrontier, DomTree};
 use crate::base::Type;
-use crate::ir::mid::{Builder, BuilderGuard, Function, Op, OpData, Operand, PhiIncoming, IR};
+use crate::ir::mid::{
+  Builder, BuilderGuard, Function, Op, OpData, OpType, Operand, PhiIncoming, IR,
+};
 use crate::utils::set::BitSet;
 use crate::utils::worklist::{Worklist, WorklistTrait};
 
@@ -181,6 +183,9 @@ impl<'a> SSAUpdater<'a> {
     let users = self.func().dfg[inst_id].users.clone();
     for (user, _) in users {
       let trace_bb_id = self.get_trace_bb_id(user);
+      if self.use_available_on_edge(user, inst_id, trace_bb_id) {
+        continue;
+      }
       // Find the latest definition for the trace block.
       let latest_def = self.trace_latest_def(trace_bb_id);
 
@@ -205,14 +210,43 @@ impl<'a> SSAUpdater<'a> {
         unreachable!()
       };
       for incoming in incomings {
-        let PhiIncoming::Data { bb, .. } = incoming else {
+        let PhiIncoming::Data { bb, value } = incoming else {
           unreachable!()
         };
+        if self.use_available_on_edge(phi_op_id, value, bb) {
+          continue;
+        }
         let latest_def = self.trace_latest_def(bb);
         self.slay_phi_incoming(phi_op_id, bb);
         self.append_phi_incoming(phi_op_id, bb, latest_def);
       }
     }
+  }
+
+  fn use_available_on_edge(
+    &self,
+    user_id: Operand,
+    used_id: Operand,
+    incoming_bb: Operand,
+  ) -> bool {
+    if !matches!(user_id, Operand::Value(_)) || !matches!(used_id, Operand::Value(_)) {
+      return false;
+    }
+
+    let user = &self.func().dfg[user_id];
+    if !user.is(OpType::Phi) {
+      return false;
+    }
+    let used = &self.func().dfg[used_id];
+    let OpData::Phi { incomings } = used.data.clone() else {
+      unreachable!()
+    };
+    incomings.into_iter().any(|incoming| {
+      let PhiIncoming::Data { bb, .. } = incoming else {
+        return false;
+      };
+      bb == incoming_bb
+    })
   }
 
   /// TODO: When CFG is changed, SSAUpdater should be able to slay the dead edge.
