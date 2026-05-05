@@ -1,6 +1,6 @@
 //! Loop Invariant Code Motion (LICM).
 
-use crate::analysis::{DomAnalysis, DomTree, LoopAnalysis, LoopId, Loops};
+use crate::analysis::{DomAnalysis, DomTree, LoopAnalysis, LoopData, LoopId, Loops};
 
 use yachiyo::analysis::analyze;
 use yachiyo::ir::mid::{Builder, Function, OpType, Operand, IR};
@@ -93,7 +93,7 @@ impl LICM<'_> {
     )
   }
 
-  fn is_invariant(&self, lp_id: LoopId, value: Operand) -> bool {
+  fn is_invariant(&self, lp_id: LoopId, lp_data: &LoopData, value: Operand) -> bool {
     match value {
       Operand::Int(_) | Operand::Float(_) | Operand::Bool(_) | Operand::Param(_) => return true,
       // Actually, BB is also invariant too. But we won't hoist an op with such operand, so we return false.
@@ -103,16 +103,17 @@ impl LICM<'_> {
       Operand::BB(_) | Operand::Func(_) => unreachable!(),
     }
 
+    let value_bb_id = self.op_to_bb[value.get_op_id()].get_bb_id();
     self.invariants[usize::from(lp_id)].contains(value.get_op_id())
-      || self.block_to_loop[self.op_to_bb[value.get_op_id()].get_bb_id()].is_none()
-      || self.block_to_loop[self.op_to_bb[value.get_op_id()].get_bb_id()].unwrap() != lp_id
+      || self.block_to_loop[value_bb_id].is_none()
+      || !lp_data.blocks.contains(value_bb_id)
   }
 
   #[inline(always)]
-  fn meet(&self, lp_id: LoopId, operands: &[Operand]) -> bool {
+  fn meet(&self, lp_id: LoopId, lp_data: &LoopData, operands: &[Operand]) -> bool {
     operands
       .iter()
-      .all(|&operand| self.is_invariant(lp_id, operand))
+      .all(|&operand| self.is_invariant(lp_id, lp_data, operand))
   }
 
   fn run(&mut self, loops: &Loops, dom_tree: &DomTree) {
@@ -138,7 +139,7 @@ impl LICM<'_> {
           }
 
           let src = self.get_src(inst_id);
-          if self.meet(lp_id.into(), &src) {
+          if self.meet(lp_id.into(), loop_data, &src) {
             // Mark the op as an invariant.
             self.invariants[lp_id].insert(inst_id.get_op_id());
             // Move the op to the pre-header block.
