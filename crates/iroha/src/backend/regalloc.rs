@@ -534,6 +534,23 @@ impl Allocator<'_> {
     self.node_moves(n).next().is_some()
   }
 
+  fn push_simplify_worklist(&mut self, n: BOperand) {
+    let BOperand::Reg(Reg::Virt(id)) = n else {
+      return;
+    };
+
+    if self.select_stack.contains(&n)
+      || self.coalesced_nodes.contains(id)
+      || self.colored_nodes.contains(id)
+    {
+      return;
+    }
+
+    self.freeze_worklist.remove(&n);
+    self.spill_worklist.remove(&n);
+    self.simplify_worklist.push_back(n);
+  }
+
   fn make_worklist(&mut self) {
     let func_id = self.builder.current_function.unwrap();
     let vregs_ids = self.get_func(func_id).vregs.ids();
@@ -550,7 +567,7 @@ impl Allocator<'_> {
       } else if self.move_related(vreg_id) {
         self.freeze_worklist.push_back(vreg_id);
       } else {
-        self.simplify_worklist.push_back(vreg_id);
+        self.push_simplify_worklist(vreg_id);
       }
     }
   }
@@ -558,6 +575,9 @@ impl Allocator<'_> {
   fn simplify(&mut self) {
     let n = self.simplify_worklist.pop_front().unwrap();
     if !self.is_target(n) {
+      return;
+    }
+    if self.select_stack.contains(&n) {
       return;
     }
     self.select_stack.push_back(n);
@@ -580,7 +600,7 @@ impl Allocator<'_> {
       if self.move_related(n) {
         self.freeze_worklist.push_back(n);
       } else {
-        self.simplify_worklist.push_back(n);
+        self.push_simplify_worklist(n);
       }
     }
   }
@@ -718,7 +738,7 @@ impl Allocator<'_> {
     }
     if let BOperand::Reg(Reg::Virt(_)) = n {
       self.freeze_worklist.remove(&n);
-      self.simplify_worklist.push_back(n);
+      self.push_simplify_worklist(n);
     }
   }
 
@@ -740,7 +760,7 @@ impl Allocator<'_> {
   /// It means that all of its related move is given up to coalesce.
   fn freeze(&mut self) {
     let u = self.freeze_worklist.pop_front().unwrap();
-    self.simplify_worklist.push_back(u);
+    self.push_simplify_worklist(u);
     self.freeze_moves(u);
   }
 
@@ -766,8 +786,7 @@ impl Allocator<'_> {
         return;
       }
       if this.get_degree(v) < this.get_colors_num() && this.node_moves(v).next().is_none() {
-        this.freeze_worklist.remove(&v);
-        this.simplify_worklist.push_back(v);
+        this.push_simplify_worklist(v);
       }
     });
   }
@@ -775,7 +794,7 @@ impl Allocator<'_> {
   /// Select a node for spilling and add it to simplify_worklist.
   fn select_spill(&mut self) {
     let n = self.spill_worklist.pop_front().unwrap();
-    self.simplify_worklist.push_back(n);
+    self.push_simplify_worklist(n);
     self.freeze_moves(n);
   }
 
