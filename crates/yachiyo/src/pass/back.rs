@@ -8,18 +8,10 @@ use crate::ir::back::{BBuilder, BFunction, BOp, BOperand, BType, BackIR, Reg, Sl
 
 use std::collections::VecDeque;
 
+#[derive(Default)]
 pub struct BPassContext<'a> {
   pub ir: Option<&'a mut BackIR>,
   pub builder: BBuilder,
-}
-
-impl Default for BPassContext<'_> {
-  fn default() -> Self {
-    Self {
-      ir: None,
-      builder: BBuilder::default(),
-    }
-  }
 }
 
 impl<'a> BPassContext<'a> {
