@@ -7,6 +7,7 @@ use crate::ir::back::{
   BBasicBlock, BOp, BOpData, BOperand, FrameInfo, LOpData, MOpData, Reg, VirtReg, BCFG, BDFG,
 };
 use crate::utils::arena::*;
+use crate::utils::map::IndexedMap;
 use crate::utils::r#match::{match_full_ops, match_some};
 
 use std::ops::{Index, IndexMut};
@@ -27,6 +28,7 @@ pub struct BFunction {
   pub vregs: VRegs,
   /// Stack frame information.
   pub frame_info: FrameInfo,
+  pub op_to_bb: IndexedMap<BOperand, BOperand>,
 }
 
 impl BFunction {
@@ -37,9 +39,23 @@ impl BFunction {
       dfg: BDFG::new(),
       vregs: VRegs::new(),
       frame_info: FrameInfo::default(),
+      op_to_bb: IndexedMap::default(),
       is_external,
     }
   }
+
+  pub fn rebuild_op_to_bb(&mut self) {
+    let mut op_to_bb = IndexedMap::with_capacity(self.dfg.len());
+    for (bb_id, item) in self.cfg.storage.iter().enumerate() {
+      if let ArenaItem::Data(bb) = item {
+        for &op_id in &bb.cur {
+          op_to_bb[op_id] = BOperand::BB(bb_id);
+        }
+      }
+    }
+    self.op_to_bb = op_to_bb;
+  }
+
   pub fn get_rd_tuple(&self, lop_id: BOperand) -> Option<(&BOperand, usize)> {
     self.dfg.get_rd_tuple(lop_id)
   }
@@ -543,6 +559,8 @@ impl Arena<BFunction> for BCG {
                     }
                 }
             });
+
+            func.rebuild_op_to_bb();
         }
     });
 

@@ -4,9 +4,235 @@ use crate::cli::Cli;
 #[cfg(feature = "debug")]
 use crate::debug::info;
 use crate::debug::DumpASM;
-use crate::ir::back::BackIR;
+use crate::ir::back::{BBuilder, BFunction, BOp, BOperand, BType, BackIR, Reg, Slot};
 
 use std::collections::VecDeque;
+
+pub struct BPassContext<'a> {
+  pub ir: Option<&'a mut BackIR>,
+  pub builder: BBuilder,
+}
+
+impl Default for BPassContext<'_> {
+  fn default() -> Self {
+    Self {
+      ir: None,
+      builder: BBuilder::default(),
+    }
+  }
+}
+
+impl<'a> BPassContext<'a> {
+  pub fn mount(&mut self, ir: &'a mut BackIR) {
+    self.ir = Some(ir);
+  }
+
+  pub fn ir(&self) -> &BackIR {
+    self.ir.as_ref().unwrap()
+  }
+
+  pub fn ir_mut(&mut self) -> &mut BackIR {
+    self.ir.as_deref_mut().unwrap()
+  }
+
+  pub fn current_function(&self) -> Option<BOperand> {
+    self.builder.current_function
+  }
+
+  pub fn current_func(&self) -> BOperand {
+    self
+      .builder
+      .current_function
+      .expect("BPassContext: current function is None")
+  }
+
+  pub fn current_block(&self) -> Option<BOperand> {
+    self.builder.current_block
+  }
+
+  pub fn set_current_func(&mut self, func_id: BOperand) {
+    self.builder.set_current_func(func_id);
+  }
+
+  pub fn set_current_block(&mut self, bb_id: BOperand) {
+    self.builder.set_current_block(bb_id);
+  }
+
+  pub fn set_before_inst(&mut self, inst_id: Option<BOperand>) {
+    let current_function = self.builder.current_function;
+    let mut builder = std::mem::take(&mut self.builder);
+    builder.set_before_inst(self.ir_mut(), current_function, inst_id);
+    self.builder = builder;
+  }
+
+  pub fn set_after_inst(&mut self, inst_id: Option<BOperand>) {
+    let current_function = self.builder.current_function;
+    let mut builder = std::mem::take(&mut self.builder);
+    builder.set_after_inst(self.ir_mut(), current_function, inst_id);
+    self.builder = builder;
+  }
+
+  pub fn get_func(&self, func_id: BOperand) -> &BFunction {
+    &self.ir().funcs[func_id]
+  }
+
+  pub fn get_func_mut(&mut self, func_id: BOperand) -> &mut BFunction {
+    &mut self.ir_mut().funcs[func_id]
+  }
+
+  pub fn op_bb(&self, op_id: BOperand) -> BOperand {
+    self.get_func(self.current_func()).op_to_bb[op_id]
+  }
+
+  pub fn create(&mut self, op: BOp) -> BOperand {
+    let current_function = self.builder.current_function;
+    let builder = std::mem::take(&mut self.builder);
+    let op_id = self.ir_mut().create(&builder, current_function, op);
+    self.builder = builder;
+    op_id
+  }
+
+  pub fn create_at_head(&mut self, op: BOp) -> BOperand {
+    let current_function = self.builder.current_function;
+    let mut builder = std::mem::take(&mut self.builder);
+    let op_id = self
+      .ir_mut()
+      .create_at_head(&mut builder, current_function, op);
+    self.builder = builder;
+    op_id
+  }
+
+  pub fn remove_op(&mut self, op_id: BOperand, bb_id: Option<BOperand>) -> BOp {
+    let current_function = self.builder.current_function;
+    self.ir_mut().remove_op(current_function, op_id, bb_id)
+  }
+
+  pub fn replace_op_no_rauw(&mut self, op_id: BOperand, bb_id: BOperand, new_op: BOp) -> BOperand {
+    let current_function = self.builder.current_function;
+    let mut builder = std::mem::take(&mut self.builder);
+    let new_op_id =
+      self
+        .ir_mut()
+        .replace_op_no_rauw(&mut builder, current_function, op_id, bb_id, new_op);
+    self.builder = builder;
+    new_op_id
+  }
+
+  pub fn replace_op(&mut self, op_id: BOperand, bb_id: BOperand, new_op: BOp) -> BOperand {
+    self.replace_op_no_rauw(op_id, bb_id, new_op)
+  }
+
+  pub fn replace_op_rauw(&mut self, op_id: BOperand, bb_id: BOperand, new_op: BOp) -> BOperand {
+    let current_function = self.builder.current_function;
+    let mut builder = std::mem::take(&mut self.builder);
+    let new_op_id =
+      self
+        .ir_mut()
+        .replace_op_rauw(&mut builder, current_function, op_id, bb_id, new_op);
+    self.builder = builder;
+    new_op_id
+  }
+
+  pub fn move_op_to_bb_at(
+    &mut self,
+    op_id: BOperand,
+    old_bb: BOperand,
+    new_bb: BOperand,
+    pos: Option<BOperand>,
+  ) {
+    let current_function = self.builder.current_function;
+    self
+      .ir_mut()
+      .move_op_to_bb_at(current_function, op_id, old_bb, new_bb, pos);
+  }
+
+  pub fn get_rd(&self, op_id: BOperand) -> Option<&BOperand> {
+    self.ir().get_rd(self.builder.current_function, op_id)
+  }
+
+  pub fn get_vreg_id(&self, op_id: BOperand) -> BOperand {
+    self.get_rd(op_id).cloned().unwrap()
+  }
+
+  pub fn get_src(&self, op_id: BOperand) -> Vec<&BOperand> {
+    self.ir().get_src(self.builder.current_function, op_id)
+  }
+
+  pub fn get_src_owned(&self, op_id: BOperand) -> Vec<BOperand> {
+    self.get_src(op_id).iter().map(|src| **src).collect()
+  }
+
+  pub fn get_src_tuple(&self, op_id: BOperand) -> Vec<(&BOperand, usize)> {
+    self
+      .ir()
+      .get_src_tuple(self.builder.current_function, op_id)
+  }
+
+  pub fn get_src_tuple_owned(&self, op_id: BOperand) -> Vec<(BOperand, usize)> {
+    self
+      .get_src_tuple(op_id)
+      .iter()
+      .map(|(src, idx)| (**src, *idx))
+      .collect()
+  }
+
+  pub fn replace_rd(&mut self, inst_id: BOperand, new_operand: BOperand) {
+    let current_function = self.builder.current_function;
+    self
+      .ir_mut()
+      .replace_rd(current_function, inst_id, new_operand);
+  }
+
+  pub fn replace_src(
+    &mut self,
+    use_tuple: (BOperand, usize),
+    old_operand: BOperand,
+    new_operand: BOperand,
+  ) {
+    let current_function = self.builder.current_function;
+    self
+      .ir_mut()
+      .replace_src(current_function, use_tuple, old_operand, new_operand);
+  }
+
+  pub fn replace_all_uses(&mut self, old: BOperand, new: BOperand) {
+    let current_function = self.builder.current_function;
+    self.ir_mut().replace_all_uses(current_function, old, new);
+  }
+
+  pub fn alloc_slot(&mut self, slot: Slot) -> BOperand {
+    let func = self.get_func_mut(self.current_func());
+    BOperand::Slot(func.frame_info.alloc(slot))
+  }
+
+  pub fn get_operand_type(&self, operand: BOperand) -> BType {
+    let func_id = self.current_func();
+
+    match operand {
+      BOperand::Inst(id) => self.get_func(func_id).dfg[id].typ.clone(),
+      BOperand::Reg(reg) => match reg {
+        Reg::X(_) => BType::I32,
+        Reg::F(_) => BType::F32,
+        Reg::Virt(_) => self.get_func(func_id).vregs[operand].typ.clone(),
+      },
+      BOperand::IntImm(_) => BType::I32,
+      BOperand::FloatImm(_) => BType::F32,
+      BOperand::Undef => BType::Void,
+
+      BOperand::Slot(_) => match &self.get_func(func_id).frame_info[operand] {
+        Slot::CalleeSaved { typ, .. }
+        | Slot::Local { typ, .. }
+        | Slot::Param { typ, .. }
+        | Slot::Arg { typ, .. } => typ.clone(),
+      },
+      BOperand::Data(_) => self.ir().data_info[operand].typ.clone(),
+      BOperand::RoData(_) => self.ir().rodata_info[operand].typ.clone(),
+      BOperand::Bss(_) => self.ir().bss_info[operand].typ.clone(),
+
+      BOperand::Func(_) | BOperand::BB(_) => unreachable!(),
+    }
+  }
+}
 
 pub trait BPass<'a> {
   /// Get the name of the pass, which will be used for logging and debugging purposes. It should be unique for each pass to avoid confusion in logs.

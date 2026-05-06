@@ -5,10 +5,8 @@
 
 use yachiyo::base::Type;
 use yachiyo::config::{INT_IMM_MAX, INT_IMM_MIN};
-use yachiyo::ir::back::{
-  BAttr, BBuilder, BFunction, BOp, BOperand, BType, BackIR, LOpData, Reg, Slot,
-};
-use yachiyo::pass::BPass;
+use yachiyo::ir::back::{BAttr, BOp, BOperand, BType, BackIR, LOpData, Reg};
+use yachiyo::pass::{BPass, BPassContext};
 use yachiyo::utils::r#match::{match_some, match_src};
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -20,88 +18,13 @@ enum LegalizeOption {
 
 #[derive(Default)]
 pub struct Canonicalize<'a> {
-  ir: Option<&'a mut BackIR>,
-  builder: BBuilder,
+  cx: BPassContext<'a>,
 }
 
 impl Canonicalize<'_> {
   #[inline(always)]
   pub fn init(&mut self, func_id: BOperand) {
-    self.builder.set_current_func(func_id);
-  }
-
-  #[inline(always)]
-  pub fn get_func(&self, func_id: BOperand) -> &BFunction {
-    &self.ir.as_ref().unwrap().funcs[func_id]
-  }
-
-  #[inline(always)]
-  pub fn get_func_mut(&mut self, func_id: BOperand) -> &mut BFunction {
-    &mut self.ir.as_mut().unwrap().funcs[func_id]
-  }
-
-  #[inline(always)]
-  fn get_rd(&self, bop_id: BOperand) -> Option<&BOperand> {
-    let func_id = self.builder.current_function.unwrap();
-    self.ir.as_ref().unwrap().get_rd(Some(func_id), bop_id)
-  }
-
-  #[inline(always)]
-  fn get_operand_type(&self, operand: BOperand) -> BType {
-    let func_id = self.builder.current_function.unwrap();
-
-    match operand {
-      BOperand::Inst(id) => {
-        let op = &self.get_func(func_id).dfg[id];
-        op.typ.clone()
-      }
-      BOperand::Reg(reg) => match reg {
-        Reg::X(_) => BType::I32,
-        Reg::F(_) => BType::F32,
-        Reg::Virt(_) => self.get_func(func_id).vregs[operand].typ.clone(),
-      },
-      BOperand::IntImm(_) => BType::I32,
-      BOperand::FloatImm(_) => BType::F32,
-      BOperand::Undef => BType::Void,
-
-      BOperand::Slot(_) => match &self.get_func(func_id).frame_info[operand] {
-        Slot::CalleeSaved { typ, .. }
-        | Slot::Local { typ, .. }
-        | Slot::Param { typ, .. }
-        | Slot::Arg { typ, .. } => typ.clone(),
-      },
-      BOperand::Data(_) => self.ir.as_ref().unwrap().data_info[operand].typ.clone(),
-      BOperand::RoData(_) => self.ir.as_ref().unwrap().rodata_info[operand].typ.clone(),
-      BOperand::Bss(_) => self.ir.as_ref().unwrap().bss_info[operand].typ.clone(),
-
-      BOperand::Func(_) | BOperand::BB(_) => unreachable!(),
-    }
-  }
-
-  #[inline(always)]
-  fn replace_op_rauw(&mut self, old_id: BOperand, new_op: BOp) -> BOperand {
-    let func_id = self.builder.current_function.unwrap();
-    let current_block = self.builder.current_block.unwrap();
-    self.ir.as_mut().unwrap().replace_op_rauw(
-      &mut self.builder,
-      Some(func_id),
-      old_id,
-      current_block,
-      new_op,
-    )
-  }
-
-  #[inline(always)]
-  fn replace_op_no_rauw(&mut self, old_id: BOperand, new_op: BOp) -> BOperand {
-    let func_id = self.builder.current_function.unwrap();
-    let current_block = self.builder.current_block.unwrap();
-    self.ir.as_mut().unwrap().replace_op_no_rauw(
-      &mut self.builder,
-      Some(func_id),
-      old_id,
-      current_block,
-      new_op,
-    )
+    self.cx.set_current_func(func_id);
   }
 
   fn legalize(&mut self, boperand: BOperand, option: LegalizeOption) -> BOperand {
@@ -111,7 +34,7 @@ impl Canonicalize<'_> {
       minor_arms: {
           BOperand::IntImm(imm) => if option == LegalizeOption::ForceImmLoad {
             // If force loading required, create a new LoadIntImm instruction and return the LOpId.
-            let lop_id = self.create(BOp::new(
+            let lop_id = self.cx.create(BOp::new(
                 Type::Int.into(),
                 vec![],
                 LOpData::LoadIntImm {
@@ -120,10 +43,10 @@ impl Canonicalize<'_> {
                 }
                 .into(),
             ));
-            *self.get_rd(lop_id).unwrap()
+            *self.cx.get_rd(lop_id).unwrap()
           } else if !(INT_IMM_MIN..=INT_IMM_MAX).contains(&imm) {
             // create a new LoadIntImm instruction and return the LOpId.
-            let lop_id = self.create(BOp::new(
+            let lop_id = self.cx.create(BOp::new(
                 Type::Int.into(),
                 vec![],
                 LOpData::LoadIntImm {
@@ -132,14 +55,14 @@ impl Canonicalize<'_> {
                 }
                 .into(),
             ));
-            *self.get_rd(lop_id).unwrap()
+            *self.cx.get_rd(lop_id).unwrap()
           } else {
             BOperand::IntImm(imm)
           },
           BOperand::FloatImm(imm) => {
             // Float can never reside in immediate field of any instrucitons,
             // So we always create a new LoadFloatImm instruction and return the LOpId.
-            let lop_id = self.create(BOp::new(
+            let lop_id = self.cx.create(BOp::new(
                 Type::Float.into(),
                 vec![],
                 LOpData::LoadFloatImm {
@@ -148,14 +71,14 @@ impl Canonicalize<'_> {
                 }
                 .into(),
             ));
-            *self.get_rd(lop_id).unwrap()
+            *self.cx.get_rd(lop_id).unwrap()
           },
           // Non-load ops using a mem space must load it first.
           BOperand::Data(_)
           | BOperand::RoData(_)
           | BOperand::Bss(_) => {
             // Always force load for global memory operand.
-            let la_op_id = self.create(BOp::new(
+            let la_op_id = self.cx.create(BOp::new(
               BType::U64,
               vec![],
               LOpData::LoadAddress {
@@ -164,12 +87,12 @@ impl Canonicalize<'_> {
               }
               .into(),
             ));
-            let la_op_rd = *self.get_rd(la_op_id).unwrap();
+            let la_op_rd = *self.cx.get_rd(la_op_id).unwrap();
             if option == LegalizeOption::NoLoad {
               return la_op_rd;
             }
-            let typ = self.get_operand_type(boperand);
-            let lop_id = self.create(BOp::new(
+            let typ = self.cx.get_operand_type(boperand);
+            let lop_id = self.cx.create(BOp::new(
                 typ,
                 vec![],
                 LOpData::Load {
@@ -178,7 +101,7 @@ impl Canonicalize<'_> {
                 }
                 .into(),
             ));
-            *self.get_rd(lop_id).unwrap()
+            *self.cx.get_rd(lop_id).unwrap()
           }
 
           BOperand::Slot(_) => {
@@ -186,8 +109,8 @@ impl Canonicalize<'_> {
             if option == LegalizeOption::NoLoad {
               return boperand;
             }
-            let typ = self.get_operand_type(boperand);
-            let lop_id = self.create(BOp::new(
+            let typ = self.cx.get_operand_type(boperand);
+            let lop_id = self.cx.create(BOp::new(
                 typ,
                 vec![],
                 LOpData::Load {
@@ -196,7 +119,7 @@ impl Canonicalize<'_> {
                 }
                 .into(),
             ));
-            *self.get_rd(lop_id).unwrap()
+            *self.cx.get_rd(lop_id).unwrap()
           },
           BOperand::Inst(_) => unreachable!("Inst should never be used as an operand in get()"),
       },
@@ -205,15 +128,6 @@ impl Canonicalize<'_> {
           boperand
       }
     }
-  }
-
-  #[inline(always)]
-  fn create(&mut self, bop: BOp) -> BOperand {
-    self.builder.create(
-      self.ir.as_mut().unwrap(),
-      self.builder.current_function,
-      bop,
-    )
   }
 
   fn fold(lop_data: LOpData) -> BOperand {
@@ -281,20 +195,17 @@ impl Canonicalize<'_> {
   }
 
   pub fn run(&mut self) {
-    let func_id = self.builder.current_function.unwrap();
-    let bb_ids = self.get_func(func_id).cfg.ids();
+    let func_id = self.cx.current_func();
+    let bb_ids = self.cx.get_func(func_id).cfg.ids();
     for bb_id in bb_ids {
       let bb_id = BOperand::BB(bb_id);
-      self.builder.set_current_block(bb_id);
+      self.cx.set_current_block(bb_id);
+      let current_block = bb_id;
 
-      let inst_ids = self.get_func(func_id).cfg[bb_id].cur.clone();
+      let inst_ids = self.cx.get_func(func_id).cfg[bb_id].cur.clone();
       for inst_id in inst_ids {
-        self.builder.set_before_inst(
-          self.ir.as_mut().unwrap(),
-          self.builder.current_function,
-          Some(inst_id),
-        );
-        let op = &self.get_func(func_id).dfg[inst_id];
+        self.cx.set_before_inst(Some(inst_id));
+        let op = &self.cx.get_func(func_id).dfg[inst_id];
         let (lop_data, typ, attrs) = (op.data.clone().into(), op.typ.clone(), op.attrs.clone());
 
         match_src! {
@@ -306,9 +217,9 @@ impl Canonicalize<'_> {
               (true, true) => {
                   let folded = Self::fold(lop_data);
                   // RAUW
-                  self.ir.as_mut().unwrap().replace_all_uses(Some(func_id), inst_id, folded);
+                  self.cx.replace_all_uses(inst_id, folded);
                   // Remove the old instruction.
-                  self.ir.as_mut().unwrap().remove_op(Some(func_id), inst_id, Some(bb_id));
+                  self.cx.remove_op(inst_id, Some(bb_id));
               },
               (true, false) => {
                 // Canonicalize the operands to make the literal on the right, and adjust the operator if necessary.
@@ -373,7 +284,7 @@ impl Canonicalize<'_> {
 
                   _ => unreachable!("Unexpected op: {:?}", lop_data),
                 };
-                self.replace_op_rauw(inst_id, BOp::new(
+                self.cx.replace_op_rauw(inst_id, current_block, BOp::new(
                   typ,
                   attrs,
                   new_lop_data.into(),
@@ -445,7 +356,7 @@ impl Canonicalize<'_> {
 
                   _ => unreachable!("Unexpected op with literal on the right: {:?}", lop_data),
                 };
-                self.replace_op_rauw(inst_id, BOp::new(
+                self.cx.replace_op_rauw(inst_id, current_block, BOp::new(
                   typ,
                   attrs,
                   new_lop_data.into(),
@@ -494,7 +405,7 @@ impl Canonicalize<'_> {
 
                   _ => unreachable!("Unexpected op with no literal operand: {:?}", lop_data),
                 };
-                self.replace_op_rauw(inst_id, BOp::new(
+                self.cx.replace_op_rauw(inst_id, current_block, BOp::new(
                   typ,
                   attrs,
                   new_lop_data.into(),
@@ -512,7 +423,7 @@ impl Canonicalize<'_> {
                 LOpData::Fptosi { rd, value: self.legalize(value, LegalizeOption::ForceImmLoad) },
               _ => unreachable!("Unexpected unary op: {:?}", lop_data),
             };
-            self.replace_op_rauw(inst_id, BOp::new(
+            self.cx.replace_op_rauw(inst_id, current_block, BOp::new(
               typ,
               attrs,
               new_lop_data.into(),
@@ -522,7 +433,7 @@ impl Canonicalize<'_> {
             LOpData::Store { addr, value, val_typ } => {
               // Mem operand should not be
               let new_lop_data = LOpData::Store { addr: self.legalize(addr, LegalizeOption::NoLoad), value: self.legalize(value, LegalizeOption::ForceImmLoad), val_typ };
-              self.replace_op_rauw(inst_id, BOp::new(
+              self.cx.replace_op_rauw(inst_id, current_block, BOp::new(
                 typ,
                 attrs,
                 new_lop_data.into(),
@@ -531,7 +442,7 @@ impl Canonicalize<'_> {
             LOpData::Load { addr, rd } => {
               // Mem operand should not be legalized to Load again, otherwise it will cause infinite loop.
               let new_lop_data = LOpData::Load { addr: self.legalize(addr, LegalizeOption::NoLoad), rd };
-              self.replace_op_rauw(inst_id, BOp::new(
+              self.cx.replace_op_rauw(inst_id, current_block, BOp::new(
                 typ,
                 attrs,
                 new_lop_data.into(),
@@ -541,20 +452,20 @@ impl Canonicalize<'_> {
               // Move should not have literal operand, but we still legalize it just in case.
               let new_lop_data = LOpData::Move { rd, src: self.legalize(src, LegalizeOption::ForceImmLoad) };
               if let BOperand::Reg(Reg::X(_)) | BOperand::Reg(Reg::F(_)) = rd {
-                self.replace_op_no_rauw(inst_id, BOp::new(
+                self.cx.replace_op_no_rauw(inst_id, current_block, BOp::new(
                   typ,
                   attrs,
                   new_lop_data.into(),
                 ));
               } else if attrs.contains(&BAttr::PhiMove) {
                 // For phi move, we also don't want to RAUW because it might cause issues with phi move elimination later.
-                self.replace_op_no_rauw(inst_id, BOp::new(
+                self.cx.replace_op_no_rauw(inst_id, current_block, BOp::new(
                   typ,
                   attrs,
                   new_lop_data.into(),
                 ));
               } else {
-                self.replace_op_rauw(inst_id, BOp::new(
+                self.cx.replace_op_rauw(inst_id, current_block, BOp::new(
                   typ,
                   attrs,
                   new_lop_data.into(),
@@ -567,7 +478,7 @@ impl Canonicalize<'_> {
                 then_bb,
                 else_bb,
               };
-              self.replace_op_rauw(inst_id, BOp::new(
+              self.cx.replace_op_rauw(inst_id, current_block, BOp::new(
                 typ,
                 attrs,
                 new_lop_data.into(),
@@ -593,10 +504,10 @@ impl<'a> BPass<'a> for Canonicalize<'a> {
     "Canonicalize"
   }
   fn mount(&mut self, program: &'a mut BackIR) {
-    self.ir = Some(program);
+    self.cx.mount(program);
   }
   fn run(&mut self) {
-    for func_id in self.ir.as_ref().unwrap().funcs.collect_internal() {
+    for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = BOperand::Func(func_id);
       self.init(func_id);
       self.run();

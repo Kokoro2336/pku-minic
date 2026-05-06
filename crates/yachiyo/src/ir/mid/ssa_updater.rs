@@ -25,8 +25,6 @@ pub struct SSAUpdater<'a> {
   /// BBId -> OpId
   available_defs: FxHashMap<Operand, Operand>,
   new_phis: BitSet,
-
-  op_to_bb: &'a mut Vec<Operand>,
 }
 
 impl<'a> SSAUpdater<'a> {
@@ -40,7 +38,6 @@ impl<'a> SSAUpdater<'a> {
     worklist: Worklist<Operand, BitSet>,
     inserted_blocks: BitSet,
     available_defs: FxHashMap<Operand, Operand>,
-    op_to_bb: &'a mut Vec<Operand>,
   ) -> Self {
     Self {
       ir,
@@ -53,7 +50,6 @@ impl<'a> SSAUpdater<'a> {
       inserted_blocks,
       available_defs,
       new_phis: BitSet::new(),
-      op_to_bb,
     }
   }
 
@@ -127,13 +123,6 @@ impl<'a> SSAUpdater<'a> {
             Some(self.func_id),
             Op::new(typ.clone(), vec![], OpData::phi_with_undef(&preds)),
           );
-          // Update the mapping from op to bb.
-          if new_phi_id.get_op_id() >= self.op_to_bb.len() {
-            self
-              .op_to_bb
-              .resize(new_phi_id.get_op_id() + 1, Operand::BB(0));
-          }
-          self.op_to_bb[new_phi_id.get_op_id()] = frontier_bb_id;
           // Update the available definition for the frontier block.
           self.available_defs.insert(frontier_bb_id, new_phi_id);
           self.new_phis.insert(new_phi_id.get_op_id());
@@ -163,7 +152,7 @@ impl<'a> SSAUpdater<'a> {
     let user_op = &self.func().dfg[op_id];
     let OpData::Phi { incomings } = user_op.data.clone() else {
       // For non-phi users, the trace block is simply the block containing the user.
-      return self.op_to_bb[op_id.get_op_id()];
+      return self.func().op_to_bb[op_id];
     };
 
     // Find the incoming edge corresponding to the current instruction.

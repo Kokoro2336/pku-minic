@@ -1,8 +1,7 @@
 //! Remove Trivial Phi.
 
-use yachiyo::ir::mid::{Attr, Builder, OpData, OpType, Operand, PhiIncoming, IR};
-use yachiyo::pass::Pass;
-use yachiyo::utils::arena::ArenaItem;
+use yachiyo::ir::mid::{Attr, OpData, OpType, Operand, PhiIncoming, IR};
+use yachiyo::pass::{Pass, PassContext};
 
 enum CheckType {
   Empty,           // No non-phi incoming value. We can replace the phi with undef.
@@ -12,13 +11,11 @@ enum CheckType {
 
 #[derive(Default)]
 pub struct RemoveTrivialPhi<'a> {
-  program: Option<&'a mut IR>,
-  builder: Builder,
+  cx: PassContext<'a>,
   phi_ids: Vec<Operand>,
 
   // Ancillary state fields
   worklist: Vec<(Operand, Operand, CheckType)>, // Vec of (PhiId, BBId, CheckType)
-  op_to_bb: Vec<Operand>,                       // Mapping from OpId to BBId
 }
 
 impl RemoveTrivialPhi<'_> {
@@ -59,32 +56,16 @@ impl RemoveTrivialPhi<'_> {
   }
 
   fn init(&mut self, func_id: Operand) {
-    self.builder.set_current_func(Some(func_id));
-    let program = self.program.as_deref_mut().unwrap();
-    let func = &program.funcs[func_id];
+    self.cx.set_current_func(Some(func_id));
 
-    self.op_to_bb.clear();
-    self.op_to_bb.resize(func.dfg.storage.len(), Operand::BB(0));
-    func
-      .cfg
-      .storage
-      .iter()
-      .enumerate()
-      .for_each(|(bb_id, item)| {
-        if let ArenaItem::Data(bb) = item {
-          for op_id in bb.cur.iter() {
-            self.op_to_bb[op_id.get_op_id()] = Operand::BB(bb_id);
-          }
-        }
-      });
-
-    self.phi_ids = program.get_all_ops(self.builder.current_function, OpType::Phi);
+    self.phi_ids = self.cx.get_all_ops(OpType::Phi);
+    let op_to_bb = &self.cx.ir().funcs[func_id].op_to_bb;
     self.worklist = self
       .phi_ids
       .iter()
       .map(|phi_id| {
-        let check_result = Self::check(program, func_id, *phi_id);
-        (*phi_id, self.op_to_bb[phi_id.get_op_id()], check_result)
+        let check_result = Self::check(self.cx.ir(), func_id, *phi_id);
+        (*phi_id, op_to_bb[*phi_id], check_result)
       })
       .collect();
   }
@@ -93,36 +74,29 @@ impl RemoveTrivialPhi<'_> {
     // Check whether the phi_ids are valid
     while let Some((phi_id, bb_id, check_result)) = self.worklist.pop() {
       let uses = {
-        let func_id = match self.builder.current_function {
-          Some(id) => id,
-          None => panic!("RemoveTrivialPhi: no current function"),
-        };
-        let func = &mut self.program.as_mut().unwrap().funcs[func_id];
+        let func_id = self.cx.current_func();
+        let func = self.cx.get_func_mut(func_id);
         let phi_op = &mut func.dfg[phi_id];
         // Remove OldIdx Attr
         phi_op.attrs.retain(|attr| !matches!(attr, Attr::OldIdx(_)));
         phi_op.users.clone()
       };
-      let current_function = self.builder.current_function.unwrap();
+      let current_function = self.cx.current_func();
       match check_result {
         CheckType::Empty => {
-          self.program.as_deref_mut().unwrap().replace_all_uses(
-            self.builder.current_function,
-            phi_id,
-            Operand::Undefined,
-          );
+          self.cx.replace_all_uses(phi_id, Operand::Undefined);
           for (user, _) in uses {
             // Ignore phi itself, since it will be removed later and should not pushed to worklist again.
             if user == phi_id {
               continue;
             }
-            let check_result = Self::check(self.program.as_ref().unwrap(), current_function, user);
+            let check_result = Self::check(self.cx.ir(), current_function, user);
             if matches!(check_result, CheckType::Empty | CheckType::Single(_)) {
               if let Some((id, bb)) = self
                 .phi_ids
                 .iter()
                 .find(|id| **id == user)
-                .map(|id| (*id, self.op_to_bb[id.get_op_id()]))
+                .map(|id| (*id, self.cx.op_bb(*id)))
               {
                 // We should check whether the user phi is already in the worklist to avoid duplicate entries.
                 let pos = self.worklist.iter().position(|(w_id, _, _)| *w_id == id);
@@ -134,29 +108,21 @@ impl RemoveTrivialPhi<'_> {
               }
             }
           }
-          self.program.as_deref_mut().unwrap().remove_op(
-            self.builder.current_function,
-            phi_id,
-            Some(bb_id),
-          );
+          self.cx.remove_op(phi_id, Some(bb_id));
         }
         CheckType::Single(value) => {
-          self.program.as_deref_mut().unwrap().replace_all_uses(
-            self.builder.current_function,
-            phi_id,
-            value,
-          );
+          self.cx.replace_all_uses(phi_id, value);
           for (user, _) in uses {
             if user == phi_id {
               continue;
             }
-            let check_result = Self::check(self.program.as_ref().unwrap(), current_function, user);
+            let check_result = Self::check(self.cx.ir(), current_function, user);
             if matches!(check_result, CheckType::Empty | CheckType::Single(_)) {
               if let Some((id, bb)) = self
                 .phi_ids
                 .iter()
                 .find(|id| **id == user)
-                .map(|id| (*id, self.op_to_bb[id.get_op_id()]))
+                .map(|id| (*id, self.cx.op_bb(*id)))
               {
                 // We should check whether the user phi is already in the worklist to avoid duplicate entries.
                 let pos = self.worklist.iter().position(|(w_id, _, _)| *w_id == id);
@@ -168,11 +134,7 @@ impl RemoveTrivialPhi<'_> {
               }
             }
           }
-          self.program.as_deref_mut().unwrap().remove_op(
-            self.builder.current_function,
-            phi_id,
-            Some(bb_id),
-          );
+          self.cx.remove_op(phi_id, Some(bb_id));
         }
         CheckType::Ignore => {}
       }
@@ -186,11 +148,11 @@ impl<'a> Pass<'a> for RemoveTrivialPhi<'a> {
   }
 
   fn mount(&mut self, program: &'a mut IR) {
-    self.program = Some(program);
+    self.cx.mount(program);
   }
 
   fn run(&mut self) {
-    for idx in self.program.as_ref().unwrap().funcs.collect_internal() {
+    for idx in self.cx.ir().funcs.collect_internal() {
       self.init(Operand::Func(idx));
       self.remove_phi();
     }

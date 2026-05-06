@@ -1,8 +1,8 @@
 //! Global Value Numbering (GVN) .
 
 use yachiyo::analysis::analyze;
-use yachiyo::ir::mid::{Builder, Function, OpData, Operand, PhiIncoming, IR};
-use yachiyo::pass::Pass;
+use yachiyo::ir::mid::{OpData, Operand, PhiIncoming, IR};
+use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::set::BitSet;
 use yachiyo::utils::table::SymbolTable;
 
@@ -46,8 +46,7 @@ enum GVNPhase {
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Default)]
 pub struct GVN<'a> {
-  ir: Option<&'a mut IR>,
-  builder: Builder,
+  cx: PassContext<'a>,
   symbols: SymbolTable<CanonicalExpr, Operand>,
   stack: Vec<GVNPhase>,
 
@@ -136,7 +135,7 @@ impl From<&OpData> for CanonicalExpr {
 impl GVN<'_> {
   #[inline(always)]
   fn init(&mut self, func_id: Operand) {
-    self.builder.set_current_func(Some(func_id));
+    self.cx.set_current_func(Some(func_id));
 
     self.symbols.clear();
     self.stack.clear();
@@ -144,23 +143,18 @@ impl GVN<'_> {
     self.dfs_post_order.clear();
 
     self.rdfn.clear();
-    self.rdfn.resize(self.get_func(func_id).cfg.len(), 0);
-  }
-
-  #[inline(always)]
-  fn get_func(&self, func_id: Operand) -> &Function {
-    &self.ir.as_ref().unwrap().funcs[func_id]
+    self.rdfn.resize(self.cx.get_func(func_id).cfg.len(), 0);
   }
 
   fn dfs(&mut self, bb_id: Operand) {
-    let func_id = self.builder.current_function.unwrap();
+    let func_id = self.cx.current_func();
     if self.visited.contains(bb_id.get_bb_id()) {
       return;
     }
 
     self.visited.insert(bb_id.get_bb_id());
 
-    let succs = self.get_func(func_id).cfg[bb_id].succs.clone();
+    let succs = self.cx.get_func(func_id).cfg[bb_id].succs.clone();
     for (succ, _) in succs {
       self.dfs(succ);
     }
@@ -170,31 +164,21 @@ impl GVN<'_> {
   }
 
   #[inline(always)]
-  fn replace_all_uses(&mut self, old: Operand, new: Operand) {
-    let func_id = self.builder.current_function;
-    self
-      .ir
-      .as_mut()
-      .unwrap()
-      .replace_all_uses(func_id, old, new);
-  }
-
-  #[inline(always)]
   fn enter_scope(&mut self, bb_id: Operand) {
     self.stack.push(GVNPhase::Start(bb_id));
     self.symbols.enter_scope();
   }
 
   fn run(&mut self, dom_tree: &DomTree) {
-    let func_id = self.builder.current_function.unwrap();
+    let func_id = self.cx.current_func();
     while let Some(phase) = self.stack.pop() {
       match phase {
         GVNPhase::Start(bb_id) => {
-          let insts = self.get_func(func_id).cfg[bb_id.get_bb_id()].cur.clone();
+          let insts = self.cx.get_func(func_id).cfg[bb_id.get_bb_id()].cur.clone();
 
           // Start GVN
           for inst in insts {
-            let op_data = &self.get_func(func_id).dfg[inst.get_op_id()].data;
+            let op_data = &self.cx.get_func(func_id).dfg[inst.get_op_id()].data;
             if let OpData::GEP { base, indices } = op_data {
               if indices.len() == 1
                 && indices.iter().all(|index| matches!(index, Operand::Int(0)))
@@ -203,7 +187,7 @@ impl GVN<'_> {
               {
                 // We can canonicalize GEP with single zero indices to its base pointer.
                 // If indices.len() > 1, we can't eliminate it since replacement would iccur type mismatch.
-                self.replace_all_uses(inst, *base);
+                self.cx.replace_all_uses(inst, *base);
                 continue;
               }
             }
@@ -217,7 +201,7 @@ impl GVN<'_> {
 
             if let Some(value) = self.symbols.get(&canonical_expr) {
               // Replace the instruction with the existing value.
-              self.replace_all_uses(inst, *value);
+              self.cx.replace_all_uses(inst, *value);
             } else {
               // Insert the canonical expression into the symbol table.
               self.symbols.insert(canonical_expr, inst);
@@ -252,18 +236,18 @@ impl<'a> Pass<'a> for GVN<'a> {
   }
 
   fn mount(&mut self, program: &'a mut IR) {
-    self.ir = Some(program);
+    self.cx.mount(program);
   }
 
   fn run(&mut self) {
     // run dominance analysis to get the dominator tree
-    for func_id in self.ir.as_ref().unwrap().funcs.collect_internal() {
+    for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
-      let func = self.get_func(func_id);
+      let func = self.cx.get_func(func_id);
       let (dom_tree, _) = analyze::<DomAnalysis>(func);
 
       self.init(func_id);
-      let entry = Operand::BB(self.get_func(func_id).cfg.entry.unwrap());
+      let entry = Operand::BB(self.cx.get_func(func_id).cfg.entry.unwrap());
       self.dfs(entry);
       for (rdfn, bb_id) in self.dfs_post_order.iter().rev().enumerate() {
         self.rdfn[bb_id.get_bb_id()] = rdfn;

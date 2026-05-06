@@ -6,6 +6,7 @@ use crate::debug::info;
 use crate::base::Type;
 use crate::ir::mid::{BasicBlock, Op, OpData, Operand, PhiIncoming, CFG, DFG};
 use crate::utils::arena::*;
+use crate::utils::map::IndexedMap;
 use crate::utils::r#match::match_some;
 use std::ops::{Index, IndexMut};
 
@@ -20,6 +21,7 @@ pub struct Function {
   pub cfg: CFG,
   pub dfg: DFG,
   pub params: Params,
+  pub op_to_bb: IndexedMap<Operand, Operand>,
 }
 
 impl Function {
@@ -31,7 +33,20 @@ impl Function {
       cfg: CFG::default(),
       dfg: DFG::default(),
       params: Params::default(),
+      op_to_bb: IndexedMap::default(),
     }
+  }
+
+  pub fn rebuild_op_to_bb(&mut self) {
+    let mut op_to_bb = IndexedMap::with_capacity(self.dfg.len());
+    for (bb_id, item) in self.cfg.storage.iter().enumerate() {
+      if let ArenaItem::Data(bb) = item {
+        for &op_id in &bb.cur {
+          op_to_bb[op_id] = Operand::BB(bb_id);
+        }
+      }
+    }
+    self.op_to_bb = op_to_bb;
   }
 
   pub fn get_src_tuple(&self, op_id: Operand) -> Vec<(&Operand, usize)> {
@@ -180,6 +195,8 @@ impl Arena<Function> for IndexedArena<Function> {
                         }
                     }
                 });
+
+                func.rebuild_op_to_bb();
             }
         });
 

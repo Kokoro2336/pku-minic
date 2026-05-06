@@ -9,7 +9,7 @@ use yachiyo::analysis::analyze;
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{Attr, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::ir::mid::{Builder, BuilderGuard};
-use yachiyo::pass::Pass;
+use yachiyo::pass::{Pass, PassContext};
 
 use std::collections::HashMap;
 
@@ -570,7 +570,7 @@ impl<'a> Renaming<'a> {
 
 #[derive(Default)]
 pub struct Mem2Reg<'a> {
-  program: Option<&'a mut IR>,
+  cx: PassContext<'a>,
 }
 
 impl<'a> Pass<'a> for Mem2Reg<'a> {
@@ -578,30 +578,31 @@ impl<'a> Pass<'a> for Mem2Reg<'a> {
     "Mem2Reg"
   }
   fn mount(&mut self, program: &'a mut IR) {
-    self.program = Some(program);
+    self.cx.mount(program);
   }
   fn run(&mut self) {
-    let func_num = self.program.as_ref().unwrap().funcs.len();
+    let func_num = self.cx.ir().funcs.len();
     let (mut dom_trees, mut frontiers) = (
       vec![DomTree::default(); func_num],
       vec![DomFrontier::default(); func_num],
     );
 
-    for func_id in self.program.as_ref().unwrap().funcs.collect_internal() {
+    for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
-      let func = &self.program.as_ref().unwrap().funcs[func_id];
+      let func = &self.cx.ir().funcs[func_id];
       let (dom_tree, frontier) = analyze::<DomAnalysis>(func);
       dom_trees[func_id.get_func_id()] = dom_tree;
       frontiers[func_id.get_func_id()] = frontier;
     }
 
-    let program = self.program.as_deref_mut().unwrap();
-
     // 3. Insert Phi nodes
     #[cfg(feature = "debug")]
     info!("Start inserting phi nodes.");
 
-    InsertPhi::new(program, frontiers).run();
+    {
+      let program = self.cx.ir_mut();
+      InsertPhi::new(program, frontiers).run();
+    }
 
     #[cfg(feature = "debug")]
     info!("Phi nodes inserted.");
@@ -610,8 +611,11 @@ impl<'a> Pass<'a> for Mem2Reg<'a> {
     #[cfg(feature = "debug")]
     info!("Start renaming variables.");
 
-    let mut renamer = Renaming::new(program, dom_trees);
-    renamer.run();
+    {
+      let program = self.cx.ir_mut();
+      let mut renamer = Renaming::new(program, dom_trees);
+      renamer.run();
+    }
     #[cfg(feature = "debug")]
     info!("Variables renamed.");
   }

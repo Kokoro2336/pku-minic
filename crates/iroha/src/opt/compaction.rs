@@ -1,12 +1,12 @@
 //! Arena Compaction Pass.
 
 use yachiyo::ir::mid::IR;
-use yachiyo::pass::Pass;
+use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::arena::Arena;
 
 #[derive(Default)]
 pub struct Compaction<'a> {
-  program: Option<&'a mut IR>,
+  cx: PassContext<'a>,
 }
 
 impl<'a> Pass<'a> for Compaction<'a> {
@@ -14,9 +14,9 @@ impl<'a> Pass<'a> for Compaction<'a> {
     "Compaction"
   }
   fn mount(&mut self, ir: &'a mut IR) {
-    self.program = Some(ir);
+    self.cx.mount(ir);
   }
   fn run(&mut self) {
-    self.program.as_mut().unwrap().funcs.gc();
+    self.cx.ir_mut().funcs.gc();
   }
 }
