@@ -13,7 +13,6 @@ use crate::analysis::Reachability;
 pub struct SimplifyCFG<'a> {
   ir: Option<&'a mut IR>,
   builder: Builder,
-  op_to_bb: Vec<Operand>,
   /// Processed dead blocks
   processed: BitSet,
 }
@@ -21,30 +20,7 @@ pub struct SimplifyCFG<'a> {
 impl SimplifyCFG<'_> {
   fn init(&mut self, func_id: Operand) {
     self.builder.set_current_func(Some(func_id));
-    // Init op_to_bb mapping.
-    let (dfg_len, blocks) = {
-      let func = self.get_func(func_id);
-      let blocks = func
-        .cfg
-        .ids()
-        .map(|bb| {
-          let bb_id = Operand::BB(bb);
-          let cur = func.cfg[bb_id].cur.clone();
-          (bb_id, cur)
-        })
-        .collect::<Vec<(Operand, Vec<Operand>)>>();
-      (func.dfg.len(), blocks)
-    };
-
     self.processed.clear();
-    self.op_to_bb.clear();
-    self.op_to_bb.resize(dfg_len, Operand::Undefined);
-
-    for (bb_id, cur) in blocks {
-      for inst_id in cur {
-        self.op_to_bb[inst_id.get_op_id()] = bb_id;
-      }
-    }
   }
 
   #[inline(always)]
@@ -107,8 +83,6 @@ impl SimplifyCFG<'_> {
       .as_deref_mut()
       .unwrap()
       .move_op_to_bb_at(func_id, op_id, from_bb, to_bb, before_op);
-    // Update op_to_bb mapping.
-    self.op_to_bb[op_id.get_op_id()] = to_bb;
   }
 
   #[inline(always)]
@@ -130,14 +104,6 @@ impl SimplifyCFG<'_> {
         .as_mut()
         .unwrap()
         .replace_op(&mut self.builder, func_id, op_id, bb_id, new_op);
-    // Update op_to_bb mapping.
-    if new_op_id.get_op_id() >= self.op_to_bb.len() {
-      self
-        .op_to_bb
-        .resize(new_op_id.get_op_id() + 1, Operand::Undefined);
-    }
-    self.op_to_bb[new_op_id.get_op_id()] = bb_id;
-    self.op_to_bb[op_id.get_op_id()] = Operand::Undefined;
     new_op_id
   }
 
@@ -338,7 +304,7 @@ impl SimplifyCFG<'_> {
           true
         } else if let OpData::Phi { .. } = op_data {
           users.iter().all(|(user, _)| {
-            let bb_id = self.op_to_bb[user.get_op_id()];
+            let bb_id = self.get_func(func_id).op_to_bb[*user];
             succs[0].0 == bb_id && self.get_func(func_id).dfg[*user].data.is(OpType::Phi)
           })
         } else {
@@ -410,7 +376,7 @@ impl SimplifyCFG<'_> {
               }
               self.slay_phi_incoming(phi_id, bb_id);
               let new_incomings = if matches!(value, Operand::Value(_))
-                && self.op_to_bb[value.get_op_id()] == bb_id
+                && self.get_func(func_id).op_to_bb[value] == bb_id
               {
                 let tramp_phi = &self.get_func_mut(func_id).dfg[value];
                 if let OpData::Phi {
@@ -473,9 +439,10 @@ impl SimplifyCFG<'_> {
 
     for bb_id in dead_blocks.iter() {
       let cur = self.get_func(func_id).cfg[*bb_id].cur.clone();
-      let dfg = &mut self.get_func_mut(func_id).dfg;
+      let func = self.get_func_mut(func_id);
       for inst in cur.iter().rev() {
-        dfg.remove(inst.get_op_id());
+        func.op_to_bb[*inst] = Operand::default();
+        func.dfg.remove(inst.get_op_id());
       }
     }
 

@@ -598,7 +598,7 @@ impl Op {
   }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Operand {
   // Ids
   Global(usize),
@@ -614,6 +614,7 @@ pub enum Operand {
   Bool(bool),
 
   // for phi
+  #[default]
   Undefined,
 }
 

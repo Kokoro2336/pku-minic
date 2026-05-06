@@ -5,7 +5,6 @@
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{Builder, Function, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::Pass;
-use yachiyo::utils::arena::ArenaItem;
 use yachiyo::utils::r#match::match_src;
 use yachiyo::utils::set::BitSet;
 
@@ -40,8 +39,6 @@ pub struct SCCP<'a> {
   inst_list: Vec<Operand>,
 
   // Ancillary infrastructure
-  // We need to know the mapping from op_id to bb_id for phi nodes.
-  op_to_bb: Vec<Operand>,
   // br_ops excluding ret.
   br_ops: Vec<Operand>,
   in_br_ops: BitSet,
@@ -198,22 +195,6 @@ impl SCCP<'_> {
 
     self.lattices.clear();
     self.lattices.resize(func.dfg.storage.len(), Lattice::Top);
-
-    // map OpId to BBId
-    self.op_to_bb.clear();
-    self.op_to_bb.resize(func.dfg.storage.len(), Operand::BB(0));
-    func
-      .cfg
-      .storage
-      .iter()
-      .enumerate()
-      .for_each(|(bb_id, item)| {
-        if let ArenaItem::Data(bb) = item {
-          for op_id in bb.cur.iter() {
-            self.op_to_bb[op_id.get_op_id()] = Operand::BB(bb_id);
-          }
-        }
-      });
 
     self.executable.clear();
     self.visited.clear();
@@ -471,12 +452,11 @@ impl SCCP<'_> {
         if op_data.is(OpType::Phi) {
           self.visit_phi(op_id);
         } else {
+          let bb_id = self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()]
+            .op_to_bb[op_id];
           // If any incoming edge is executable, we need to visit the instruction.
-          if self
-            .visited
-            .contains(self.op_to_bb[op_id.get_op_id()].get_bb_id())
-          {
-            self.visit_expr(op_id, self.op_to_bb[op_id.get_op_id()]);
+          if self.visited.contains(bb_id.get_bb_id()) {
+            self.visit_expr(op_id, bb_id);
           }
         }
       }
@@ -522,7 +502,9 @@ impl SCCP<'_> {
               } else {
                 (else_bb, then_bb)
               };
-              let bb_id = self.op_to_bb[br_op.get_op_id()];
+              let bb_id = self.program.as_ref().unwrap().funcs
+                [self.builder.current_function.unwrap()]
+              .op_to_bb[br_op];
               let current_function = self.builder.current_function;
               self.program.as_deref_mut().unwrap().replace_op(
                 &mut self.builder,

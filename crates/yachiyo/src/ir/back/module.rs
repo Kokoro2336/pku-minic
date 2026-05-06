@@ -395,19 +395,18 @@ impl BackIR {
     crate::debug::info!("Creating op {:?} in function {:?}", op, current_function);
 
     let current_function = current_function.unwrap();
+    let current_block = builder
+      .current_block
+      .unwrap_or_else(|| panic!("BackIR create: current_block is None"));
     let op_id = {
       let func = &mut self.funcs[current_function];
       let (cfg, dfg) = (&mut func.cfg, &mut func.dfg);
 
       let new_id = dfg.alloc(op);
-      let current_block = if let Some(block) = &builder.current_block {
-        block.get_bb_id()
-      } else {
-        unreachable!()
-      };
-      let bb = &mut cfg[current_block];
+      let current_block_id = current_block.get_bb_id();
+      let bb = &mut cfg[current_block_id];
 
-      if let Some(current_inst) = &builder.current_inst {
+      let op_id = if let Some(current_inst) = &builder.current_inst {
         let pos = bb
           .cur
           .iter()
@@ -425,12 +424,13 @@ impl BackIR {
         let op_id = BOperand::Inst(new_id);
         bb.cur.push(op_id);
         op_id
-      }
+      };
+      func.op_to_bb[op_id] = current_block;
+      op_id
     };
 
     self.bind(Some(current_function), op_id);
     self.add_uses(Some(current_function), op_id);
-    let current_block = builder.current_block.unwrap();
     self.add_control_flow(Some(current_function), op_id, current_block);
     op_id
   }
@@ -603,7 +603,7 @@ impl BackIR {
 
     let current_function = current_function.unwrap();
     let func = &mut self.funcs[current_function];
-    let (cfg, dfg) = (&mut func.cfg, &mut func.dfg);
+    let (cfg, dfg, op_to_bb) = (&mut func.cfg, &mut func.dfg, &mut func.op_to_bb);
 
     let op_id = op.get_inst_id();
     let bb_id = bb
@@ -625,6 +625,7 @@ impl BackIR {
       );
     }
 
+    op_to_bb[op] = BOperand::default();
     let removed_op = match std::mem::replace(&mut dfg.storage[op_id], ArenaItem::None) {
       ArenaItem::Data(data) => data,
       _ => panic!("BackIR remove_op: dfg slot {} is not data", op_id),
@@ -757,7 +758,8 @@ impl BackIR {
     pos: Option<BOperand>,
   ) {
     let current_function = current_function.unwrap();
-    let cfg = &mut self.funcs[current_function].cfg;
+    let func = &mut self.funcs[current_function];
+    let cfg = &mut func.cfg;
 
     let op_id = op.get_inst_id();
     let old_bb_id = old_bb.get_bb_id();
@@ -795,6 +797,8 @@ impl BackIR {
     } else {
       new_bb_ref.cur.push(op);
     }
+
+    func.op_to_bb[op] = new_bb;
   }
 
   pub fn get_rd_tuple(

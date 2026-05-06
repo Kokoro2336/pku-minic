@@ -3,7 +3,6 @@
 use yachiyo::ir::mid::Builder;
 use yachiyo::ir::mid::{OpData, Operand, PhiIncoming, IR};
 use yachiyo::pass::Pass;
-use yachiyo::utils::arena::ArenaItem;
 use yachiyo::utils::r#match::match_src;
 use yachiyo::utils::set::BitSet;
 use yachiyo::utils::worklist::{Worklist, WorklistTrait};
@@ -15,8 +14,6 @@ pub struct DCE<'a> {
   builder: Builder,
   // Worklist of inst
   worklist: Worklist<Operand, BitSet>,
-  // Mapping from op_id to bb_id
-  op_to_bb: Vec<Operand>,
 }
 
 impl DCE<'_> {
@@ -40,22 +37,6 @@ impl DCE<'_> {
     let program = self.program.as_ref().unwrap();
     let func = &program.funcs[func_id];
     self.worklist.clear();
-
-    // map OpId to BBId
-    self.op_to_bb.clear();
-    self.op_to_bb.resize(func.dfg.storage.len(), Operand::BB(0));
-    func
-      .cfg
-      .storage
-      .iter()
-      .enumerate()
-      .for_each(|(bb_id, item)| {
-        if let ArenaItem::Data(bb) = item {
-          for op_id in bb.cur.iter() {
-            self.op_to_bb[op_id.get_op_id()] = Operand::BB(bb_id);
-          }
-        }
-      });
 
     // Initialize the worklist
     for block_id in func.cfg.collect() {
@@ -112,7 +93,15 @@ impl<'a> Pass<'a> for DCE<'a> {
     for func_id in func_ids {
       self.init(Operand::Func(func_id));
       while let Some(op_id) = self.worklist.pop_front() {
-        let bb_id = self.op_to_bb[op_id.get_op_id()];
+        let bb_id = match op_id {
+          Operand::Value(_) => {
+            let func =
+              &self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()];
+            func.op_to_bb[op_id]
+          }
+          Operand::Global(_) => Operand::Undefined,
+          _ => unreachable!("DCE: operand is not removable: {:?}", op_id),
+        };
 
         if let Operand::Value(id) = op_id {
           let func = &self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()];
@@ -120,8 +109,8 @@ impl<'a> Pass<'a> for DCE<'a> {
           if !func.cfg[bb].cur.iter().any(|inst| inst.get_op_id() == id) {
             continue;
           }
+          self.builder.set_current_block(bb_id);
         }
-        self.builder.set_current_block(bb_id);
         let removed_op = match op_id {
           Operand::Global(_) => self.program.as_deref_mut().unwrap().remove_op(
             self.builder.current_function,

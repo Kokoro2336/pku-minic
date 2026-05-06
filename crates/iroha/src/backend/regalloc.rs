@@ -95,10 +95,6 @@ struct Allocator<'a> {
   alias: Vec<BOperand>,
   /// Color assigned to each node.
   color: Vec<Option<Reg>>,
-
-  // ========== Ancillary Structures ==========
-  /// A map from op to the bb it belongs to, used for spill code insertion.
-  op_to_bb: Vec<Option<BOperand>>,
 }
 
 impl Allocator<'_> {
@@ -124,23 +120,11 @@ impl Allocator<'_> {
       move_list: Vec::new(),
       alias: Vec::new(),
       color: Vec::new(),
-      op_to_bb: Vec::new(),
     }
   }
 
   fn init(&mut self, func_id: BOperand) {
     self.builder.set_current_func(func_id);
-
-    // Build a map op -> bb. This map will only be intialize for once during allocation of a function.
-    // It's incrementally updated when new instructions are created during spill code insertion.
-    self.op_to_bb.clear();
-    self.op_to_bb.resize(self.get_func(func_id).dfg.len(), None);
-    for bb_id in self.get_func(func_id).cfg.ids() {
-      let cur = self.get_func(func_id).cfg[bb_id].cur.clone();
-      for op_id in cur {
-        self.op_to_bb[op_id.get_inst_id()] = Some(BOperand::BB(bb_id));
-      }
-    }
   }
 
   fn reset(&mut self) {
@@ -264,17 +248,7 @@ impl Allocator<'_> {
   fn create(&mut self, op: BOp) -> BOperand {
     let func_id = self.builder.current_function;
     let ir = self.ir.as_mut().unwrap();
-    let op_id = ir.create(&self.builder, func_id, op);
-
-    // Update op_to_bb map
-    let bb_id = self.builder.current_block.unwrap();
-    let raw_inst_id = op_id.get_inst_id();
-    if raw_inst_id >= self.op_to_bb.len() {
-      self.op_to_bb.resize(raw_inst_id + 1, None);
-    }
-    self.op_to_bb[op_id.get_inst_id()] = Some(bb_id);
-
-    op_id
+    ir.create(&self.builder, func_id, op)
   }
 
   #[inline(always)]
@@ -884,7 +858,10 @@ impl Allocator<'_> {
 
       // Insert store after each definition of the spilled node.
       for def in defs {
-        let bb_id = self.op_to_bb[def.get_inst_id()].unwrap();
+        let bb_id = {
+          let func_id = self.builder.current_function.unwrap();
+          self.get_func(func_id).op_to_bb[def]
+        };
         self.builder.set_current_block(bb_id);
         self.builder.set_after_inst(
           self.ir.as_mut().unwrap(),
@@ -907,7 +884,10 @@ impl Allocator<'_> {
       }
 
       for (r#use, idx) in uses {
-        let bb_id = self.op_to_bb[r#use.get_inst_id()].unwrap();
+        let bb_id = {
+          let func_id = self.builder.current_function.unwrap();
+          self.get_func(func_id).op_to_bb[r#use]
+        };
         self.builder.set_current_block(bb_id);
         self.builder.set_before_inst(
           self.ir.as_mut().unwrap(),

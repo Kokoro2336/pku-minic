@@ -19,7 +19,6 @@ pub struct LoopRotate<'a> {
   builder: Builder,
   /// OpId in the original header -> OpId in the new guard.
   inst_map: FxHashMap<Operand, Operand>,
-  op_to_bb: Vec<Operand>,
   /// The moved phis in the headers.
   moved_phis: Vec<Operand>,
   /// The updated phis in the exit blocks.
@@ -35,6 +34,12 @@ impl LoopRotate<'_> {
   #[inline(always)]
   fn get_func_mut(&mut self, func_id: Operand) -> &mut Function {
     &mut self.ir.as_mut().unwrap().funcs[func_id]
+  }
+
+  #[inline(always)]
+  fn op_bb(&self, op_id: Operand) -> Operand {
+    let func_id = self.builder.current_function.unwrap();
+    self.get_func(func_id).op_to_bb[op_id]
   }
 
   #[inline(always)]
@@ -66,14 +71,6 @@ impl LoopRotate<'_> {
         .as_mut()
         .unwrap()
         .replace_op(&mut self.builder, func_id, old_op_id, bb_id, new_op);
-
-    if new_op_id.get_op_id() >= self.op_to_bb.len() {
-      self
-        .op_to_bb
-        .resize(new_op_id.get_op_id() + 1, Operand::Undefined);
-    }
-    self.op_to_bb[new_op_id.get_op_id()] = bb_id;
-    self.op_to_bb[old_op_id.get_op_id()] = Operand::Undefined;
     new_op_id
   }
 
@@ -91,7 +88,6 @@ impl LoopRotate<'_> {
       .as_deref_mut()
       .unwrap()
       .move_op_to_bb_at(func_id, op_id, from_bb, to_bb, before_op);
-    self.op_to_bb[op_id.get_op_id()] = to_bb;
   }
 
   #[inline(always)]
@@ -122,18 +118,6 @@ impl LoopRotate<'_> {
     self.inst_map.clear();
     self.moved_phis.clear();
     self.updated_phis.clear();
-
-    self.op_to_bb.clear();
-    self
-      .op_to_bb
-      .resize(self.get_func(func_id).dfg.len(), Operand::Undefined);
-    for bb_id in self.get_func(func_id).cfg.collect() {
-      let bb_id = Operand::BB(bb_id);
-      let cur = self.get_func(func_id).cfg[bb_id].cur.clone();
-      for inst_id in cur {
-        self.op_to_bb[inst_id.get_op_id()] = bb_id;
-      }
-    }
   }
 
   fn clone_inst(
@@ -192,12 +176,6 @@ impl LoopRotate<'_> {
         Op::new(typ, attrs, op_data),
       )
     };
-    if new_op_id.get_op_id() >= self.op_to_bb.len() {
-      self
-        .op_to_bb
-        .resize(new_op_id.get_op_id() + 1, Operand::Undefined);
-    }
-    self.op_to_bb[new_op_id.get_op_id()] = guard_bb_id;
     self.inst_map.insert(op_id, new_op_id);
     new_op_id
   }
@@ -231,7 +209,7 @@ impl LoopRotate<'_> {
     dom_frontier: &DomFrontier,
   ) {
     for phi_id in std::mem::take(&mut self.moved_phis) {
-      let body_bb_id = self.op_to_bb[phi_id.get_op_id()];
+      let body_bb_id = self.op_bb(phi_id);
       let mut available_defs = vec![(body_bb_id, phi_id)];
       let OpData::Phi { incomings } = self.get_func(func_id).dfg[phi_id].data.clone() else {
         unreachable!()
@@ -255,7 +233,6 @@ impl LoopRotate<'_> {
         worklist,
         inserted_blocks,
         available_defs,
-        &mut self.op_to_bb,
       );
       ssa_updater.run();
     }
@@ -269,7 +246,7 @@ impl LoopRotate<'_> {
   ) {
     let updated_phis = std::mem::take(&mut self.updated_phis);
     for &phi_id in &updated_phis {
-      let bb_id = self.op_to_bb[phi_id.get_op_id()];
+      let bb_id = self.op_bb(phi_id);
       let mut available_defs = vec![(bb_id, phi_id)];
       let OpData::Phi { incomings } = self.get_func(func_id).dfg[phi_id].data.clone() else {
         unreachable!()
@@ -293,7 +270,6 @@ impl LoopRotate<'_> {
         worklist,
         inserted_blocks,
         available_defs,
-        &mut self.op_to_bb,
       );
       ssa_updater.run();
     }
@@ -305,8 +281,8 @@ impl LoopRotate<'_> {
       }
 
       let mut available_defs = vec![
-        (self.op_to_bb[orig_id.get_op_id()], orig_id),
-        (self.op_to_bb[cloned_id.get_op_id()], cloned_id),
+        (self.op_bb(orig_id), orig_id),
+        (self.op_bb(cloned_id), cloned_id),
       ];
 
       for &phi_id in &updated_phis {
@@ -319,7 +295,7 @@ impl LoopRotate<'_> {
             PhiIncoming::Data { value, .. } if *value == orig_id || *value == cloned_id
           )
         }) {
-          available_defs.push((self.op_to_bb[phi_id.get_op_id()], phi_id));
+          available_defs.push((self.op_bb(phi_id), phi_id));
         }
       }
 
@@ -336,7 +312,6 @@ impl LoopRotate<'_> {
         worklist,
         inserted_blocks,
         available_defs,
-        &mut self.op_to_bb,
       );
       ssa_updater.run();
     }

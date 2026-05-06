@@ -3,7 +3,6 @@
 
 use yachiyo::ir::back::{BBuilder, BFunction, BOpData, BOperand, BackIR, LOpData, MOpData, Reg};
 use yachiyo::pass::BPass;
-use yachiyo::utils::arena::ArenaItem;
 use yachiyo::utils::r#match::{match_some, match_src};
 use yachiyo::utils::set::BitSet;
 use yachiyo::utils::worklist::{Worklist, WorklistTrait};
@@ -15,8 +14,6 @@ pub struct BDCE<'a> {
   builder: BBuilder,
   // Worklist of inst
   worklist: Worklist<BOperand, BitSet>,
-  // Mapping from op_id to bb_id
-  op_to_bb: Vec<BOperand>,
 }
 
 impl BDCE<'_> {
@@ -73,22 +70,6 @@ impl BDCE<'_> {
     let ir = self.ir.as_ref().unwrap();
     let func = &ir.funcs[func_id];
     self.worklist.clear();
-
-    // map OpId to BBId
-    self.op_to_bb.clear();
-    self.op_to_bb.resize(func.dfg.len(), BOperand::Undef);
-    func
-      .cfg
-      .storage
-      .iter()
-      .enumerate()
-      .for_each(|(bb_id, item)| {
-        if let ArenaItem::Data(bb) = item {
-          for op_id in bb.cur.iter() {
-            self.op_to_bb[op_id.get_inst_id()] = BOperand::BB(bb_id);
-          }
-        }
-      });
 
     // Initialize the worklist
     for block_id in func.cfg.collect() {
@@ -164,7 +145,10 @@ impl<'a> BPass<'a> for BDCE<'a> {
     for func_id in func_ids {
       self.init(BOperand::Func(func_id));
       while let Some(op_id) = self.worklist.pop_back() {
-        let bb_id = self.op_to_bb[op_id.get_inst_id()];
+        let bb_id = {
+          let func = self.get_func(self.current_func());
+          func.op_to_bb[op_id]
+        };
         self.builder.set_current_block(bb_id);
 
         let removed_op = self.ir.as_deref_mut().unwrap().remove_op(
@@ -172,7 +156,6 @@ impl<'a> BPass<'a> for BDCE<'a> {
           op_id,
           Some(bb_id),
         );
-        self.op_to_bb[op_id.get_inst_id()] = BOperand::Undef;
 
         // Check the operands of the removed instruction
         match removed_op.data {

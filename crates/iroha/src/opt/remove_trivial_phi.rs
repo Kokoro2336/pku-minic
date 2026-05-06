@@ -2,7 +2,6 @@
 
 use yachiyo::ir::mid::{Attr, Builder, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::Pass;
-use yachiyo::utils::arena::ArenaItem;
 
 enum CheckType {
   Empty,           // No non-phi incoming value. We can replace the phi with undef.
@@ -18,7 +17,6 @@ pub struct RemoveTrivialPhi<'a> {
 
   // Ancillary state fields
   worklist: Vec<(Operand, Operand, CheckType)>, // Vec of (PhiId, BBId, CheckType)
-  op_to_bb: Vec<Operand>,                       // Mapping from OpId to BBId
 }
 
 impl RemoveTrivialPhi<'_> {
@@ -61,32 +59,25 @@ impl RemoveTrivialPhi<'_> {
   fn init(&mut self, func_id: Operand) {
     self.builder.set_current_func(Some(func_id));
     let program = self.program.as_deref_mut().unwrap();
-    let func = &program.funcs[func_id];
-
-    self.op_to_bb.clear();
-    self.op_to_bb.resize(func.dfg.storage.len(), Operand::BB(0));
-    func
-      .cfg
-      .storage
-      .iter()
-      .enumerate()
-      .for_each(|(bb_id, item)| {
-        if let ArenaItem::Data(bb) = item {
-          for op_id in bb.cur.iter() {
-            self.op_to_bb[op_id.get_op_id()] = Operand::BB(bb_id);
-          }
-        }
-      });
 
     self.phi_ids = program.get_all_ops(self.builder.current_function, OpType::Phi);
+    let op_to_bb = &program.funcs[func_id].op_to_bb;
     self.worklist = self
       .phi_ids
       .iter()
       .map(|phi_id| {
         let check_result = Self::check(program, func_id, *phi_id);
-        (*phi_id, self.op_to_bb[phi_id.get_op_id()], check_result)
+        (*phi_id, op_to_bb[*phi_id], check_result)
       })
       .collect();
+  }
+
+  fn op_bb(&self, op_id: Operand) -> Operand {
+    let func_id = self
+      .builder
+      .current_function
+      .expect("RemoveTrivialPhi: no current function");
+    self.program.as_ref().unwrap().funcs[func_id].op_to_bb[op_id]
   }
 
   fn remove_phi(&mut self) {
@@ -122,7 +113,7 @@ impl RemoveTrivialPhi<'_> {
                 .phi_ids
                 .iter()
                 .find(|id| **id == user)
-                .map(|id| (*id, self.op_to_bb[id.get_op_id()]))
+                .map(|id| (*id, self.op_bb(*id)))
               {
                 // We should check whether the user phi is already in the worklist to avoid duplicate entries.
                 let pos = self.worklist.iter().position(|(w_id, _, _)| *w_id == id);
@@ -156,7 +147,7 @@ impl RemoveTrivialPhi<'_> {
                 .phi_ids
                 .iter()
                 .find(|id| **id == user)
-                .map(|id| (*id, self.op_to_bb[id.get_op_id()]))
+                .map(|id| (*id, self.op_bb(*id)))
               {
                 // We should check whether the user phi is already in the worklist to avoid duplicate entries.
                 let pos = self.worklist.iter().position(|(w_id, _, _)| *w_id == id);

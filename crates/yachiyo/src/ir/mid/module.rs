@@ -166,19 +166,18 @@ impl IR {
         uni_arm: {
           let current_function =
             current_function.unwrap();
+          let current_block = builder
+            .current_block
+            .unwrap_or_else(|| panic!("IR create: current_block is None"));
           let op_id = {
             let func = &mut self.funcs[current_function];
             let (cfg, dfg) = (&mut func.cfg, &mut func.dfg);
 
             let new_id = dfg.alloc(op);
-            let current_block = if let Some(block) = &builder.current_block {
-              block.get_bb_id()
-            } else {
-              panic!("IR create: current_block is None");
-            };
-            let bb = &mut cfg[current_block];
+            let current_block_id = current_block.get_bb_id();
+            let bb = &mut cfg[current_block_id];
 
-            if let Some(current_inst) = &builder.current_inst {
+            let op_id = if let Some(current_inst) = &builder.current_inst {
               let pos = bb
                 .cur
                 .iter()
@@ -191,13 +190,12 @@ impl IR {
               let op_id = Operand::Value(new_id);
               bb.cur.push(op_id);
               op_id
-            }
+            };
+            func.op_to_bb[op_id] = current_block;
+            op_id
           };
 
             self.add_uses(Some(current_function), op_id);
-            let current_block = builder
-                .current_block
-                .unwrap();
             self.add_control_flow(Some(current_function), op_id, current_block);
             op_id
         }
@@ -322,7 +320,7 @@ impl IR {
 
     let current_function = current_function.unwrap();
     let func = &mut self.funcs[current_function];
-    let (cfg, dfg) = (&mut func.cfg, &mut func.dfg);
+    let (cfg, dfg, op_to_bb) = (&mut func.cfg, &mut func.dfg, &mut func.op_to_bb);
 
     let op_id = op.get_op_id();
     let bb_id = bb.unwrap().get_bb_id();
@@ -337,6 +335,7 @@ impl IR {
       );
     }
 
+    op_to_bb[op] = Operand::default();
     let removed_op = dfg.remove(op_id);
     assert!(removed_op.users.is_empty());
     removed_op
@@ -390,7 +389,8 @@ impl IR {
     pos: Option<Operand>,
   ) {
     let current_function = current_function.unwrap();
-    let cfg = &mut self.funcs[current_function].cfg;
+    let func = &mut self.funcs[current_function];
+    let cfg = &mut func.cfg;
 
     let op_id = op.get_op_id();
     let old_bb_id = old_bb.get_bb_id();
@@ -424,6 +424,8 @@ impl IR {
     } else {
       new_bb_ref.cur.push(op);
     }
+
+    func.op_to_bb[op] = new_bb;
   }
 
   pub fn get_src_tuple(

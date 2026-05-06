@@ -14,8 +14,6 @@ pub struct LICM<'a> {
   builder: Builder,
   /// LoopId -> OpId -> whether the value produced by the op is an invariant.
   invariants: Vec<BitSet>,
-  /// OpId -> BBId
-  op_to_bb: Vec<Operand>,
   block_to_loop: Vec<Option<LoopId>>,
 }
 
@@ -27,18 +25,6 @@ impl LICM<'_> {
 
     self.invariants.clear();
     self.invariants.resize(loop_num, BitSet::new());
-
-    self.op_to_bb.clear();
-    self
-      .op_to_bb
-      .resize(self.get_func(func_id).dfg.len(), Operand::Undefined);
-    for bb_id in self.get_func(func_id).cfg.collect() {
-      let bb_id = Operand::BB(bb_id);
-      let cur = self.get_func(func_id).cfg[bb_id].cur.clone();
-      for inst_id in cur {
-        self.op_to_bb[inst_id.get_op_id()] = bb_id;
-      }
-    }
   }
 
   #[inline(always)]
@@ -60,8 +46,6 @@ impl LICM<'_> {
       .as_deref_mut()
       .unwrap()
       .move_op_to_bb_at(func_id, op_id, from_bb, to_bb, before_op);
-    // Remember to update the op_to_bb mapping after moving the op.
-    self.op_to_bb[op_id.get_op_id()] = to_bb;
   }
 
   #[inline(always)]
@@ -103,7 +87,8 @@ impl LICM<'_> {
       Operand::BB(_) | Operand::Func(_) => unreachable!(),
     }
 
-    let value_bb_id = self.op_to_bb[value.get_op_id()].get_bb_id();
+    let func_id = self.builder.current_function.unwrap();
+    let value_bb_id = self.get_func(func_id).op_to_bb[value].get_bb_id();
     self.invariants[usize::from(lp_id)].contains(value.get_op_id())
       || self.block_to_loop[value_bb_id].is_none()
       || !lp_data.blocks.contains(value_bb_id)
