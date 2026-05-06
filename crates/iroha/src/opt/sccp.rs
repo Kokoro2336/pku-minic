@@ -3,8 +3,8 @@
 //! Reference: https://dl.acm.org/doi/10.1145/103135.103136
 
 use yachiyo::base::Type;
-use yachiyo::ir::mid::{Builder, Function, Op, OpData, OpType, Operand, PhiIncoming, IR};
-use yachiyo::pass::Pass;
+use yachiyo::ir::mid::{Op, OpData, OpType, Operand, PhiIncoming, IR};
+use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::r#match::match_src;
 use yachiyo::utils::set::BitSet;
 
@@ -20,8 +20,7 @@ pub enum Lattice {
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Default)]
 pub struct SCCP<'a> {
-  program: Option<&'a mut IR>,
-  builder: Builder,
+  cx: PassContext<'a>,
 
   // HashSet<(from, to)> for edges in the control flow graph that are executable. Only store true.
   executable: FxHashSet<(usize, usize)>,
@@ -87,31 +86,6 @@ impl SCCP<'_> {
         operand
       ),
     }
-  }
-
-  #[inline(always)]
-  fn slay_phi_incoming(&mut self, phi_id: Operand, bb_id: Operand) {
-    let func_id = self.builder.current_function;
-    self
-      .program
-      .as_deref_mut()
-      .unwrap()
-      .slay_phi_incoming(func_id, phi_id, bb_id);
-  }
-
-  #[inline(always)]
-  fn get_func(&self, func_id: Operand) -> &Function {
-    &self.program.as_ref().unwrap().funcs[func_id]
-  }
-
-  #[inline(always)]
-  fn get_all_ops_in_block(&self, bb_id: Operand, op_typ: OpType) -> Vec<Operand> {
-    let func_id = self.builder.current_function;
-    self
-      .program
-      .as_ref()
-      .unwrap()
-      .get_all_ops_in_block(func_id, bb_id, op_typ)
   }
 
   fn fold(lhs: Lattice, rhs: Lattice, op_typ: OpType) -> Lattice {
@@ -186,8 +160,8 @@ impl SCCP<'_> {
   }
 
   fn init(&mut self, func_id: Operand) {
-    self.builder.set_current_func(Some(func_id));
-    let func = &self.program.as_ref().unwrap().funcs[func_id];
+    self.cx.set_current_func(Some(func_id));
+    let func = self.cx.get_func(func_id);
     let entry = match func.cfg.entry {
       Some(e) => e,
       None => return, // empty function
@@ -217,12 +191,9 @@ impl SCCP<'_> {
   }
 
   fn visit_expr(&mut self, op_id: Operand, bb_id: Operand) {
-    let func_id = match self.builder.current_function {
-      Some(id) => id,
-      None => panic!("SCCP visit_expr: current_function is None"), // should not happen
-    };
+    let func_id = self.cx.current_func();
     let (op_data, val_typ) = {
-      let op = &mut self.program.as_mut().unwrap().funcs[func_id].dfg[op_id];
+      let op = &mut self.cx.get_func_mut(func_id).dfg[op_id];
       (op.data.clone(), op.typ.clone())
     };
     let old = Self::get_lattice(self, &op_id);
@@ -258,7 +229,7 @@ impl SCCP<'_> {
             }
 
             // If the lattice has changed, we need to propagate the change to users.
-            for (user, _) in self.program.as_ref().unwrap().funcs[func_id].dfg[op_id].users.iter() {
+            for (user, _) in self.cx.get_func(func_id).dfg[op_id].users.iter() {
                 if !self.in_inst_list.contains(user.get_op_id()) {
                     self.in_inst_list.insert(user.get_op_id());
                     self.inst_list.push(*user);
@@ -274,7 +245,7 @@ impl SCCP<'_> {
                 return;
             }
             // If the lattice has changed, we need to propagate the change to users.
-            for (user, _) in self.program.as_ref().unwrap().funcs[func_id].dfg[op_id].users.iter() {
+            for (user, _) in self.cx.get_func(func_id).dfg[op_id].users.iter() {
                 if !self.in_inst_list.contains(user.get_op_id()) {
                     self.in_inst_list.insert(user.get_op_id());
                     self.inst_list.push(*user);
@@ -290,7 +261,7 @@ impl SCCP<'_> {
                     return;
                 }
                 // If the lattice has changed, we need to propagate the change to users.
-                for (user, _) in self.program.as_ref().unwrap().funcs[func_id].dfg[op_id].users.iter() {
+                for (user, _) in self.cx.get_func(func_id).dfg[op_id].users.iter() {
                     if !self.in_inst_list.contains(user.get_op_id()) {
                         self.in_inst_list.insert(user.get_op_id());
                         self.inst_list.push(*user);
@@ -345,12 +316,9 @@ impl SCCP<'_> {
   }
 
   fn visit_phi(&mut self, op_id: Operand) {
-    let func_id = match self.builder.current_function {
-      Some(id) => id,
-      None => panic!("SCCP visit_phi: current_function is None"), // should not happen
-    };
+    let func_id = self.cx.current_func();
     let (op_data, val_typ) = {
-      let op = &mut self.program.as_mut().unwrap().funcs[func_id].dfg[op_id];
+      let op = &mut self.cx.get_func_mut(func_id).dfg[op_id];
       (op.data.clone(), op.typ.clone())
     };
     let old = Self::get_lattice(self, &op_id);
@@ -381,10 +349,7 @@ impl SCCP<'_> {
         return;
       }
       // If the lattice has changed, we need to propagate the change to users.
-      for (user, _) in self.program.as_ref().unwrap().funcs[func_id].dfg[op_id]
-        .users
-        .iter()
-      {
+      for (user, _) in self.cx.get_func(func_id).dfg[op_id].users.iter() {
         if !self.in_inst_list.contains(user.get_op_id()) {
           self.in_inst_list.insert(user.get_op_id());
           self.inst_list.push(*user);
@@ -409,11 +374,7 @@ impl SCCP<'_> {
 
         // Visit the successor block. We need to check all phi nodes in the successor block and update their lattices.
         {
-          let phis = self.program.as_deref_mut().unwrap().get_all_ops_in_block(
-            self.builder.current_function,
-            to,
-            OpType::Phi,
-          );
+          let phis = self.cx.get_all_ops_in_block(to, OpType::Phi);
           for phi in phis {
             self.visit_phi(phi);
           }
@@ -422,19 +383,14 @@ impl SCCP<'_> {
         // If to is visited for the first time, we need to visit all non-phi instructions in the block.
         if !self.visited.contains(to.get_bb_id()) {
           self.visited.insert(to.get_bb_id());
-          let non_phis = self
-            .program
-            .as_deref_mut()
-            .unwrap()
-            .get_all_non_phi_in_block(self.builder.current_function, to);
+          let non_phis = self.cx.get_all_non_phi_in_block(to);
           for non_phi in non_phis {
             self.visit_expr(non_phi, to);
           }
         }
 
         // If to only has only one outgoing edge, push succ to edge_list.
-        let cfg =
-          &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].cfg;
+        let cfg = &mut self.cx.get_func_mut(self.cx.current_func()).cfg;
         if cfg[to.get_bb_id()].succs.len() == 1 {
           let (succ, _) = cfg[to.get_bb_id()].succs[0];
           self.edge_list.push((to, succ));
@@ -446,14 +402,12 @@ impl SCCP<'_> {
         // Critical: remove the inst first.
         self.in_inst_list.remove(op_id.get_op_id());
 
-        let dfg =
-          &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
+        let dfg = &mut self.cx.get_func_mut(self.cx.current_func()).dfg;
         let op_data = dfg[op_id].data.clone();
         if op_data.is(OpType::Phi) {
           self.visit_phi(op_id);
         } else {
-          let bb_id = self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()]
-            .op_to_bb[op_id];
+          let bb_id = self.cx.get_func(self.cx.current_func()).op_to_bb[op_id];
           // If any incoming edge is executable, we need to visit the instruction.
           if self.visited.contains(bb_id.get_bb_id()) {
             self.visit_expr(op_id, bb_id);
@@ -465,7 +419,7 @@ impl SCCP<'_> {
 
   // Rewrite the program based on the results of propagation. And then return the existing phi nodes after rewriting.
   fn rewrite(&mut self) {
-    let func_id = self.builder.current_function.unwrap();
+    let func_id = self.cx.current_func();
     // Replace optimizable instructions with constants.
     self
       .lattices
@@ -474,18 +428,13 @@ impl SCCP<'_> {
       .for_each(|(op_id, lattice)| {
         if let Lattice::Constant(c) = lattice {
           let op_id = Operand::Value(op_id);
-          self.program.as_deref_mut().unwrap().replace_all_uses(
-            self.builder.current_function,
-            op_id,
-            *c,
-          );
+          self.cx.replace_all_uses(op_id, *c);
         }
       });
 
     // Replace br with jump if the condition is a constant.
     for br_op in std::mem::take(&mut self.br_ops) {
-      let dfg =
-        &mut self.program.as_mut().unwrap().funcs[self.builder.current_function.unwrap()].dfg;
+      let dfg = &mut self.cx.get_func_mut(self.cx.current_func()).dfg;
       let op = dfg[br_op].clone();
       if let OpData::Br {
         cond,
@@ -502,13 +451,8 @@ impl SCCP<'_> {
               } else {
                 (else_bb, then_bb)
               };
-              let bb_id = self.program.as_ref().unwrap().funcs
-                [self.builder.current_function.unwrap()]
-              .op_to_bb[br_op];
-              let current_function = self.builder.current_function;
-              self.program.as_deref_mut().unwrap().replace_op(
-                &mut self.builder,
-                current_function,
+              let bb_id = self.cx.get_func(self.cx.current_func()).op_to_bb[br_op];
+              self.cx.replace_op(
                 br_op,
                 bb_id,
                 Op {
@@ -519,14 +463,14 @@ impl SCCP<'_> {
                 },
               );
               // Slay the phi incoming in other_bb.
-              let other_bb_phis = self.get_all_ops_in_block(other_bb, OpType::Phi);
+              let other_bb_phis = self.cx.get_all_ops_in_block(other_bb, OpType::Phi);
               for phi_id in other_bb_phis {
-                let phi = self.get_func(func_id).dfg[phi_id].data.clone();
+                let phi = self.cx.get_func(func_id).dfg[phi_id].data.clone();
                 if let OpData::Phi { incomings } = phi {
                   for incoming in incomings.iter() {
                     if let PhiIncoming::Data { bb, .. } = incoming {
                       if *bb == bb_id {
-                        self.slay_phi_incoming(phi_id, bb_id);
+                        self.cx.slay_phi_incoming(phi_id, bb_id);
                       }
                     }
                   }
@@ -552,11 +496,10 @@ impl<'a> Pass<'a> for SCCP<'a> {
     "SCCP"
   }
   fn mount(&mut self, program: &'a mut IR) {
-    self.program = Some(program);
+    self.cx.mount(program);
   }
   fn run(&mut self) {
-    let program = self.program.as_mut().unwrap();
-    let func_ids = program.funcs.collect_internal();
+    let func_ids = self.cx.ir().funcs.collect_internal();
     for func_id in func_ids {
       self.init(Operand::Func(func_id));
       self.propagate();

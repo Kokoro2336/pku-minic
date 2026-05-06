@@ -1,8 +1,7 @@
 //! Dead Code Elimination (DCE).
 
-use yachiyo::ir::mid::Builder;
-use yachiyo::ir::mid::{OpData, Operand, PhiIncoming, IR};
-use yachiyo::pass::Pass;
+use yachiyo::ir::mid::{OpData, Operand, PhiIncoming};
+use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::r#match::match_src;
 use yachiyo::utils::set::BitSet;
 use yachiyo::utils::worklist::{Worklist, WorklistTrait};
@@ -10,17 +9,16 @@ use yachiyo::utils::worklist::{Worklist, WorklistTrait};
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Default)]
 pub struct DCE<'a> {
-  pub program: Option<&'a mut IR>,
-  builder: Builder,
+  pub cx: PassContext<'a>,
   // Worklist of inst
   worklist: Worklist<Operand, BitSet>,
 }
 
 impl DCE<'_> {
   pub fn is_dead(&self, operand: &Operand) -> bool {
-    let program = self.program.as_ref().unwrap();
-    let current_func = match self.builder.current_function {
-      Some(idx) => &program.funcs[idx],
+    let program = self.cx.ir();
+    let current_func = match self.cx.builder.current_function {
+      Some(idx) => self.cx.get_func(idx),
       None => panic!("DCE: not in a function"),
     };
     let dfg = &current_func.dfg;
@@ -33,9 +31,8 @@ impl DCE<'_> {
   }
 
   pub fn init(&mut self, func_id: Operand) {
-    self.builder.set_current_func(Some(func_id));
-    let program = self.program.as_ref().unwrap();
-    let func = &program.funcs[func_id];
+    self.cx.set_current_func(Some(func_id));
+    let func = self.cx.get_func(func_id);
     self.worklist.clear();
 
     // Initialize the worklist
@@ -59,13 +56,13 @@ impl<'a> Pass<'a> for DCE<'a> {
     "DCE"
   }
   fn mount(&mut self, program: &'a mut yachiyo::ir::mid::IR) {
-    self.program = Some(program);
+    self.cx.mount(program);
   }
   fn run(&mut self) {
     fn check(this: &mut DCE, operand: &Operand) {
-      let program = this.program.as_ref().unwrap();
-      let func = match this.builder.current_function {
-        Some(idx) => &program.funcs[idx],
+      let program = this.cx.ir();
+      let func = match this.cx.builder.current_function {
+        Some(idx) => this.cx.get_func(idx),
         None => panic!("DCE: not in a function"),
       };
       match operand {
@@ -89,14 +86,13 @@ impl<'a> Pass<'a> for DCE<'a> {
         Operand::BB(_) | Operand::Func(_) => unreachable!("Unexpected operand: {:?}", operand),
       }
     }
-    let func_ids = self.program.as_ref().unwrap().funcs.collect_internal();
+    let func_ids = self.cx.ir().funcs.collect_internal();
     for func_id in func_ids {
       self.init(Operand::Func(func_id));
       while let Some(op_id) = self.worklist.pop_front() {
         let bb_id = match op_id {
           Operand::Value(_) => {
-            let func =
-              &self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()];
+            let func = self.cx.get_func(self.cx.current_func());
             func.op_to_bb[op_id]
           }
           Operand::Global(_) => Operand::Undefined,
@@ -104,24 +100,16 @@ impl<'a> Pass<'a> for DCE<'a> {
         };
 
         if let Operand::Value(id) = op_id {
-          let func = &self.program.as_ref().unwrap().funcs[self.builder.current_function.unwrap()];
+          let func = self.cx.get_func(self.cx.current_func());
           let bb = bb_id.get_bb_id();
           if !func.cfg[bb].cur.iter().any(|inst| inst.get_op_id() == id) {
             continue;
           }
-          self.builder.set_current_block(bb_id);
+          self.cx.set_current_block(bb_id);
         }
         let removed_op = match op_id {
-          Operand::Global(_) => self.program.as_deref_mut().unwrap().remove_op(
-            self.builder.current_function,
-            op_id,
-            None,
-          ),
-          _ => self.program.as_deref_mut().unwrap().remove_op(
-            self.builder.current_function,
-            op_id,
-            Some(bb_id),
-          ),
+          Operand::Global(_) => self.cx.remove_op(op_id, None),
+          _ => self.cx.remove_op(op_id, Some(bb_id)),
         };
 
         // Check the operands of the removed instruction

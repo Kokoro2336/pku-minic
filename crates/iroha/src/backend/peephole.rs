@@ -1,49 +1,28 @@
 //! Peephole Optimization.
 
-use yachiyo::ir::back::{BBuilder, BFunction, BOpData, BOperand, BackIR, LOpData, MOpData};
-use yachiyo::pass::BPass;
+use yachiyo::ir::back::{BOpData, BOperand, BackIR, LOpData, MOpData};
+use yachiyo::pass::{BPass, BPassContext};
 use yachiyo::utils::r#match::match_some;
 
 #[derive(Default)]
 pub struct Peephole<'a> {
-  ir: Option<&'a mut BackIR>,
-  builder: BBuilder,
+  cx: BPassContext<'a>,
 }
 
 impl Peephole<'_> {
   #[inline(always)]
   fn init(&mut self, func_id: BOperand) {
-    self.builder.set_current_func(func_id);
-  }
-
-  #[inline(always)]
-  fn get_func(&self, func_id: BOperand) -> &BFunction {
-    &self.ir.as_ref().unwrap().funcs[func_id]
-  }
-
-  #[inline(always)]
-  pub fn get_func_mut(&mut self, func_id: BOperand) -> &mut BFunction {
-    &mut self.ir.as_mut().unwrap().funcs[func_id]
-  }
-
-  #[inline(always)]
-  pub fn remove_op(&mut self, op_id: BOperand, bb_id: BOperand) {
-    let func_id = self.builder.current_function;
-    self
-      .ir
-      .as_mut()
-      .unwrap()
-      .remove_op(func_id, op_id, Some(bb_id));
+    self.cx.set_current_func(func_id);
   }
 
   pub fn combine(&mut self) {
-    let func_id = self.builder.current_function.unwrap();
-    let bb_ids = self.get_func(func_id).cfg.ids();
+    let func_id = self.cx.current_func();
+    let bb_ids = self.cx.get_func(func_id).cfg.ids();
     for bb_id in bb_ids {
       let bb_id = BOperand::BB(bb_id);
-      let inst_ids = self.get_func(func_id).cfg[bb_id].cur.clone();
+      let inst_ids = self.cx.get_func(func_id).cfg[bb_id].cur.clone();
       for inst_id in inst_ids {
-        let op_data = self.get_func(func_id).dfg[inst_id].data.clone();
+        let op_data = self.cx.get_func(func_id).dfg[inst_id].data.clone();
         match op_data {
           BOpData::L(lop_data) => match_some! {
               target: lop_data,
@@ -52,7 +31,7 @@ impl Peephole<'_> {
                   LOpData::Move { rd, src } => {
                       // If the source and destination are the same, we can remove this instruction directly.
                       if rd == src {
-                          self.remove_op(inst_id, bb_id);
+                          self.cx.remove_op(inst_id, Some(bb_id));
                       }
                   }
               },
@@ -65,12 +44,12 @@ impl Peephole<'_> {
               minor_arms: {
                   MOpData::Mv { rd, rs } => {
                       if rd == rs {
-                          self.remove_op(inst_id, bb_id);
+                          self.cx.remove_op(inst_id, Some(bb_id));
                       }
                   },
                   MOpData::FmvS { rd, rs } => {
                       if rd == rs {
-                          self.remove_op(inst_id, bb_id);
+                          self.cx.remove_op(inst_id, Some(bb_id));
                       }
                   }
               },
@@ -89,11 +68,11 @@ impl<'a> BPass<'a> for Peephole<'a> {
   }
 
   fn mount(&mut self, ir: &'a mut BackIR) {
-    self.ir = Some(ir);
+    self.cx.mount(ir);
   }
 
   fn run(&mut self) {
-    for func_id in self.ir.as_ref().unwrap().funcs.collect_internal() {
+    for func_id in self.cx.ir().funcs.collect_internal() {
       self.init(BOperand::Func(func_id));
       self.combine();
     }

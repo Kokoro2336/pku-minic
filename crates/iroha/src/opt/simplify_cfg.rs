@@ -1,8 +1,8 @@
 //! Simplify CFG.
 
 use yachiyo::analysis::analyze;
-use yachiyo::ir::mid::{Builder, Function, Op, OpData, OpType, Operand, PhiIncoming, IR};
-use yachiyo::pass::Pass;
+use yachiyo::ir::mid::{OpData, OpType, Operand, PhiIncoming, IR};
+use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::arena::{Arena, ArenaItem};
 use yachiyo::utils::r#match::match_some;
 use yachiyo::utils::set::BitSet;
@@ -11,119 +11,24 @@ use crate::analysis::Reachability;
 
 #[derive(Default)]
 pub struct SimplifyCFG<'a> {
-  ir: Option<&'a mut IR>,
-  builder: Builder,
+  cx: PassContext<'a>,
   /// Processed dead blocks
   processed: BitSet,
 }
 
 impl SimplifyCFG<'_> {
   fn init(&mut self, func_id: Operand) {
-    self.builder.set_current_func(Some(func_id));
+    self.cx.set_current_func(Some(func_id));
     self.processed.clear();
-  }
-
-  #[inline(always)]
-  fn get_func(&self, func_id: Operand) -> &Function {
-    &self.ir.as_ref().unwrap().funcs[func_id]
-  }
-
-  #[inline(always)]
-  fn get_func_mut(&mut self, func_id: Operand) -> &mut Function {
-    &mut self.ir.as_deref_mut().unwrap().funcs[func_id]
-  }
-
-  #[inline(always)]
-  fn replace_all_uses(&mut self, old: Operand, new: Operand) {
-    let func_id = self.builder.current_function;
-    self
-      .ir
-      .as_deref_mut()
-      .unwrap()
-      .replace_all_uses(func_id, old, new);
-  }
-
-  #[inline(always)]
-  fn get_src_tuple(&self, op_id: Operand) -> Vec<(&Operand, usize)> {
-    let func_id = self.builder.current_function;
-    self.ir.as_ref().unwrap().get_src_tuple(func_id, op_id)
-  }
-
-  #[inline(always)]
-  fn slay_phi_incoming(&mut self, phi_id: Operand, bb_id: Operand) {
-    let func_id = self.builder.current_function;
-    self
-      .ir
-      .as_deref_mut()
-      .unwrap()
-      .slay_phi_incoming(func_id, phi_id, bb_id);
-  }
-
-  #[inline(always)]
-  fn append_phi_incoming(&mut self, phi_id: Operand, bb_id: Operand, value: Operand) {
-    let func_id = self.builder.current_function;
-    self
-      .ir
-      .as_deref_mut()
-      .unwrap()
-      .append_phi_incoming(func_id, phi_id, value, bb_id);
-  }
-
-  #[inline(always)]
-  fn move_op_to_bb_at(
-    &mut self,
-    op_id: Operand,
-    from_bb: Operand,
-    to_bb: Operand,
-    before_op: Option<Operand>,
-  ) {
-    let func_id = self.builder.current_function;
-    self
-      .ir
-      .as_deref_mut()
-      .unwrap()
-      .move_op_to_bb_at(func_id, op_id, from_bb, to_bb, before_op);
-  }
-
-  #[inline(always)]
-  fn get_all_ops_in_block(&self, bb_id: Operand, op_typ: OpType) -> Vec<Operand> {
-    let func_id = self.builder.current_function;
-    self
-      .ir
-      .as_ref()
-      .unwrap()
-      .get_all_ops_in_block(func_id, bb_id, op_typ)
-  }
-
-  #[inline(always)]
-  fn replace_op(&mut self, op_id: Operand, bb_id: Operand, new_op: Op) -> Operand {
-    let func_id = self.builder.current_function;
-    let new_op_id =
-      self
-        .ir
-        .as_mut()
-        .unwrap()
-        .replace_op(&mut self.builder, func_id, op_id, bb_id, new_op);
-    new_op_id
-  }
-
-  #[inline(always)]
-  fn remove_control_flow(&mut self, op_id: Operand, bb_id: Operand) {
-    let func_id = self.builder.current_function;
-    self
-      .ir
-      .as_mut()
-      .unwrap()
-      .remove_control_flow(func_id, op_id, bb_id);
   }
 
   /// Cut off data flow and control flow edges of dead blocks.
   fn isolate_dead(&mut self, bb_id: Operand) {
-    let func_id = self.builder.current_function.unwrap();
-    let cur = self.get_func(func_id).cfg[bb_id].cur.clone();
-    let succs = self.get_func(func_id).cfg[bb_id].succs.clone();
+    let func_id = self.cx.current_func();
+    let cur = self.cx.get_func(func_id).cfg[bb_id].cur.clone();
+    let succs = self.cx.get_func(func_id).cfg[bb_id].succs.clone();
     {
-      let func = self.get_func_mut(func_id);
+      let func = self.cx.get_func_mut(func_id);
       for item in func.dfg.storage.iter_mut() {
         if let ArenaItem::Data(op) = item {
           op.users.clear();
@@ -131,34 +36,32 @@ impl SimplifyCFG<'_> {
       }
     }
     let blocks = self
+      .cx
       .get_func(func_id)
       .cfg
       .collect()
       .into_iter()
-      .map(|bb| self.get_func(func_id).cfg[Operand::BB(bb)].cur.clone())
+      .map(|bb| self.cx.get_func(func_id).cfg[Operand::BB(bb)].cur.clone())
       .collect::<Vec<_>>();
     for ops in blocks {
       for op_id in ops {
-        self
-          .ir
-          .as_deref_mut()
-          .unwrap()
-          .add_uses(Some(func_id), op_id);
+        self.cx.add_uses(op_id);
       }
     }
 
     for inst in cur.iter().rev() {
       let src_tuple = self
+        .cx
         .get_src_tuple(*inst)
         .iter()
         .map(|(src, idx)| (**src, *idx))
         .collect::<Vec<_>>();
-      let dfg = &mut self.get_func_mut(func_id).dfg;
+      let dfg = &mut self.cx.get_func_mut(func_id).dfg;
       for (src, idx) in src_tuple {
         dfg.remove_use(src, (*inst, idx));
       }
       for (user, _) in dfg[*inst].users.clone() {
-        let dfg = &self.get_func_mut(func_id).dfg;
+        let dfg = &self.cx.get_func_mut(func_id).dfg;
         let op_data = dfg[user].data.clone();
         if let OpData::Phi { incomings } = op_data {
           for incoming in incomings {
@@ -168,20 +71,20 @@ impl SimplifyCFG<'_> {
             } = incoming
             {
               if value == *inst {
-                self.slay_phi_incoming(user, incoming_bb);
+                self.cx.slay_phi_incoming(user, incoming_bb);
               }
             }
           }
         }
       }
-      self.replace_all_uses(*inst, Operand::Undefined);
+      self.cx.replace_all_uses(*inst, Operand::Undefined);
     }
 
     for (succ_id, _) in succs {
-      let succ_phis = self.get_all_ops_in_block(succ_id, OpType::Phi);
+      let succ_phis = self.cx.get_all_ops_in_block(succ_id, OpType::Phi);
       for phi_id in succ_phis {
         loop {
-          let op_data = self.get_func(func_id).dfg[phi_id].data.clone();
+          let op_data = self.cx.get_func(func_id).dfg[phi_id].data.clone();
           let has_incoming = if let OpData::Phi { incomings } = op_data {
             incomings
               .iter()
@@ -192,13 +95,13 @@ impl SimplifyCFG<'_> {
           if !has_incoming {
             break;
           }
-          self.slay_phi_incoming(phi_id, bb_id);
+          self.cx.slay_phi_incoming(phi_id, bb_id);
         }
       }
     }
 
     if let Some(last) = cur.last() {
-      self.remove_control_flow(*last, bb_id);
+      self.cx.remove_control_flow(*last, bb_id);
     }
 
     self.processed.insert(bb_id.get_bb_id());
@@ -211,18 +114,18 @@ impl SimplifyCFG<'_> {
     to_bb: Operand,
     before_op: Option<Operand>,
   ) {
-    self.move_op_to_bb_at(op_id, from_bb, to_bb, before_op);
+    self.cx.move_op_to_bb_at(op_id, from_bb, to_bb, before_op);
     // If a user of the moved instruction is a phi node in the original block, we need to update the phi node to point to the new block.
-    let func_id = self.builder.current_function.unwrap();
-    let users = self.get_func(func_id).dfg[op_id].users.clone();
+    let func_id = self.cx.current_func();
+    let users = self.cx.get_func(func_id).dfg[op_id].users.clone();
     for (user, _) in users {
-      let user_op_data = self.get_func(func_id).dfg[user].data.clone();
+      let user_op_data = self.cx.get_func(func_id).dfg[user].data.clone();
       if let OpData::Phi { incomings } = user_op_data {
         for incoming in incomings {
           if let PhiIncoming::Data { bb, .. } = incoming {
             if bb == from_bb {
-              self.slay_phi_incoming(user, from_bb);
-              self.append_phi_incoming(user, to_bb, op_id);
+              self.cx.slay_phi_incoming(user, from_bb);
+              self.cx.append_phi_incoming(user, to_bb, op_id);
             }
           }
         }
@@ -231,21 +134,21 @@ impl SimplifyCFG<'_> {
   }
 
   pub fn simplify(&mut self, bb_id: Operand) {
-    let func_id = self.builder.current_function.unwrap();
+    let func_id = self.cx.current_func();
     let mut is_dead = false;
 
     // Case 1: 1 pred and the pred has only 1 succ. Then merge current block into its predecessor.
-    let bb = &self.get_func(func_id).cfg[bb_id];
+    let bb = &self.cx.get_func(func_id).cfg[bb_id];
     if bb.preds.len() == 1 && {
       let pred_id = bb.preds[0].0;
-      let pred = &self.get_func(func_id).cfg[pred_id];
+      let pred = &self.cx.get_func(func_id).cfg[pred_id];
       pred.succs.len() == 1 && pred_id != bb_id
     } {
       is_dead = true;
 
-      let bb = &self.get_func(func_id).cfg[bb_id];
+      let bb = &self.cx.get_func(func_id).cfg[bb_id];
       let (pred_id, cur) = (bb.preds[0].0, bb.cur.clone());
-      let pred = &self.get_func(func_id).cfg[pred_id];
+      let pred = &self.cx.get_func(func_id).cfg[pred_id];
       let pred_term_id = match pred.cur.last() {
         Some(id) => *id,
         None => unreachable!(),
@@ -257,31 +160,31 @@ impl SimplifyCFG<'_> {
       }
 
       // Replace the terminator of the predecessor with the terminator of the current block.
-      let bb = &self.get_func(func_id).cfg[bb_id];
+      let bb = &self.cx.get_func(func_id).cfg[bb_id];
       let bb_term_id = match bb.cur.last() {
         Some(id) => *id,
         None => unreachable!(),
       };
       let bb_term_op = {
-        let dfg = &self.get_func(func_id).dfg;
+        let dfg = &self.cx.get_func(func_id).dfg;
         dfg[bb_term_id].clone()
       };
-      self.replace_op(pred_term_id, pred_id, bb_term_op);
+      self.cx.replace_op(pred_term_id, pred_id, bb_term_op);
 
       // Update downstream's phi nodes
-      let bb = &self.get_func(func_id).cfg[bb_id];
+      let bb = &self.cx.get_func(func_id).cfg[bb_id];
       for (succ_id, _) in bb.succs.clone() {
-        let succ_phis = self.get_all_ops_in_block(succ_id, OpType::Phi);
+        let succ_phis = self.cx.get_all_ops_in_block(succ_id, OpType::Phi);
         for phi_id in succ_phis {
-          let phi_op_data = self.get_func(func_id).dfg[phi_id].data.clone();
+          let phi_op_data = self.cx.get_func(func_id).dfg[phi_id].data.clone();
           if let OpData::Phi { incomings } = phi_op_data {
             for incoming in incomings {
               if let PhiIncoming::Data { bb, value } = incoming {
                 if bb != bb_id {
                   continue;
                 }
-                self.slay_phi_incoming(phi_id, bb_id);
-                self.append_phi_incoming(phi_id, pred_id, value);
+                self.cx.slay_phi_incoming(phi_id, bb_id);
+                self.cx.append_phi_incoming(phi_id, pred_id, value);
               }
             }
           } else {
@@ -292,11 +195,11 @@ impl SimplifyCFG<'_> {
     // Case 2: 1 succ and the block has only terminator and phi nodes.
     } else if bb.succs.len() == 1
       && bb.preds.iter().all(|(pred_id, _)| {
-        let pred = &self.get_func(func_id).cfg[*pred_id];
+        let pred = &self.cx.get_func(func_id).cfg[*pred_id];
         pred.succs.len() == 1 && *pred_id != bb_id
       })
       && bb.cur.iter().all(|inst_id| {
-        let dfg = &self.get_func(func_id).dfg;
+        let dfg = &self.cx.get_func(func_id).dfg;
         let succs = &bb.succs;
         let op = &dfg[*inst_id];
         let (op_data, users) = (&op.data, &op.users);
@@ -304,8 +207,8 @@ impl SimplifyCFG<'_> {
           true
         } else if let OpData::Phi { .. } = op_data {
           users.iter().all(|(user, _)| {
-            let bb_id = self.get_func(func_id).op_to_bb[*user];
-            succs[0].0 == bb_id && self.get_func(func_id).dfg[*user].data.is(OpType::Phi)
+            let bb_id = self.cx.get_func(func_id).op_to_bb[*user];
+            succs[0].0 == bb_id && self.cx.get_func(func_id).dfg[*user].data.is(OpType::Phi)
           })
         } else {
           false
@@ -313,24 +216,24 @@ impl SimplifyCFG<'_> {
       })
       && bb.succs[0].0 != bb_id
       // Ignore entry block.
-      && bb_id != Operand::BB(self.get_func(func_id).cfg.entry.unwrap())
+      && bb_id != Operand::BB(self.cx.get_func(func_id).cfg.entry.unwrap())
     {
       is_dead = true;
 
       // Update the terminators of preds.
-      let bb = &self.get_func(func_id).cfg[bb_id];
+      let bb = &self.cx.get_func(func_id).cfg[bb_id];
       let succ_id = bb.succs[0].0;
       let preds = bb.preds.clone();
 
       for (pred_id, _) in preds.iter() {
-        let cfg = &mut self.get_func_mut(func_id).cfg;
+        let cfg = &mut self.cx.get_func_mut(func_id).cfg;
         let pred = &mut cfg[*pred_id];
         let pred_term = match pred.cur.last() {
           Some(id) => *id,
           None => unreachable!(),
         };
         let mut pred_term_op = {
-          let dfg = &self.get_func(func_id).dfg;
+          let dfg = &self.cx.get_func(func_id).dfg;
           dfg[pred_term].clone()
         };
 
@@ -357,13 +260,13 @@ impl SimplifyCFG<'_> {
             unreachable!()
           }
         }
-        self.replace_op(pred_term, *pred_id, pred_term_op);
+        self.cx.replace_op(pred_term, *pred_id, pred_term_op);
       }
 
       // Update the phi nodes in successor block.
-      let succ_phis = self.get_all_ops_in_block(succ_id, OpType::Phi);
+      let succ_phis = self.cx.get_all_ops_in_block(succ_id, OpType::Phi);
       for phi_id in succ_phis {
-        let phi_op = &self.get_func_mut(func_id).dfg[phi_id];
+        let phi_op = &self.cx.get_func_mut(func_id).dfg[phi_id];
         if let OpData::Phi { incomings } = phi_op.data.clone() {
           for incoming in incomings {
             if let PhiIncoming::Data {
@@ -374,11 +277,11 @@ impl SimplifyCFG<'_> {
               if incoming_bb != bb_id {
                 continue;
               }
-              self.slay_phi_incoming(phi_id, bb_id);
+              self.cx.slay_phi_incoming(phi_id, bb_id);
               let new_incomings = if matches!(value, Operand::Value(_))
-                && self.get_func(func_id).op_to_bb[value] == bb_id
+                && self.cx.get_func(func_id).op_to_bb[value] == bb_id
               {
-                let tramp_phi = &self.get_func_mut(func_id).dfg[value];
+                let tramp_phi = &self.cx.get_func_mut(func_id).dfg[value];
                 if let OpData::Phi {
                   incomings: tramp_incomings,
                 } = tramp_phi.data.clone()
@@ -402,7 +305,9 @@ impl SimplifyCFG<'_> {
                   value: incoming_value,
                 } = incoming
                 {
-                  self.append_phi_incoming(phi_id, incoming_bb, incoming_value);
+                  self
+                    .cx
+                    .append_phi_incoming(phi_id, incoming_bb, incoming_value);
                 } else {
                   unreachable!()
                 }
@@ -420,9 +325,10 @@ impl SimplifyCFG<'_> {
   }
 
   fn rewrite(&mut self) {
-    let func_id = self.builder.current_function.unwrap();
-    let visited = analyze::<Reachability>(self.get_func(func_id));
+    let func_id = self.cx.current_func();
+    let visited = analyze::<Reachability>(self.cx.get_func(func_id));
     let dead_blocks = self
+      .cx
       .get_func(func_id)
       .cfg
       .ids()
@@ -438,8 +344,8 @@ impl SimplifyCFG<'_> {
     }
 
     for bb_id in dead_blocks.iter() {
-      let cur = self.get_func(func_id).cfg[*bb_id].cur.clone();
-      let func = self.get_func_mut(func_id);
+      let cur = self.cx.get_func(func_id).cfg[*bb_id].cur.clone();
+      let func = self.cx.get_func_mut(func_id);
       for inst in cur.iter().rev() {
         func.op_to_bb[*inst] = Operand::default();
         func.dfg.remove(inst.get_op_id());
@@ -447,11 +353,11 @@ impl SimplifyCFG<'_> {
     }
 
     for bb_id in dead_blocks.iter() {
-      self.get_func_mut(func_id).cfg.remove(bb_id.get_bb_id());
+      self.cx.get_func_mut(func_id).cfg.remove(bb_id.get_bb_id());
     }
 
     {
-      let func = self.get_func_mut(func_id);
+      let func = self.cx.get_func_mut(func_id);
       for item in func.dfg.storage.iter_mut() {
         if let ArenaItem::Data(op) = item {
           op.users.clear();
@@ -459,19 +365,16 @@ impl SimplifyCFG<'_> {
       }
     }
     let blocks = self
+      .cx
       .get_func(func_id)
       .cfg
       .collect()
       .into_iter()
-      .map(|bb| self.get_func(func_id).cfg[Operand::BB(bb)].cur.clone())
+      .map(|bb| self.cx.get_func(func_id).cfg[Operand::BB(bb)].cur.clone())
       .collect::<Vec<_>>();
     for ops in blocks {
       for op_id in ops {
-        self
-          .ir
-          .as_deref_mut()
-          .unwrap()
-          .add_uses(Some(func_id), op_id);
+        self.cx.add_uses(op_id);
       }
     }
   }
@@ -482,16 +385,16 @@ impl<'a> Pass<'a> for SimplifyCFG<'a> {
     "SimplifyCFG"
   }
   fn mount(&mut self, program: &'a mut IR) {
-    self.ir = Some(program);
+    self.cx.mount(program);
   }
   fn run(&mut self) {
     // We can only simplify CFG at the end of all other optimizations, since it may change the structure of CFG and thus invalidate the assumptions of other optimizations.
-    for func_id in self.ir.as_ref().unwrap().funcs.collect_internal() {
+    for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
       self.init(func_id);
 
       // TODO: fixed point iteration.
-      let dfs = self.get_func(func_id).cfg.dpo();
+      let dfs = self.cx.get_func(func_id).cfg.dpo();
       // Reverse post order
       for bb_id in dfs.into_iter().rev() {
         self.simplify(bb_id);

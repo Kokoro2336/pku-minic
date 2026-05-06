@@ -1,8 +1,8 @@
 //! Backend Dead Code Elimation (BDCE).
 //! P.S.: This is just a trivial DCE that has nothing to do with ADCE!!!
 
-use yachiyo::ir::back::{BBuilder, BFunction, BOpData, BOperand, BackIR, LOpData, MOpData, Reg};
-use yachiyo::pass::BPass;
+use yachiyo::ir::back::{BOpData, BOperand, BackIR, LOpData, MOpData, Reg};
+use yachiyo::pass::{BPass, BPassContext};
 use yachiyo::utils::r#match::{match_some, match_src};
 use yachiyo::utils::set::BitSet;
 use yachiyo::utils::worklist::{Worklist, WorklistTrait};
@@ -10,32 +10,14 @@ use yachiyo::utils::worklist::{Worklist, WorklistTrait};
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Default)]
 pub struct BDCE<'a> {
-  ir: Option<&'a mut BackIR>,
-  builder: BBuilder,
+  cx: BPassContext<'a>,
   // Worklist of inst
   worklist: Worklist<BOperand, BitSet>,
 }
 
 impl BDCE<'_> {
-  #[inline(always)]
-  fn current_func(&self) -> BOperand {
-    self.builder.current_function.unwrap()
-  }
-
-  #[inline(always)]
-  pub fn get_func(&self, func_id: BOperand) -> &BFunction {
-    let ir = self.ir.as_ref().unwrap();
-    &ir.funcs[func_id]
-  }
-
-  #[inline(always)]
-  pub fn get_rd(&self, op_id: BOperand) -> Option<&BOperand> {
-    let ir = self.ir.as_ref().unwrap();
-    ir.get_rd(self.builder.current_function, op_id)
-  }
-
   pub fn is_dead(&self, operand: BOperand) -> bool {
-    let current_func = self.get_func(self.current_func());
+    let current_func = self.cx.get_func(self.cx.current_func());
     let vregs = &current_func.vregs;
 
     match_some! {
@@ -43,7 +25,7 @@ impl BDCE<'_> {
         enu: BOperand,
         minor_arms: {
             BOperand::Inst(_) => {
-                let Some(rd) = self.get_rd(operand) else {
+                let Some(rd) = self.cx.get_rd(operand) else {
                     return false;
                 };
                 match_some! {
@@ -66,9 +48,8 @@ impl BDCE<'_> {
   }
 
   pub fn init(&mut self, func_id: BOperand) {
-    self.builder.set_current_func(func_id);
-    let ir = self.ir.as_ref().unwrap();
-    let func = &ir.funcs[func_id];
+    self.cx.set_current_func(func_id);
+    let func = self.cx.get_func(func_id);
     self.worklist.clear();
 
     // Initialize the worklist
@@ -92,7 +73,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
     "BDCE"
   }
   fn mount(&mut self, program: &'a mut BackIR) {
-    self.ir = Some(program);
+    self.cx.mount(program);
   }
 
   fn run(&mut self) {
@@ -109,7 +90,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
                 let op = BOperand::Inst(op_id);
 
                 let should_push = {
-                    let func = this.get_func(this.current_func());
+                    let func = this.cx.get_func(this.cx.current_func());
                     !func.dfg[op].data.is_impure()
                 };
 
@@ -119,13 +100,13 @@ impl<'a> BPass<'a> for BDCE<'a> {
               }
               BOperand::Reg(Reg::Virt(_)) => {
                 let defs = {
-                    let func = this.get_func(this.current_func());
+                    let func = this.cx.get_func(this.cx.current_func());
                     func.vregs[operand].defs.clone()
                 };
 
                 for def in defs {
                     let should_push = {
-                        let func = this.get_func(this.current_func());
+                        let func = this.cx.get_func(this.cx.current_func());
                         !func.dfg[def].data.is_impure()
                     };
 
@@ -140,22 +121,18 @@ impl<'a> BPass<'a> for BDCE<'a> {
       }
     }
 
-    let func_ids = self.ir.as_ref().unwrap().funcs.collect_internal();
+    let func_ids = self.cx.ir().funcs.collect_internal();
 
     for func_id in func_ids {
       self.init(BOperand::Func(func_id));
       while let Some(op_id) = self.worklist.pop_back() {
         let bb_id = {
-          let func = self.get_func(self.current_func());
+          let func = self.cx.get_func(self.cx.current_func());
           func.op_to_bb[op_id]
         };
-        self.builder.set_current_block(bb_id);
+        self.cx.set_current_block(bb_id);
 
-        let removed_op = self.ir.as_deref_mut().unwrap().remove_op(
-          self.builder.current_function,
-          op_id,
-          Some(bb_id),
-        );
+        let removed_op = self.cx.remove_op(op_id, Some(bb_id));
 
         // Check the operands of the removed instruction
         match removed_op.data {
