@@ -9,18 +9,10 @@ use crate::ir::mid::{Builder, Function, Op, OpType, Operand, IR};
 
 use std::collections::VecDeque;
 
+#[derive(Default)]
 pub struct PassContext<'a> {
   pub ir: Option<&'a mut IR>,
   pub builder: Builder,
-}
-
-impl Default for PassContext<'_> {
-  fn default() -> Self {
-    Self {
-      ir: None,
-      builder: Builder::default(),
-    }
-  }
 }
 
 impl<'a> PassContext<'a> {
