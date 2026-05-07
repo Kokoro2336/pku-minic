@@ -331,7 +331,8 @@ impl SimplifyCFG<'_> {
       .cx
       .get_func(func_id)
       .cfg
-      .ids()
+      .collect()
+      .into_iter()
       .filter(|bb_id| !visited.contains(*bb_id))
       .map(Operand::BB)
       .collect::<Vec<Operand>>();

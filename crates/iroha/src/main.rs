@@ -133,7 +133,7 @@ fn main() -> Result<()> {
     .register(Box::new(LoopRotate::default()))
     .register(Box::new(LICM::default()))
     // Final clean up before going into the backend.
-    .register(Box::new(LoopSimplify::default()))
+    .register(Box::new(SimplifyCFG::default()))
     .register(Box::new(RemoveTrivialPhi::default()))
     .register(Box::new(Compaction::default()))
     .run(&mut ir);

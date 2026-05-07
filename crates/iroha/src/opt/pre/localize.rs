@@ -75,6 +75,9 @@ impl Localize<'_> {
       // Insert flush and reload around barriers
       for &barrier in &self.barriers[func_id.get_func_id()] {
         let mut guard = self.cx.guard();
+        let barrier_bb = guard.op_bb(barrier);
+        guard.set_current_block(barrier_bb);
+
         let op_data = guard.get_func(func_id).dfg[barrier].data.clone();
         match op_data {
           OpData::Call { .. } => {

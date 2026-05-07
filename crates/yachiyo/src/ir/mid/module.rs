@@ -6,12 +6,68 @@ use crate::ir::mid::{
 use crate::utils::arena::{Arena, ArenaItem};
 use crate::utils::r#match::match_some;
 
+use std::ops::{Deref, DerefMut, Index, IndexMut};
+
+#[derive(Debug, Clone, Default)]
+pub struct Globals(DFG);
+
+impl Deref for Globals {
+  type Target = DFG;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl DerefMut for Globals {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
+  }
+}
+
+impl Index<Operand> for Globals {
+  type Output = Op;
+
+  fn index(&self, index: Operand) -> &Self::Output {
+    match index {
+      Operand::Global(index) => &self.0[index],
+      _ => panic!("Globals index: expected a global operand, got {:?}", index),
+    }
+  }
+}
+
+impl IndexMut<Operand> for Globals {
+  fn index_mut(&mut self, index: Operand) -> &mut Self::Output {
+    match index {
+      Operand::Global(index) => &mut self.0[index],
+      _ => panic!(
+        "Globals index_mut: expected a global operand, got {:?}",
+        index
+      ),
+    }
+  }
+}
+
+impl Index<usize> for Globals {
+  type Output = Op;
+
+  fn index(&self, index: usize) -> &Self::Output {
+    &self.0[index]
+  }
+}
+
+impl IndexMut<usize> for Globals {
+  fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+    &mut self.0[index]
+  }
+}
+
 #[derive(Debug, Clone)]
 pub struct IR {
   /// Including:
   /// 1. global variables
   /// 2. SysY library functions
-  pub globals: DFG,
+  pub globals: Globals,
   /// global funcs
   pub funcs: CG,
 }
@@ -19,7 +75,7 @@ pub struct IR {
 impl IR {
   pub fn new() -> Self {
     Self {
-      globals: DFG::new(),
+      globals: Globals::default(),
       funcs: CG::new(),
     }
   }

@@ -123,8 +123,22 @@ impl<'a> PassContext<'a> {
     &mut self.ir_mut().funcs[func_id]
   }
 
-  pub fn get_op_type(&self, op_id: Operand) -> Type {
-    self.get_func(self.current_func()).dfg[op_id].typ.clone()
+  pub fn get_op_type(&self, operand: Operand) -> Type {
+    let func_id = self.current_func();
+
+    match operand {
+      Operand::Value(_) => self.get_func(func_id).dfg[operand].typ.clone(),
+      Operand::Param(_) => self.get_func(func_id).params[operand].1.clone(),
+      Operand::Global(_) => self.ir().globals[operand].typ.clone(),
+      Operand::Func(_) => self.ir().funcs[operand].typ.clone(),
+
+      Operand::Bool(_) => Type::Bool,
+      Operand::Int(_) => Type::Int,
+      Operand::Float(_) => Type::Float,
+      Operand::Undefined => Type::Void,
+
+      Operand::BB(_) => unreachable!(),
+    }
   }
 
   pub fn op_bb(&self, op_id: Operand) -> Operand {
