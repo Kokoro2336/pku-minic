@@ -8,9 +8,32 @@ use crate::ir::mid::{BasicBlock, Op, OpData, Operand, PhiIncoming, CFG, DFG};
 use crate::utils::arena::*;
 use crate::utils::map::IndexedMap;
 use crate::utils::r#match::match_some;
-use std::ops::{Index, IndexMut};
+use std::ops::{Deref, DerefMut, Index, IndexMut};
 
-pub type CG = IndexedArena<Function>;
+#[allow(clippy::upper_case_acronyms)]
+#[derive(Debug, Clone, Default)]
+pub struct CG(IndexedArena<Function>);
+
+impl CG {
+  pub fn new() -> Self {
+    Self(IndexedArena::new())
+  }
+}
+
+impl Deref for CG {
+  type Target = IndexedArena<Function>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl DerefMut for CG {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
+  }
+}
+
 pub type Params = IndexedArena<(String, Type)>;
 
 #[derive(Debug, Clone)]
@@ -74,7 +97,7 @@ impl Function {
   }
 }
 
-impl Arena<Function> for IndexedArena<Function> {
+impl Arena<Function> for CG {
   fn remove(&mut self, idx: usize) -> Function {
     if let ArenaItem::Data(data) = std::mem::replace(&mut self.storage[idx], ArenaItem::None) {
       data
@@ -205,7 +228,7 @@ impl Arena<Function> for IndexedArena<Function> {
   }
 }
 
-impl IndexedArena<Function> {
+impl CG {
   pub fn add(&mut self, func: Function) -> usize {
     let name = func.name.clone();
     let func_id = self.alloc(func);
@@ -249,6 +272,20 @@ impl IndexMut<Operand> for CG {
       Operand::Func(id) => self.get_mut(id).unwrap(),
       _ => panic!("CG index_mut: expected Operand::Func, got {:?}", index),
     }
+  }
+}
+
+impl Index<usize> for CG {
+  type Output = Function;
+
+  fn index(&self, index: usize) -> &Self::Output {
+    &self.0[index]
+  }
+}
+
+impl IndexMut<usize> for CG {
+  fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+    &mut self.0[index]
   }
 }
 

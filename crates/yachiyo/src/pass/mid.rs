@@ -5,7 +5,7 @@ use crate::cli::Cli;
 #[cfg(feature = "debug")]
 use crate::debug::info;
 use crate::debug::DumpLLVM;
-use crate::ir::mid::{Builder, Function, LoopInfo, Op, OpType, Operand, IR};
+use crate::ir::mid::{Builder, Function, Globals, LoopInfo, Op, OpType, Operand, IR};
 
 use std::collections::VecDeque;
 use std::ops::{Deref, DerefMut};
@@ -74,6 +74,14 @@ impl<'a> PassContext<'a> {
 
   pub fn ir_mut(&mut self) -> &mut IR {
     self.ir.as_deref_mut().unwrap()
+  }
+
+  pub fn globals(&self) -> &Globals {
+    &self.ir().globals
+  }
+
+  pub fn globals_mut(&mut self) -> &mut Globals {
+    &mut self.ir_mut().globals
   }
 
   pub fn current_function_option(&self) -> Option<Operand> {

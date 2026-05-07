@@ -62,6 +62,24 @@ impl IndexMut<usize> for Globals {
   }
 }
 
+impl Globals {
+  /// Replace an operand use inside a global op without maintaining use-def lists.
+  pub fn replace_use(&mut self, op_tuple: (Operand, usize), old: Operand, new: Operand) {
+    let (op_id, operand_idx) = op_tuple;
+    let op_id = match op_id {
+      Operand::Global(op_id) => op_id,
+      _ => return,
+    };
+
+    let src_tuples = DFG::match_src_tuple_mut(&mut self.0[op_id].data);
+    for (src, idx) in src_tuples {
+      if *src == old && idx == operand_idx {
+        *src = new;
+      }
+    }
+  }
+}
+
 #[derive(Debug, Clone)]
 pub struct IR {
   /// Including:

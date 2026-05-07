@@ -8,7 +8,7 @@ use crate::ir::back::{LOpData, MOpData, XReg};
 use crate::utils::arena::*;
 use crate::utils::r#match::{match_rd, match_src};
 
-use std::ops::{Index, IndexMut};
+use std::ops::{Deref, DerefMut, Index, IndexMut};
 
 #[derive(Debug, Clone)]
 pub struct VirtReg {
@@ -223,7 +223,29 @@ impl BOpData {
   }
 }
 
-pub type BDFG = IndexedArena<BOp>;
+#[allow(clippy::upper_case_acronyms)]
+#[derive(Debug, Clone, Default)]
+pub struct BDFG(IndexedArena<BOp>);
+
+impl BDFG {
+  pub fn new() -> Self {
+    Self(IndexedArena::new())
+  }
+}
+
+impl Deref for BDFG {
+  type Target = IndexedArena<BOp>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl DerefMut for BDFG {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
+  }
+}
 
 impl Index<BOperand> for BDFG {
   type Output = BOp;
@@ -242,6 +264,20 @@ impl IndexMut<BOperand> for BDFG {
       BOperand::Inst(id) => &mut self[id],
       _ => panic!("Invalid operand index: {:?}", index),
     }
+  }
+}
+
+impl Index<usize> for BDFG {
+  type Output = BOp;
+
+  fn index(&self, index: usize) -> &Self::Output {
+    &self.0[index]
+  }
+}
+
+impl IndexMut<usize> for BDFG {
+  fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+    &mut self.0[index]
   }
 }
 

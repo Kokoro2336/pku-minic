@@ -7,10 +7,31 @@ use crate::ir::mid::Operand;
 use crate::utils::arena::*;
 use crate::utils::set::BitSet;
 
-use std::ops::{Index, IndexMut};
+use std::ops::{Deref, DerefMut, Index, IndexMut};
 
 #[allow(clippy::upper_case_acronyms)]
-pub type CFG = IndexedArena<BasicBlock>;
+#[derive(Debug, Clone, Default)]
+pub struct CFG(IndexedArena<BasicBlock>);
+
+impl CFG {
+  pub fn new() -> Self {
+    Self(IndexedArena::new())
+  }
+}
+
+impl Deref for CFG {
+  type Target = IndexedArena<BasicBlock>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl DerefMut for CFG {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
+  }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct BasicBlock {
@@ -22,7 +43,7 @@ pub struct BasicBlock {
 }
 
 // impl cfg
-impl Arena<BasicBlock> for IndexedArena<BasicBlock> {
+impl Arena<BasicBlock> for CFG {
   fn remove(&mut self, idx: usize) -> BasicBlock {
     if let ArenaItem::Data(data) = std::mem::replace(&mut self.storage[idx], ArenaItem::None) {
       data
@@ -175,5 +196,19 @@ impl IndexMut<Operand> for CFG {
       Operand::BB(id) => self.get_mut(id).unwrap(),
       _ => panic!("CFG index_mut: expected Operand::BB, got {:?}", index),
     }
+  }
+}
+
+impl Index<usize> for CFG {
+  type Output = BasicBlock;
+
+  fn index(&self, index: usize) -> &Self::Output {
+    &self.0[index]
+  }
+}
+
+impl IndexMut<usize> for CFG {
+  fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+    &mut self.0[index]
   }
 }
