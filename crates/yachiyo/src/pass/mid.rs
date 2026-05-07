@@ -5,9 +5,10 @@ use crate::cli::Cli;
 #[cfg(feature = "debug")]
 use crate::debug::info;
 use crate::debug::DumpLLVM;
-use crate::ir::mid::{Builder, Function, Op, OpType, Operand, IR};
+use crate::ir::mid::{Builder, Function, Globals, LoopInfo, Op, OpType, Operand, IR};
 
 use std::collections::VecDeque;
+use std::ops::{Deref, DerefMut};
 
 #[derive(Default)]
 pub struct PassContext<'a> {
@@ -15,7 +16,54 @@ pub struct PassContext<'a> {
   pub builder: Builder,
 }
 
+pub struct PassContextGuard<'cx, 'a> {
+  cx: &'cx mut PassContext<'a>,
+  loop_stack: Vec<LoopInfo>,
+  current_function: Option<Operand>,
+  current_block: Option<Operand>,
+  current_inst: Option<Operand>,
+}
+
+impl<'cx, 'a> PassContextGuard<'cx, 'a> {
+  pub fn new(cx: &'cx mut PassContext<'a>) -> Self {
+    Self {
+      loop_stack: cx.builder.loop_stack.clone(),
+      current_function: cx.builder.current_function,
+      current_block: cx.builder.current_block,
+      current_inst: cx.builder.current_inst,
+      cx,
+    }
+  }
+}
+
+impl<'a> Deref for PassContextGuard<'_, 'a> {
+  type Target = PassContext<'a>;
+
+  fn deref(&self) -> &Self::Target {
+    self.cx
+  }
+}
+
+impl DerefMut for PassContextGuard<'_, '_> {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    self.cx
+  }
+}
+
+impl Drop for PassContextGuard<'_, '_> {
+  fn drop(&mut self) {
+    self.cx.builder.loop_stack = self.loop_stack.clone();
+    self.cx.builder.current_function = self.current_function;
+    self.cx.builder.current_block = self.current_block;
+    self.cx.builder.current_inst = self.current_inst;
+  }
+}
+
 impl<'a> PassContext<'a> {
+  pub fn guard(&mut self) -> PassContextGuard<'_, 'a> {
+    PassContextGuard::new(self)
+  }
+
   pub fn mount(&mut self, ir: &'a mut IR) {
     self.ir = Some(ir);
   }
@@ -28,7 +76,15 @@ impl<'a> PassContext<'a> {
     self.ir.as_deref_mut().unwrap()
   }
 
-  pub fn current_function(&self) -> Option<Operand> {
+  pub fn globals(&self) -> &Globals {
+    &self.ir().globals
+  }
+
+  pub fn globals_mut(&mut self) -> &mut Globals {
+    &mut self.ir_mut().globals
+  }
+
+  pub fn current_function_option(&self) -> Option<Operand> {
     self.builder.current_function
   }
 
@@ -51,6 +107,22 @@ impl<'a> PassContext<'a> {
     self.builder.set_current_block(bb_id);
   }
 
+  pub fn set_before_inst(&mut self, inst_id: Option<Operand>) {
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    self
+      .builder
+      .set_before_inst(ir, current_function_option, inst_id);
+  }
+
+  pub fn set_after_inst(&mut self, inst_id: Option<Operand>) {
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    self
+      .builder
+      .set_after_inst(ir, current_function_option, inst_id);
+  }
+
   pub fn get_func(&self, func_id: Operand) -> &Function {
     &self.ir().funcs[func_id]
   }
@@ -59,8 +131,22 @@ impl<'a> PassContext<'a> {
     &mut self.ir_mut().funcs[func_id]
   }
 
-  pub fn get_op_type(&self, op_id: Operand) -> Type {
-    self.get_func(self.current_func()).dfg[op_id].typ.clone()
+  pub fn get_op_type(&self, operand: Operand) -> Type {
+    let func_id = self.current_func();
+
+    match operand {
+      Operand::Value(_) => self.get_func(func_id).dfg[operand].typ.clone(),
+      Operand::Param(_) => self.get_func(func_id).params[operand].1.clone(),
+      Operand::Global(_) => self.ir().globals[operand].typ.clone(),
+      Operand::Func(_) => self.ir().funcs[operand].typ.clone(),
+
+      Operand::Bool(_) => Type::Bool,
+      Operand::Int(_) => Type::Int,
+      Operand::Float(_) => Type::Float,
+      Operand::Undefined => Type::Void,
+
+      Operand::BB(_) => unreachable!(),
+    }
   }
 
   pub fn op_bb(&self, op_id: Operand) -> Operand {
@@ -68,41 +154,39 @@ impl<'a> PassContext<'a> {
   }
 
   pub fn create(&mut self, op: Op) -> Operand {
-    let current_function = self.builder.current_function;
-    let builder = std::mem::take(&mut self.builder);
-    let op_id = self.ir_mut().create(&builder, current_function, op);
-    self.builder = builder;
-    op_id
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    self.builder.create(ir, current_function_option, op)
   }
 
   pub fn create_at_head(&mut self, op: Op) -> Operand {
-    let current_function = self.builder.current_function;
-    let mut builder = std::mem::take(&mut self.builder);
-    let op_id = self
-      .ir_mut()
-      .create_at_head(&mut builder, current_function, op);
-    self.builder = builder;
-    op_id
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    self.builder.create_at_head(ir, current_function_option, op)
   }
 
   pub fn create_new_block(&mut self) -> Operand {
-    let current_function = self.builder.current_function;
-    self.ir_mut().create_new_block(current_function)
+    let current_function_option = self.builder.current_function;
+    self.ir_mut().create_new_block(current_function_option)
   }
 
   pub fn replace_op(&mut self, op_id: Operand, bb_id: Operand, new_op: Op) -> Operand {
-    let current_function = self.builder.current_function;
-    let mut builder = std::mem::take(&mut self.builder);
-    let new_op_id = self
-      .ir_mut()
-      .replace_op(&mut builder, current_function, op_id, bb_id, new_op);
-    self.builder = builder;
-    new_op_id
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    ir.replace_op(
+      &mut self.builder,
+      current_function_option,
+      op_id,
+      bb_id,
+      new_op,
+    )
   }
 
   pub fn remove_op(&mut self, op_id: Operand, bb_id: Option<Operand>) -> crate::ir::mid::Op {
-    let current_function = self.builder.current_function;
-    self.ir_mut().remove_op(current_function, op_id, bb_id)
+    let current_function_option = self.builder.current_function;
+    self
+      .ir_mut()
+      .remove_op(current_function_option, op_id, bb_id)
   }
 
   pub fn move_op_to_bb_at(
@@ -112,15 +196,17 @@ impl<'a> PassContext<'a> {
     to_bb: Operand,
     before_op: Option<Operand>,
   ) {
-    let current_function = self.builder.current_function;
+    let current_function_option = self.builder.current_function;
     self
       .ir_mut()
-      .move_op_to_bb_at(current_function, op_id, from_bb, to_bb, before_op);
+      .move_op_to_bb_at(current_function_option, op_id, from_bb, to_bb, before_op);
   }
 
   pub fn replace_all_uses(&mut self, old: Operand, new: Operand) {
-    let current_function = self.builder.current_function;
-    self.ir_mut().replace_all_uses(current_function, old, new);
+    let current_function_option = self.builder.current_function;
+    self
+      .ir_mut()
+      .replace_all_uses(current_function_option, old, new);
   }
 
   pub fn get_all_ops(&self, op_typ: OpType) -> Vec<Operand> {
@@ -134,10 +220,10 @@ impl<'a> PassContext<'a> {
   }
 
   pub fn get_all_non_phi_in_block(&mut self, bb_id: Operand) -> Vec<Operand> {
-    let current_function = self.builder.current_function;
+    let current_function_option = self.builder.current_function;
     self
       .ir_mut()
-      .get_all_non_phi_in_block(current_function, bb_id)
+      .get_all_non_phi_in_block(current_function_option, bb_id)
   }
 
   pub fn get_src_tuple(&self, op_id: Operand) -> Vec<(&Operand, usize)> {
@@ -163,36 +249,36 @@ impl<'a> PassContext<'a> {
   }
 
   pub fn remove_control_flow(&mut self, op_id: Operand, bb_id: Operand) {
-    let current_function = self.builder.current_function;
+    let current_function_option = self.builder.current_function;
     self
       .ir_mut()
-      .remove_control_flow(current_function, op_id, bb_id);
+      .remove_control_flow(current_function_option, op_id, bb_id);
   }
 
   pub fn add_uses(&mut self, op_id: Operand) {
-    let current_function = self.builder.current_function;
-    self.ir_mut().add_uses(current_function, op_id);
+    let current_function_option = self.builder.current_function;
+    self.ir_mut().add_uses(current_function_option, op_id);
   }
 
   pub fn append_phi_incoming(&mut self, phi_id: Operand, bb_id: Operand, value: Operand) {
-    let current_function = self.builder.current_function;
+    let current_function_option = self.builder.current_function;
     self
       .ir_mut()
-      .append_phi_incoming(current_function, phi_id, value, bb_id);
+      .append_phi_incoming(current_function_option, phi_id, value, bb_id);
   }
 
   pub fn add_phi_incoming(&mut self, phi_id: Operand, idx: usize, value: Operand, bb_id: Operand) {
-    let current_function = self.builder.current_function;
+    let current_function_option = self.builder.current_function;
     self
       .ir_mut()
-      .add_phi_incoming(current_function, phi_id, idx, value, bb_id);
+      .add_phi_incoming(current_function_option, phi_id, idx, value, bb_id);
   }
 
   pub fn slay_phi_incoming(&mut self, phi_id: Operand, bb_id: Operand) {
-    let current_function = self.builder.current_function;
+    let current_function_option = self.builder.current_function;
     self
       .ir_mut()
-      .slay_phi_incoming(current_function, phi_id, bb_id);
+      .slay_phi_incoming(current_function_option, phi_id, bb_id);
   }
 }
 

@@ -409,9 +409,7 @@ impl Semantic {
       NodeType::Literal => match &self.ast[node_id] {
         Node::Literal(Literal::Int(_)) => Ok(Type::Int),
         Node::Literal(Literal::Float(_)) => Ok(Type::Float),
-        Node::Literal(Literal::String(_)) => Ok(Type::Pointer {
-          base: Box::new(Type::Char),
-        }),
+        Node::Literal(Literal::String(_)) => Ok(Type::Char.with_ptr()),
         _ => unreachable!(),
       },
       NodeType::VarAccess => {
@@ -915,14 +913,15 @@ pub fn decay(typ: Type) -> Result<Type, String> {
         return Err("Cannot decay array with zero dimensions!".to_string());
       }
       if dims.len() == 1 {
-        Ok(Type::Pointer { base })
+        Ok(base.with_ptr())
       } else {
-        Ok(Type::Pointer {
-          base: Box::new(Type::Array {
+        Ok(
+          Type::Array {
             base,
             dims: dims[1..].to_vec(),
-          }),
-        })
+          }
+          .with_ptr(),
+        )
       }
     }
     Type::Pointer { .. } => Ok(typ),
@@ -932,7 +931,7 @@ pub fn decay(typ: Type) -> Result<Type, String> {
 
 pub fn raise(typ: Type) -> Result<Type, String> {
   match typ {
-    Type::Pointer { base } => match *base {
+    Type::Pointer { .. } => match typ.unwrap_ptr() {
       Type::Array {
         base: array_base,
         dims,
@@ -947,7 +946,7 @@ pub fn raise(typ: Type) -> Result<Type, String> {
         }
       }
       _ => Ok(Type::Array {
-        base,
+        base: Box::new(typ.unwrap_ptr()),
         dims: vec![1],
       }),
     },

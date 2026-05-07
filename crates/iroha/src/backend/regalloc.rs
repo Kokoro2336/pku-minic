@@ -1572,10 +1572,7 @@ impl RegAlloc<'_> {
     }
     let entry = BOperand::BB(entry.unwrap());
     self.cx.set_current_block(entry);
-    let current_function = self.cx.builder.current_function;
-    let mut builder = std::mem::take(&mut self.cx.builder);
-    builder.set_at_head(self.cx.ir_mut(), current_function);
-    self.cx.builder = builder;
+    self.cx.set_at_head();
 
     let sp_offset = -(self.cx.get_func(func_id).frame_info.size() as i32);
 

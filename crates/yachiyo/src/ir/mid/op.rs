@@ -1,6 +1,6 @@
 //! Instruction definition of IR.
 
-use std::ops::{Index, IndexMut};
+use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::vec::Vec;
 use strum_macros::EnumDiscriminants;
 
@@ -13,7 +13,28 @@ use crate::utils::arena::*;
 use crate::utils::r#match::{match_some, match_src};
 
 #[allow(clippy::upper_case_acronyms)]
-pub type DFG = IndexedArena<Op>;
+#[derive(Debug, Clone, Default)]
+pub struct DFG(IndexedArena<Op>);
+
+impl DFG {
+  pub fn new() -> Self {
+    Self(IndexedArena::new())
+  }
+}
+
+impl Deref for DFG {
+  type Target = IndexedArena<Op>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl DerefMut for DFG {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
+  }
+}
 
 #[derive(Debug, Clone, EnumDiscriminants)]
 // Specify the type enum's name
@@ -370,6 +391,20 @@ impl IndexMut<Operand> for DFG {
   }
 }
 
+impl Index<usize> for DFG {
+  type Output = Op;
+
+  fn index(&self, index: usize) -> &Self::Output {
+    &self.0[index]
+  }
+}
+
+impl IndexMut<usize> for DFG {
+  fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+    &mut self.0[index]
+  }
+}
+
 impl DFG {
   pub fn match_src_tuple(data: &OpData) -> Vec<(&Operand, usize)> {
     match_src! {
@@ -390,9 +425,7 @@ impl DFG {
       },
       fallback: {
         OpData::Load { addr } => {
-          if matches!(addr, Operand::Global(_)) {
-            vec![]
-          } else if matches!(addr, Operand::Value(_)) {
+          if matches!(addr, Operand::Value(_) | Operand::Global(_)) {
             vec![(addr, 0)]
           } else {
             panic!("DFG match_src_tuple: Load address operand is not Value or Global");
@@ -400,8 +433,7 @@ impl DFG {
         }
         OpData::Store { addr, value } => {
           let mut srcs = Vec::new();
-          if matches!(addr, Operand::Global(_)) {
-          } else if matches!(addr, Operand::Value(_)) {
+          if matches!(addr, Operand::Value(_) | Operand::Global(_)) {
             srcs.push((addr, 0));
           } else {
             panic!("DFG match_src_tuple: Store address operand is not Value or Global");
@@ -435,8 +467,7 @@ impl DFG {
         }
         OpData::GEP { base, indices } => {
           let mut srcs = Vec::new();
-          if matches!(base, Operand::Global(_)) {
-          } else if matches!(base, Operand::Value(_)) {
+          if matches!(base, Operand::Value(_) | Operand::Global(_)) {
             srcs.push((base, 0));
           } else {
             panic!("DFG match_src_tuple: GEP base operand is not Value or Global");
@@ -473,9 +504,7 @@ impl DFG {
       },
       fallback: {
         OpData::Load { addr } => {
-          if matches!(addr, Operand::Global(_)) {
-            vec![]
-          } else if matches!(addr, Operand::Value(_)) {
+          if matches!(addr, Operand::Value(_) | Operand::Global(_)) {
             vec![(addr, 0)]
           } else {
             panic!("DFG match_src_tuple_mut: Load address operand is not Value or Global");
@@ -483,8 +512,7 @@ impl DFG {
         }
         OpData::Store { addr, value } => {
           let mut srcs = Vec::new();
-          if matches!(addr, Operand::Global(_)) {
-          } else if matches!(addr, Operand::Value(_)) {
+          if matches!(addr, Operand::Value(_) | Operand::Global(_)) {
             srcs.push((addr, 0));
           } else {
             panic!("DFG match_src_tuple_mut: Store address operand is not Value or Global");
@@ -518,8 +546,7 @@ impl DFG {
         }
         OpData::GEP { base, indices } => {
           let mut srcs = Vec::new();
-          if matches!(base, Operand::Global(_)) {
-          } else if matches!(base, Operand::Value(_)) {
+          if matches!(base, Operand::Value(_) | Operand::Global(_)) {
             srcs.push((base, 0));
           } else {
             panic!("DFG match_src_tuple_mut: GEP base operand is not Value or Global");
@@ -727,7 +754,7 @@ impl std::fmt::Display for Attr {
 }
 
 // impl dfg
-impl Arena<Op> for IndexedArena<Op> {
+impl Arena<Op> for DFG {
   fn remove(&mut self, idx: usize) -> Op {
     // mark this slot as deleted
     if let ArenaItem::Data(data) = std::mem::replace(&mut self.storage[idx], ArenaItem::None) {
@@ -883,18 +910,17 @@ impl Arena<Op> for IndexedArena<Op> {
   }
 }
 
-impl IndexedArena<Op> {
+impl DFG {
   pub fn add_use(&mut self, op_id: Operand, user_tuple: (Operand, usize)) {
     let op_id = match_some! {
         target: op_id,
         enu: Operand,
         minor_arms: {
             Operand::Value(op_id) => op_id,
-            Operand::Global(global_id) => global_id,
         },
         // literals don't have uses in the DFG
         // For global variables, we don't maintain uses in the DFG, so just return.
-        uni_ops: [Int, Float, Bool, Undefined, Param, Func, BB],
+        uni_ops: [Int, Float, Bool, Undefined, Param, Func, BB, Global],
         uni_arm: return
     };
     let node = &mut self[op_id];
@@ -909,11 +935,10 @@ impl IndexedArena<Op> {
         enu: Operand,
         minor_arms: {
             Operand::Value(op_id) => op_id,
-            Operand::Global(global_id) => global_id,
         },
         // literals don't have uses in the DFG
         // For global variables, we don't maintain uses in the DFG, so just return.
-        uni_ops: [Int, Float, Bool, Undefined, Param, Func, BB],
+        uni_ops: [Int, Float, Bool, Undefined, Param, Func, BB, Global],
         uni_arm: return
     };
     let node = &mut self[op_id];
@@ -941,11 +966,10 @@ impl IndexedArena<Op> {
         enu: Operand,
         minor_arms: {
             Operand::Value(op_id) => op_id,
-            Operand::Global(global_id) => global_id,
         },
         // literals don't have uses in the DFG
         // For global variables, we don't maintain uses in the DFG, so just return.
-        uni_ops: [Int, Float, Bool, Undefined, Param, BB, Func],
+        uni_ops: [Int, Float, Bool, Undefined, Param, BB, Func, Global],
         uni_arm: return
     };
     let src_tuples = self.get_src_tuple_mut(Operand::Value(op_id));

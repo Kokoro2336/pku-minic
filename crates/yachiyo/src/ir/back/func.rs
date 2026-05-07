@@ -10,10 +10,32 @@ use crate::utils::arena::*;
 use crate::utils::map::IndexedMap;
 use crate::utils::r#match::{match_full_ops, match_some};
 
-use std::ops::{Index, IndexMut};
+use std::ops::{Deref, DerefMut, Index, IndexMut};
 
 #[allow(clippy::upper_case_acronyms)]
-pub type BCG = IndexedArena<BFunction>;
+#[derive(Debug, Clone, Default)]
+pub struct BCG(IndexedArena<BFunction>);
+
+impl BCG {
+  pub fn new() -> Self {
+    Self(IndexedArena::new())
+  }
+}
+
+impl Deref for BCG {
+  type Target = IndexedArena<BFunction>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl DerefMut for BCG {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
+  }
+}
+
 pub type VRegs = IndexedArena<VirtReg>;
 
 #[derive(Debug, Clone)]
@@ -106,6 +128,20 @@ impl IndexMut<BOperand> for BCG {
       BOperand::Func(id) => self.get_mut(id).unwrap(),
       _ => panic!("BCG index_mut: expected BOperand::Func, got {:?}", index),
     }
+  }
+}
+
+impl Index<usize> for BCG {
+  type Output = BFunction;
+
+  fn index(&self, index: usize) -> &Self::Output {
+    &self.0[index]
+  }
+}
+
+impl IndexMut<usize> for BCG {
+  fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+    &mut self.0[index]
   }
 }
 

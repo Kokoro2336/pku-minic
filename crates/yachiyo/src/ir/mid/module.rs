@@ -6,12 +6,86 @@ use crate::ir::mid::{
 use crate::utils::arena::{Arena, ArenaItem};
 use crate::utils::r#match::match_some;
 
+use std::ops::{Deref, DerefMut, Index, IndexMut};
+
+#[derive(Debug, Clone, Default)]
+pub struct Globals(DFG);
+
+impl Deref for Globals {
+  type Target = DFG;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl DerefMut for Globals {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
+  }
+}
+
+impl Index<Operand> for Globals {
+  type Output = Op;
+
+  fn index(&self, index: Operand) -> &Self::Output {
+    match index {
+      Operand::Global(index) => &self.0[index],
+      _ => panic!("Globals index: expected a global operand, got {:?}", index),
+    }
+  }
+}
+
+impl IndexMut<Operand> for Globals {
+  fn index_mut(&mut self, index: Operand) -> &mut Self::Output {
+    match index {
+      Operand::Global(index) => &mut self.0[index],
+      _ => panic!(
+        "Globals index_mut: expected a global operand, got {:?}",
+        index
+      ),
+    }
+  }
+}
+
+impl Index<usize> for Globals {
+  type Output = Op;
+
+  fn index(&self, index: usize) -> &Self::Output {
+    &self.0[index]
+  }
+}
+
+impl IndexMut<usize> for Globals {
+  fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+    &mut self.0[index]
+  }
+}
+
+impl Globals {
+  /// Replace an operand use inside a global op without maintaining use-def lists.
+  pub fn replace_use(&mut self, op_tuple: (Operand, usize), old: Operand, new: Operand) {
+    let (op_id, operand_idx) = op_tuple;
+    let op_id = match op_id {
+      Operand::Global(op_id) => op_id,
+      _ => return,
+    };
+
+    let src_tuples = DFG::match_src_tuple_mut(&mut self.0[op_id].data);
+    for (src, idx) in src_tuples {
+      if *src == old && idx == operand_idx {
+        *src = new;
+      }
+    }
+  }
+}
+
 #[derive(Debug, Clone)]
 pub struct IR {
   /// Including:
   /// 1. global variables
   /// 2. SysY library functions
-  pub globals: DFG,
+  pub globals: Globals,
   /// global funcs
   pub funcs: CG,
 }
@@ -19,7 +93,7 @@ pub struct IR {
 impl IR {
   pub fn new() -> Self {
     Self {
-      globals: DFG::new(),
+      globals: Globals::default(),
       funcs: CG::new(),
     }
   }
@@ -366,12 +440,12 @@ impl IR {
       bb.cur.get(pos + 1).cloned()
     };
 
+    let mut guard = BuilderGuard::new(builder);
     {
-      let mut guard = BuilderGuard::new(builder);
       guard.set_current_block(bb_id);
       // Create new instruction first.
       guard.set_before_inst(self, current_function, next_inst);
-      let new_op_id = self.create(&guard, current_function, new_op);
+      let new_op_id = guard.create(self, current_function, new_op);
       // RAUW
       self.replace_all_uses(current_function, op_id, new_op_id);
       // Remove old instruction.

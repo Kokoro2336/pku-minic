@@ -1,7 +1,6 @@
 //! Builder definition of IR.
 
 use crate::ir::mid::*;
-
 use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone)]
@@ -30,16 +29,12 @@ pub struct BuilderGuard<'a> {
 
 impl<'a> BuilderGuard<'a> {
   pub fn new(builder: &'a mut Builder) -> Self {
-    let loop_stack = builder.loop_stack.clone();
-    let current_function = builder.current_function;
-    let current_block = builder.current_block;
-    let current_inst = builder.current_inst;
     Self {
+      loop_stack: builder.loop_stack.clone(),
+      current_function: builder.current_function,
+      current_block: builder.current_block,
+      current_inst: builder.current_inst,
       builder,
-      loop_stack,
-      current_function,
-      current_block,
-      current_inst,
     }
   }
 }

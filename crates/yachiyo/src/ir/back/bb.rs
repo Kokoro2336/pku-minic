@@ -5,10 +5,31 @@ use crate::debug::info;
 use crate::ir::back::BOperand;
 use crate::utils::arena::*;
 
-use std::ops::{Index, IndexMut};
+use std::ops::{Deref, DerefMut, Index, IndexMut};
 
 #[allow(clippy::upper_case_acronyms)]
-pub type BCFG = IndexedArena<BBasicBlock>;
+#[derive(Debug, Clone, Default)]
+pub struct BCFG(IndexedArena<BBasicBlock>);
+
+impl BCFG {
+  pub fn new() -> Self {
+    Self(IndexedArena::new())
+  }
+}
+
+impl Deref for BCFG {
+  type Target = IndexedArena<BBasicBlock>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl DerefMut for BCFG {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
+  }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct BBasicBlock {
@@ -79,6 +100,20 @@ impl IndexMut<BOperand> for BCFG {
       BOperand::BB(id) => self.get_mut(id).unwrap(),
       _ => panic!("BCFG index_mut: expected BOperand::BB, got {:?}", index),
     }
+  }
+}
+
+impl Index<usize> for BCFG {
+  type Output = BBasicBlock;
+
+  fn index(&self, index: usize) -> &Self::Output {
+    &self.0[index]
+  }
+}
+
+impl IndexMut<usize> for BCFG {
+  fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+    &mut self.0[index]
   }
 }
 

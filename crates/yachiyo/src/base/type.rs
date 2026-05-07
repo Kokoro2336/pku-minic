@@ -122,8 +122,8 @@ impl std::fmt::Display for Type {
         }
         Ok(())
       }
-      Type::Pointer { base } => {
-        write!(f, "{}*", base)
+      Type::Pointer { .. } => {
+        write!(f, "{}*", self.unwrap_ptr())
       }
       Type::Function {
         return_type,
@@ -189,6 +189,19 @@ impl Type {
         std::cmp::Ordering::Less => base.size() * dims[dim_idx..].iter().product::<u32>(),
       },
       _ => panic!("subarr_size can only be called on array types"),
+    }
+  }
+  #[inline(always)]
+  pub fn with_ptr(&self) -> Self {
+    Type::Pointer {
+      base: Box::new(self.clone()),
+    }
+  }
+  #[inline(always)]
+  pub fn unwrap_ptr(&self) -> Type {
+    match self {
+      Type::Pointer { base } => (**base).clone(),
+      _ => panic!("unwrap_ptr can only be called on pointer types"),
     }
   }
 }
