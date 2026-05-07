@@ -1,5 +1,7 @@
 //! Optimizer of the compiler.
 
+mod pre;
+
 mod compaction;
 mod dce;
 mod gvn;
@@ -11,6 +13,8 @@ mod mem2reg;
 mod remove_trivial_phi;
 mod sccp;
 mod simplify_cfg;
+
+pub use pre::*;
 
 pub use compaction::*;
 pub use dce::*;
