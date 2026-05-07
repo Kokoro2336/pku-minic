@@ -1,7 +1,7 @@
 //! Localize Global Variables.
 
 use yachiyo::base::Type;
-use yachiyo::ir::mid::{Op, OpData, Operand, IR};
+use yachiyo::ir::mid::{Attr, Op, OpData, Operand, IR};
 use yachiyo::pass::{Pass, PassContext};
 
 use rustc_hash::FxHashMap;
@@ -19,6 +19,13 @@ impl Localize<'_> {
   #[inline(always)]
   fn init(&mut self, func_id: Operand) {
     self.cx.set_current_func(Some(func_id));
+  }
+
+  fn is_mutable_global(&self, global: Operand) -> bool {
+    self.cx.globals()[global]
+      .attrs
+      .iter()
+      .any(|attr| matches!(attr, Attr::GlobalArray { mutable: true, .. }))
   }
 
   fn run(&mut self) {
@@ -157,7 +164,7 @@ impl<'a> Pass<'a> for Localize<'a> {
           let op_data = &self.cx.get_func(func_id).dfg[inst].data;
           match op_data {
             OpData::Load { addr } | OpData::Store { addr, .. } => {
-              if matches!(addr, Operand::Global(_)) {
+              if matches!(addr, Operand::Global(_)) && self.is_mutable_global(*addr) {
                 self.mem_insts[func_id.get_func_id()]
                   .entry(*addr)
                   .or_default()
