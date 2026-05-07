@@ -197,9 +197,7 @@ impl Emit {
         | Node::UnaryOp { typ, .. } => typ.clone(),
         Node::Literal(Literal::Int(_)) => Type::Int,
         Node::Literal(Literal::Float(_)) => Type::Float,
-        Node::Literal(Literal::String(_)) => Type::Pointer {
-          base: Box::new(Type::Char),
-        },
+        Node::Literal(Literal::String(_)) => Type::Char.with_ptr(),
         _ => panic!("Cannot derive value type from node: {:?}", ast[node_id]),
       }
     }
@@ -330,9 +328,7 @@ impl Emit {
               &mut self.program,
               self.builder.current_function,
               mid::Op::new(
-                Type::Pointer {
-                  base: Box::new(arg_typ.clone()),
-                },
+                arg_typ.with_ptr(),
                 if arg_typ.is_scalar() {
                   vec![Attr::Name(arg_name.clone()), Attr::Promotion]
                 } else {
@@ -440,9 +436,7 @@ impl Emit {
             &mut self.program,
             self.builder.current_function,
             mid::Op::new(
-              Type::Pointer {
-                base: Box::new(typ.clone()),
-              },
+              typ.with_ptr(),
               vec![
                 Attr::GlobalArray {
                   name: name.clone(),
@@ -465,9 +459,7 @@ impl Emit {
               &mut self.program,
               self.builder.current_function,
               mid::Op::new(
-                Type::Pointer {
-                  base: Box::new(typ.clone()),
-                },
+                typ.with_ptr(),
                 vec![Attr::Name(name.clone()), Attr::Promotion],
                 OpData::Alloca(typ.clone()),
               ),
@@ -518,9 +510,7 @@ impl Emit {
             &mut self.program,
             self.builder.current_function,
             mid::Op::new(
-              Type::Pointer {
-                base: Box::new(typ.clone()),
-              },
+              typ.with_ptr(),
               vec![
                 Attr::GlobalArray {
                   name: name.clone(),
@@ -544,9 +534,7 @@ impl Emit {
               &mut self.program,
               self.builder.current_function,
               mid::Op::new(
-                Type::Pointer {
-                  base: Box::new(typ.clone()),
-                },
+                typ.with_ptr(),
                 vec![Attr::Name(name.clone())],
                 OpData::Alloca(typ.clone()),
               ),
@@ -586,9 +574,7 @@ impl Emit {
                 &mut self.program,
                 self.builder.current_function,
                 mid::Op::new(
-                  Type::Pointer {
-                    base: Box::new(base.clone()),
-                  },
+                  base.with_ptr(),
                   vec![],
                   OpData::GEP {
                     base: alloca,
@@ -612,9 +598,7 @@ impl Emit {
                 &mut self.program,
                 self.builder.current_function,
                 mid::Op::new(
-                  Type::Pointer {
-                    base: Box::new(base.clone()),
-                  },
+                  base.with_ptr(),
                   vec![],
                   OpData::GEP {
                     base: alloca,
@@ -629,9 +613,7 @@ impl Emit {
                 &mut self.program,
                 self.builder.current_function,
                 mid::Op::new(
-                  Type::Pointer {
-                    base: Box::new(Type::Int),
-                  },
+                  Type::Int.with_ptr(),
                   vec![Attr::Promotion],
                   OpData::Alloca(Type::Int),
                 ),
@@ -653,9 +635,7 @@ impl Emit {
                 &mut self.program,
                 self.builder.current_function,
                 mid::Op::new(
-                  Type::Pointer {
-                    base: Box::new(Type::Int),
-                  },
+                  Type::Int.with_ptr(),
                   vec![Attr::Promotion],
                   OpData::Alloca(Type::Int),
                 ),
@@ -755,9 +735,7 @@ impl Emit {
                 &mut self.program,
                 self.builder.current_function,
                 mid::Op::new(
-                  Type::Pointer {
-                    base: Box::new(base.clone()),
-                  },
+                  base.with_ptr(),
                   vec![],
                   OpData::GEP {
                     base: flat_base,
@@ -862,9 +840,7 @@ impl Emit {
           &mut self.program,
           self.builder.current_function,
           mid::Op::new(
-            Type::Pointer {
-              base: Box::new(typ.clone()),
-            },
+            typ.with_ptr(),
             vec![
               Attr::GlobalArray {
                 name: emitted_name.clone(),
@@ -1119,14 +1095,14 @@ impl Emit {
             Operand::Value(id) => {
               let dfg = &program.funcs[current_function.unwrap()].dfg;
               match dfg[id].typ.clone() {
-                Type::Pointer { base } => *base,
+                Type::Pointer { .. } => dfg[id].typ.unwrap_ptr(),
                 _ => panic!("Expected pointer type for array access"),
               }
             }
             Operand::Global(id) => {
               let globals = &program.globals;
               match globals[id].typ.clone() {
-                Type::Pointer { base } => *base,
+                Type::Pointer { .. } => globals[id].typ.unwrap_ptr(),
                 _ => panic!("Expected pointer type for array access"),
               }
             }
@@ -1135,9 +1111,7 @@ impl Emit {
           match arr_typ {
             Type::Array { .. } => {
               // use GEP to reach the element directly
-              let ptr_typ = Type::Pointer {
-                base: Box::new(typ.clone()),
-              };
+              let ptr_typ = typ.with_ptr();
               builder.create(
                 program,
                 current_function,
@@ -1159,9 +1133,7 @@ impl Emit {
                   current_function,
                   mid::Op::new(arr_typ, vec![], OpData::Load { addr: ptr }),
                 );
-                let ptr_typ = Type::Pointer {
-                  base: Box::new(typ.clone()),
-                };
+                let ptr_typ = typ.with_ptr();
                 builder.create(
                   program,
                   current_function,
@@ -1440,9 +1412,7 @@ impl Emit {
                   &mut self.program,
                   self.builder.current_function,
                   mid::Op::new(
-                    Type::Pointer {
-                      base: Box::new(Type::Bool),
-                    },
+                    Type::Bool.with_ptr(),
                     vec![Attr::Promotion],
                     OpData::Alloca(Type::Bool),
                   ),
@@ -1542,9 +1512,7 @@ impl Emit {
                   &mut self.program,
                   self.builder.current_function,
                   mid::Op::new(
-                    Type::Pointer {
-                      base: Box::new(Type::Bool),
-                    },
+                    Type::Bool.with_ptr(),
                     vec![Attr::Promotion],
                     OpData::Alloca(Type::Bool),
                   ),
@@ -1750,9 +1718,7 @@ impl Emit {
           &mut self.program,
           self.builder.current_function,
           mid::Op::new(
-            Type::Pointer {
-              base: Box::new(typ.clone()),
-            },
+            typ.with_ptr(),
             vec![Attr::GlobalArray {
               name: "".to_string(),
               typ: typ.clone(),

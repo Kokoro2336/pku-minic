@@ -7,15 +7,13 @@ use yachiyo::debug::info;
 use crate::analysis::{DomAnalysis, DomFrontier, DomTree};
 use yachiyo::analysis::analyze;
 use yachiyo::base::Type;
-use yachiyo::ir::mid::{Attr, Op, OpData, OpType, Operand, PhiIncoming, IR};
-use yachiyo::ir::mid::{Builder, BuilderGuard};
+use yachiyo::ir::mid::{Attr, Builder, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
 
 use std::collections::HashMap;
 
 struct InsertPhi<'a> {
-  program: &'a mut IR,
-  builder: Builder,
+  cx: PassContext<'a>,
   // Former computed frontiers
   frontiers: Vec<DomFrontier>,
 
@@ -36,9 +34,10 @@ struct InsertPhi<'a> {
 
 impl<'a> InsertPhi<'a> {
   pub fn new(program: &'a mut IR, frontiers: Vec<DomFrontier>) -> Self {
+    let mut cx = PassContext::default();
+    cx.mount(program);
     Self {
-      program,
-      builder: Builder::new(),
+      cx,
       frontiers,
       defsites: vec![],
       origins: vec![],
@@ -55,15 +54,10 @@ impl<'a> InsertPhi<'a> {
     self.var_counter = 0;
 
     let (cfg_len, allocas) = {
-      self.builder.set_current_func(Some(func_id));
-      let func = &self.program.funcs[func_id];
+      self.cx.set_current_func(Some(func_id));
+      let func = self.cx.get_func(func_id);
       let cfg_len = func.cfg.storage.len();
-      (
-        cfg_len,
-        self
-          .program
-          .get_all_ops(self.builder.current_function, OpType::Alloca),
-      )
+      (cfg_len, self.cx.get_all_ops(OpType::Alloca))
     };
 
     // Initialize the map between OpId and VarId
@@ -84,9 +78,9 @@ impl<'a> InsertPhi<'a> {
     self.phis = vec![vec![]; self.var_counter];
 
     // Compute defsites, origins and phis
-    let bb_ids = self.program.funcs[func_id].cfg.collect();
+    let bb_ids = self.cx.get_func(func_id).cfg.collect();
     for bb_id in bb_ids {
-      let func = &self.program.funcs[func_id];
+      let func = self.cx.get_func(func_id);
       let block = &func.cfg[bb_id];
       for op_id_operand in &block.cur {
         let op = &func.dfg[*op_id_operand];
@@ -120,7 +114,7 @@ impl<'a> InsertPhi<'a> {
 
   pub fn insert(&mut self) {
     let defsites_len = self.defsites.len();
-    let func_id = self.builder.current_function.unwrap();
+    let func_id = self.cx.current_func();
     let func_idx = func_id.get_func_id();
     for idx in 0..defsites_len {
       while let Some(bb_id) = self.defsites[idx].pop() {
@@ -130,21 +124,16 @@ impl<'a> InsertPhi<'a> {
           if !self.phis[idx].contains(&frontier) {
             // Get number of preds of the frontier block
             let preds_num = {
-              let func = &self.program.funcs[func_id];
+              let func = self.cx.get_func(func_id);
               let block = &func.cfg[frontier];
               block.preds.len()
             };
             // Insert phi
             // Use guard to save the old context
             {
-              let mut guard = BuilderGuard::new(&mut self.builder);
-              let current_function = guard.current_function;
-
-              guard.set_current_block(Operand::BB(frontier));
-
               // Get type of the variable from one of its original defs.
               let var_type = {
-                let func = &self.program.funcs[func_id];
+                let func = self.cx.get_func(func_id);
                 let origin_op_id = match self.var_to_op.get(&idx) {
                   Some(id) => *id,
                   None => {
@@ -155,17 +144,18 @@ impl<'a> InsertPhi<'a> {
                 // This is an alloca
                 let origin_op = &func.dfg[origin_op_id];
                 match &origin_op.typ {
-                  Type::Pointer { base } => *base.clone(),
+                  Type::Pointer { .. } => origin_op.typ.unwrap_ptr(),
                   _ => {
                     panic!("InsertPhi: original definition is not a pointer")
                   }
                 }
               };
 
-              guard.create_at_head(
-                self.program,
-                current_function,
-                Op::new(
+              {
+                let mut guard = self.cx.guard();
+                guard.set_current_func(Some(func_id));
+                guard.set_current_block(Operand::BB(frontier));
+                guard.create_at_head(Op::new(
                   // We don't know the inst's result type yet
                   var_type,
                   vec![Attr::OldIdx(Operand::Value(self.var_to_op[&idx]))],
@@ -173,8 +163,8 @@ impl<'a> InsertPhi<'a> {
                     // Hold the place with dummy incoming. We will update it later.
                     incomings: vec![PhiIncoming::None; preds_num],
                   },
-                ),
-              );
+                ));
+              }
             };
 
             // Record the phi's OpId.
@@ -191,7 +181,8 @@ impl<'a> InsertPhi<'a> {
 
   pub fn run(&mut self) {
     self
-      .program
+      .cx
+      .ir()
       .funcs
       .collect_internal()
       .into_iter()

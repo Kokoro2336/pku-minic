@@ -194,22 +194,20 @@ FuncFParam: NodeId = {
     node_id
   },
   <param_type: BType> <ident: Ident> <first_const_exp: ("[" "]")> <other_const_exps: ("[" ConstExp "]")*> => {
-    let arr_type = Type::Pointer {
-      base: if other_const_exps.is_empty() {
-        Box::new(param_type.clone())
-      } else {
-        Box::new(Type::Array {
-          base: Box::new(param_type.clone()),
-          dims: other_const_exps.into_iter().map(|(_, exp, _)| {
-            let node = std::mem::take(&mut parser.ast[exp]);
-            match parser.fold(node) {
-              Node::Literal(Literal::Int(i)) => i as u32,
-              _ => panic!("Array dimension must be an integer literal"),
-            }
-          }).collect(),
-        })
-      },
-    };
+    let arr_type = if other_const_exps.is_empty() {
+      param_type.clone()
+    } else {
+      Type::Array {
+        base: Box::new(param_type.clone()),
+        dims: other_const_exps.into_iter().map(|(_, exp, _)| {
+          let node = std::mem::take(&mut parser.ast[exp]);
+          match parser.fold(node) {
+            Node::Literal(Literal::Int(i)) => i as u32,
+            _ => panic!("Array dimension must be an integer literal"),
+          }
+        }).collect(),
+      }
+    }.with_ptr();
     parser.decl_is_array.insert(ident.clone(), true);
     let node_id = parser.ast.alloc(Node::Param {
       name: ident.clone(),

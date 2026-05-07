@@ -7,6 +7,7 @@ use crate::debug::DumpASM;
 use crate::ir::back::{BBuilder, BFunction, BOp, BOperand, BType, BackIR, Reg, Slot};
 
 use std::collections::VecDeque;
+use std::ops::{Deref, DerefMut};
 
 #[derive(Default)]
 pub struct BPassContext<'a> {
@@ -14,7 +15,51 @@ pub struct BPassContext<'a> {
   pub builder: BBuilder,
 }
 
+pub struct BPassContextGuard<'cx, 'a> {
+  cx: &'cx mut BPassContext<'a>,
+  current_function: Option<BOperand>,
+  current_block: Option<BOperand>,
+  current_inst: Option<BOperand>,
+}
+
+impl<'cx, 'a> BPassContextGuard<'cx, 'a> {
+  pub fn new(cx: &'cx mut BPassContext<'a>) -> Self {
+    Self {
+      current_function: cx.builder.current_function,
+      current_block: cx.builder.current_block,
+      current_inst: cx.builder.current_inst,
+      cx,
+    }
+  }
+}
+
+impl<'a> Deref for BPassContextGuard<'_, 'a> {
+  type Target = BPassContext<'a>;
+
+  fn deref(&self) -> &Self::Target {
+    self.cx
+  }
+}
+
+impl DerefMut for BPassContextGuard<'_, '_> {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    self.cx
+  }
+}
+
+impl Drop for BPassContextGuard<'_, '_> {
+  fn drop(&mut self) {
+    self.cx.builder.current_function = self.current_function;
+    self.cx.builder.current_block = self.current_block;
+    self.cx.builder.current_inst = self.current_inst;
+  }
+}
+
 impl<'a> BPassContext<'a> {
+  pub fn guard(&mut self) -> BPassContextGuard<'_, 'a> {
+    BPassContextGuard::new(self)
+  }
+
   pub fn mount(&mut self, ir: &'a mut BackIR) {
     self.ir = Some(ir);
   }
@@ -27,7 +72,7 @@ impl<'a> BPassContext<'a> {
     self.ir.as_deref_mut().unwrap()
   }
 
-  pub fn current_function(&self) -> Option<BOperand> {
+  pub fn current_function_option(&self) -> Option<BOperand> {
     self.builder.current_function
   }
 
@@ -51,17 +96,25 @@ impl<'a> BPassContext<'a> {
   }
 
   pub fn set_before_inst(&mut self, inst_id: Option<BOperand>) {
-    let current_function = self.builder.current_function;
-    let mut builder = std::mem::take(&mut self.builder);
-    builder.set_before_inst(self.ir_mut(), current_function, inst_id);
-    self.builder = builder;
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    self
+      .builder
+      .set_before_inst(ir, current_function_option, inst_id);
   }
 
   pub fn set_after_inst(&mut self, inst_id: Option<BOperand>) {
-    let current_function = self.builder.current_function;
-    let mut builder = std::mem::take(&mut self.builder);
-    builder.set_after_inst(self.ir_mut(), current_function, inst_id);
-    self.builder = builder;
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    self
+      .builder
+      .set_after_inst(ir, current_function_option, inst_id);
+  }
+
+  pub fn set_at_head(&mut self) {
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    self.builder.set_at_head(ir, current_function_option);
   }
 
   pub fn get_func(&self, func_id: BOperand) -> &BFunction {
@@ -77,37 +130,34 @@ impl<'a> BPassContext<'a> {
   }
 
   pub fn create(&mut self, op: BOp) -> BOperand {
-    let current_function = self.builder.current_function;
-    let builder = std::mem::take(&mut self.builder);
-    let op_id = self.ir_mut().create(&builder, current_function, op);
-    self.builder = builder;
-    op_id
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    self.builder.create(ir, current_function_option, op)
   }
 
   pub fn create_at_head(&mut self, op: BOp) -> BOperand {
-    let current_function = self.builder.current_function;
-    let mut builder = std::mem::take(&mut self.builder);
-    let op_id = self
-      .ir_mut()
-      .create_at_head(&mut builder, current_function, op);
-    self.builder = builder;
-    op_id
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    self.builder.create_at_head(ir, current_function_option, op)
   }
 
   pub fn remove_op(&mut self, op_id: BOperand, bb_id: Option<BOperand>) -> BOp {
-    let current_function = self.builder.current_function;
-    self.ir_mut().remove_op(current_function, op_id, bb_id)
+    let current_function_option = self.builder.current_function;
+    self
+      .ir_mut()
+      .remove_op(current_function_option, op_id, bb_id)
   }
 
   pub fn replace_op_no_rauw(&mut self, op_id: BOperand, bb_id: BOperand, new_op: BOp) -> BOperand {
-    let current_function = self.builder.current_function;
-    let mut builder = std::mem::take(&mut self.builder);
-    let new_op_id =
-      self
-        .ir_mut()
-        .replace_op_no_rauw(&mut builder, current_function, op_id, bb_id, new_op);
-    self.builder = builder;
-    new_op_id
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    ir.replace_op_no_rauw(
+      &mut self.builder,
+      current_function_option,
+      op_id,
+      bb_id,
+      new_op,
+    )
   }
 
   pub fn replace_op(&mut self, op_id: BOperand, bb_id: BOperand, new_op: BOp) -> BOperand {
@@ -115,14 +165,15 @@ impl<'a> BPassContext<'a> {
   }
 
   pub fn replace_op_rauw(&mut self, op_id: BOperand, bb_id: BOperand, new_op: BOp) -> BOperand {
-    let current_function = self.builder.current_function;
-    let mut builder = std::mem::take(&mut self.builder);
-    let new_op_id =
-      self
-        .ir_mut()
-        .replace_op_rauw(&mut builder, current_function, op_id, bb_id, new_op);
-    self.builder = builder;
-    new_op_id
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    ir.replace_op_rauw(
+      &mut self.builder,
+      current_function_option,
+      op_id,
+      bb_id,
+      new_op,
+    )
   }
 
   pub fn move_op_to_bb_at(
@@ -132,10 +183,10 @@ impl<'a> BPassContext<'a> {
     new_bb: BOperand,
     pos: Option<BOperand>,
   ) {
-    let current_function = self.builder.current_function;
+    let current_function_option = self.builder.current_function;
     self
       .ir_mut()
-      .move_op_to_bb_at(current_function, op_id, old_bb, new_bb, pos);
+      .move_op_to_bb_at(current_function_option, op_id, old_bb, new_bb, pos);
   }
 
   pub fn get_rd(&self, op_id: BOperand) -> Option<&BOperand> {
@@ -169,10 +220,10 @@ impl<'a> BPassContext<'a> {
   }
 
   pub fn replace_rd(&mut self, inst_id: BOperand, new_operand: BOperand) {
-    let current_function = self.builder.current_function;
+    let current_function_option = self.builder.current_function;
     self
       .ir_mut()
-      .replace_rd(current_function, inst_id, new_operand);
+      .replace_rd(current_function_option, inst_id, new_operand);
   }
 
   pub fn replace_src(
@@ -181,15 +232,17 @@ impl<'a> BPassContext<'a> {
     old_operand: BOperand,
     new_operand: BOperand,
   ) {
-    let current_function = self.builder.current_function;
+    let current_function_option = self.builder.current_function;
     self
       .ir_mut()
-      .replace_src(current_function, use_tuple, old_operand, new_operand);
+      .replace_src(current_function_option, use_tuple, old_operand, new_operand);
   }
 
   pub fn replace_all_uses(&mut self, old: BOperand, new: BOperand) {
-    let current_function = self.builder.current_function;
-    self.ir_mut().replace_all_uses(current_function, old, new);
+    let current_function_option = self.builder.current_function;
+    self
+      .ir_mut()
+      .replace_all_uses(current_function_option, old, new);
   }
 
   pub fn alloc_slot(&mut self, slot: Slot) -> BOperand {

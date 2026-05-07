@@ -29,18 +29,14 @@ thread_local! {
             "getarray",
             Type::Function {
                 return_type: Box::new(Type::Int),
-                param_types: vec![Type::Pointer {
-                    base: Box::new(Type::Int),
-                }],
+                param_types: vec![Type::Int.with_ptr()],
             },
         ),
         (
             "getfarray",
             Type::Function {
                 return_type: Box::new(Type::Int),
-                param_types: vec![Type::Pointer {
-                    base: Box::new(Type::Float),
-                }],
+                param_types: vec![Type::Float.with_ptr()],
             },
         ),
         (
@@ -70,9 +66,7 @@ thread_local! {
                 return_type: Box::new(Type::Void),
                 param_types: vec![
                     Type::Int,
-                    Type::Pointer {
-                        base: Box::new(Type::Int),
-                    },
+                    Type::Int.with_ptr(),
                 ],
             },
         ),
@@ -82,9 +76,7 @@ thread_local! {
                 return_type: Box::new(Type::Void),
                 param_types: vec![
                     Type::Int,
-                    Type::Pointer {
-                        base: Box::new(Type::Float),
-                    },
+                    Type::Float.with_ptr(),
                 ],
             },
         ),
@@ -93,9 +85,7 @@ thread_local! {
             Type::Function {
                 return_type: Box::new(Type::Void),
                 param_types: vec![
-                    Type::Pointer {
-                        base: Box::new(Type::Char),
-                    },
+                    Type::Char.with_ptr(),
                     /*only store the string type, since the trailing params are dynamic according to the format string*/
                 ],
             },

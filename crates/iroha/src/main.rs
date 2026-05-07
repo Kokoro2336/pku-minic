@@ -114,6 +114,7 @@ fn main() -> Result<()> {
 
   // Run optimizations.
   PassManager::new(&cli)
+    .register(Box::new(Localize::default()))
     // Mem2Reg
     .register(Box::new(Mem2Reg::default()))
     .register(Box::new(RemoveTrivialPhi::default()))

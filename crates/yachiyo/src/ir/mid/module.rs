@@ -366,12 +366,12 @@ impl IR {
       bb.cur.get(pos + 1).cloned()
     };
 
+    let mut guard = BuilderGuard::new(builder);
     {
-      let mut guard = BuilderGuard::new(builder);
       guard.set_current_block(bb_id);
       // Create new instruction first.
       guard.set_before_inst(self, current_function, next_inst);
-      let new_op_id = self.create(&guard, current_function, new_op);
+      let new_op_id = guard.create(self, current_function, new_op);
       // RAUW
       self.replace_all_uses(current_function, op_id, new_op_id);
       // Remove old instruction.

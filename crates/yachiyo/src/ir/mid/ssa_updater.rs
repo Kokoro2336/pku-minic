@@ -115,14 +115,19 @@ impl<'a> SSAUpdater<'a> {
             .iter()
             .map(|(pred, _)| *pred)
             .collect::<Vec<_>>();
+
           let mut guard = BuilderGuard::new(&mut self.builder);
-          guard.set_current_block(frontier_bb_id);
-          // Create empty phi node.
-          let new_phi_id = guard.create_at_head(
-            self.ir,
-            Some(self.func_id),
-            Op::new(typ.clone(), vec![], OpData::phi_with_undef(&preds)),
-          );
+          let new_phi_id = {
+            guard.set_current_func(Some(self.func_id));
+            guard.set_current_block(frontier_bb_id);
+            // Create empty phi node.
+            guard.create_at_head(
+              self.ir,
+              Some(self.func_id),
+              Op::new(typ.clone(), vec![], OpData::phi_with_undef(&preds)),
+            )
+          };
+
           // Update the available definition for the frontier block.
           self.available_defs.insert(frontier_bb_id, new_phi_id);
           self.new_phis.insert(new_phi_id.get_op_id());

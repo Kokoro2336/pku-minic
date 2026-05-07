@@ -5,7 +5,7 @@ use crate::analysis::{DomAnalysis, DomFrontier, DomTree, LoopAnalysis, LoopData}
 use yachiyo::analysis::analyze;
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{
-  ssa_updater_params, BuilderGuard, Op, OpData, OpType, Operand, PhiIncoming, SSAUpdater, DFG, IR,
+  ssa_updater_params, Op, OpData, OpType, Operand, PhiIncoming, SSAUpdater, DFG, IR,
 };
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::r#match::match_some;
@@ -38,7 +38,7 @@ impl LoopRotate<'_> {
     pre_header_id: Operand,
     guard_bb_id: Operand,
   ) -> Operand {
-    let func_id = self.cx.current_function();
+    let func_id = self.cx.current_function_option();
     let op = &self.cx.get_func(func_id.unwrap()).dfg[op_id];
     let (mut op_data, typ, attrs) = (op.data.clone(), op.typ.clone(), op.attrs.clone());
 
@@ -79,14 +79,9 @@ impl LoopRotate<'_> {
     }
 
     let new_op_id = {
-      let mut builder = std::mem::take(&mut self.cx.builder);
-      let new_op_id = {
-        let mut guard = BuilderGuard::new(&mut builder);
-        guard.set_current_block(guard_bb_id);
-        guard.create(self.cx.ir_mut(), func_id, Op::new(typ, attrs, op_data))
-      };
-      self.cx.builder = builder;
-      new_op_id
+      let mut guard = self.cx.guard();
+      guard.set_current_block(guard_bb_id);
+      guard.create(Op::new(typ, attrs, op_data))
     };
     self.inst_map.insert(op_id, new_op_id);
     new_op_id

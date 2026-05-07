@@ -890,11 +890,10 @@ impl IndexedArena<Op> {
         enu: Operand,
         minor_arms: {
             Operand::Value(op_id) => op_id,
-            Operand::Global(global_id) => global_id,
         },
         // literals don't have uses in the DFG
         // For global variables, we don't maintain uses in the DFG, so just return.
-        uni_ops: [Int, Float, Bool, Undefined, Param, Func, BB],
+        uni_ops: [Int, Float, Bool, Undefined, Param, Func, BB, Global],
         uni_arm: return
     };
     let node = &mut self[op_id];
@@ -909,11 +908,10 @@ impl IndexedArena<Op> {
         enu: Operand,
         minor_arms: {
             Operand::Value(op_id) => op_id,
-            Operand::Global(global_id) => global_id,
         },
         // literals don't have uses in the DFG
         // For global variables, we don't maintain uses in the DFG, so just return.
-        uni_ops: [Int, Float, Bool, Undefined, Param, Func, BB],
+        uni_ops: [Int, Float, Bool, Undefined, Param, Func, BB, Global],
         uni_arm: return
     };
     let node = &mut self[op_id];
@@ -941,11 +939,10 @@ impl IndexedArena<Op> {
         enu: Operand,
         minor_arms: {
             Operand::Value(op_id) => op_id,
-            Operand::Global(global_id) => global_id,
         },
         // literals don't have uses in the DFG
         // For global variables, we don't maintain uses in the DFG, so just return.
-        uni_ops: [Int, Float, Bool, Undefined, Param, BB, Func],
+        uni_ops: [Int, Float, Bool, Undefined, Param, BB, Func, Global],
         uni_arm: return
     };
     let src_tuples = self.get_src_tuple_mut(Operand::Value(op_id));

@@ -1,7 +1,6 @@
 //! Builder definiton of BackIR.
 
 use crate::ir::back::{BOp, BOperand, BackIR};
-
 use std::ops::{Deref, DerefMut};
 
 #[derive(Default)]
@@ -20,14 +19,11 @@ pub struct BBuilderGuard<'a> {
 
 impl<'a> BBuilderGuard<'a> {
   pub fn new(builder: &'a mut BBuilder) -> Self {
-    let current_function = builder.current_function;
-    let current_block = builder.current_block;
-    let current_inst = builder.current_inst;
     Self {
+      current_function: builder.current_function,
+      current_block: builder.current_block,
+      current_inst: builder.current_inst,
       builder,
-      current_function,
-      current_block,
-      current_inst,
     }
   }
 }

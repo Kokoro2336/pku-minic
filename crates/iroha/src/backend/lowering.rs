@@ -86,13 +86,13 @@ impl Lowering {
 
   #[inline(always)]
   fn get_rd(&mut self, bop_id: BOperand) -> Option<BOperand> {
-    let func_id = self.builder.current_function.unwrap();
-    self.lower_ir.get_rd(Some(func_id), bop_id).cloned()
+    let func_id = self.cx.builder.current_function.unwrap();
+    self.cx.ir_mut().get_rd(Some(func_id), bop_id).cloned()
   }
 
   #[inline(always)]
   fn replace_src(&mut self, bop_id: BOperand, old_src: BOperand, new_src: BOperand) {
-    let func_id = self.builder.current_function;
+    let func_id = self.cx.builder.current_function;
     let use_tuple = self
       .lower_ir
       .get_src_tuple(func_id, bop_id)
@@ -115,14 +115,14 @@ impl Lowering {
     callee_func_typ: &Type,
   ) -> Vec<BOperand> {
     // We should update the slots in caller's frame info.
-    let lfunc_id = self.builder.current_function.unwrap();
-    self.lower_ir.funcs[lfunc_id]
+    let lfunc_id = self.cx.builder.current_function.unwrap();
+    self.cx.ir_mut().funcs[lfunc_id]
       .frame_info
       .get_spilled_arg_offsets(callee_func_id, callee_func_typ)
   }
 
   fn get_current_func(&self) -> Operand {
-    let lfunc_id = self.builder.current_function.unwrap();
+    let lfunc_id = self.cx.builder.current_function.unwrap();
 
     self
       .func_map
@@ -172,7 +172,7 @@ impl Lowering {
 
   fn init(&mut self, func_id: Operand) {
     let lfunc_id = self.get(func_id);
-    self.builder.set_current_func(lfunc_id);
+    self.cx.builder.set_current_func(lfunc_id);
 
     // Clear the maps.
     self.block_map.clear();
@@ -200,7 +200,7 @@ impl Lowering {
 
   #[inline(always)]
   fn alloc_and_map_func(&mut self, func_id: Operand, lfunc: BFunction) -> BOperand {
-    let lfunc_id = self.lower_ir.funcs.alloc(lfunc);
+    let lfunc_id = self.cx.ir_mut().funcs.alloc(lfunc);
     self.set(func_id, BOperand::Func(lfunc_id));
     BOperand::Func(lfunc_id)
   }
@@ -213,8 +213,8 @@ impl Lowering {
     data: Data,
   ) -> BOperand {
     let data_id = match name {
-      Some(name) => self.lower_ir.data_info.insert(data, name),
-      None => self.lower_ir.data_info.alloc(data),
+      Some(name) => self.cx.ir_mut().data_info.insert(data, name),
+      None => self.cx.ir_mut().data_info.alloc(data),
     };
     self.set(global_id, BOperand::Data(data_id));
     BOperand::Data(data_id)
@@ -228,8 +228,8 @@ impl Lowering {
     rodata: RoData,
   ) -> BOperand {
     let rodata_id = match name {
-      Some(name) => self.lower_ir.rodata_info.insert(rodata, name),
-      None => self.lower_ir.rodata_info.alloc(rodata),
+      Some(name) => self.cx.ir_mut().rodata_info.insert(rodata, name),
+      None => self.cx.ir_mut().rodata_info.alloc(rodata),
     };
     self.set(global_id, BOperand::RoData(rodata_id));
     BOperand::RoData(rodata_id)
@@ -238,8 +238,8 @@ impl Lowering {
   #[inline(always)]
   fn alloc_and_map_bss(&mut self, global_id: Operand, name: Option<String>, bss: Bss) -> BOperand {
     let bss_id = match name {
-      Some(name) => self.lower_ir.bss_info.insert(bss, name),
-      None => self.lower_ir.bss_info.alloc(bss),
+      Some(name) => self.cx.ir_mut().bss_info.insert(bss, name),
+      None => self.cx.ir_mut().bss_info.alloc(bss),
     };
     self.set(global_id, BOperand::Bss(bss_id));
     BOperand::Bss(bss_id)
@@ -247,9 +247,9 @@ impl Lowering {
 
   #[inline(always)]
   fn alloc_and_map_slot(&mut self, alloc_id: Operand, slot: Slot) -> BOperand {
-    let func_id = self.builder.current_function.unwrap();
+    let func_id = self.cx.builder.current_function.unwrap();
 
-    let lfunc = &mut self.lower_ir.funcs[func_id];
+    let lfunc = &mut self.cx.ir_mut().funcs[func_id];
     let slot_id = lfunc.frame_info.alloc(slot);
     self.set(alloc_id, BOperand::Slot(slot_id));
     BOperand::Slot(slot_id)
@@ -257,8 +257,8 @@ impl Lowering {
 
   #[inline(always)]
   fn alloc_and_map_block(&mut self, bb_id: Operand, lbb: BBasicBlock) -> BOperand {
-    let func_id = self.builder.current_function.unwrap();
-    let lbb_id = self.lower_ir.funcs[func_id].cfg.alloc(lbb);
+    let func_id = self.cx.builder.current_function.unwrap();
+    let lbb_id = self.cx.ir_mut().funcs[func_id].cfg.alloc(lbb);
     self.set(bb_id, BOperand::BB(lbb_id));
     BOperand::BB(lbb_id)
   }
@@ -291,20 +291,20 @@ impl Lowering {
   fn create(&mut self, lop: BOp) -> BOperand {
     self
       .builder
-      .create(&mut self.lower_ir, self.builder.current_function, lop)
+      .create(&mut self.cx.ir_mut(), self.cx.builder.current_function, lop)
   }
 
   #[inline(always)]
   fn alloc_slot(&mut self, slot: Slot) -> BOperand {
-    let func_id = self.builder.current_function.unwrap();
-    let slot_id = self.lower_ir.funcs[func_id].frame_info.alloc(slot);
+    let func_id = self.cx.builder.current_function.unwrap();
+    let slot_id = self.cx.ir_mut().funcs[func_id].frame_info.alloc(slot);
     BOperand::Slot(slot_id)
   }
 
   #[inline(always)]
   fn alloc_vreg(&mut self, vreg: VirtReg) -> BOperand {
-    let func_id = self.builder.current_function.unwrap();
-    let vreg_id = self.lower_ir.funcs[func_id].vregs.alloc(vreg);
+    let func_id = self.cx.builder.current_function.unwrap();
+    let vreg_id = self.cx.ir_mut().funcs[func_id].vregs.alloc(vreg);
     BOperand::Reg(Reg::Virt(vreg_id))
   }
 
@@ -743,7 +743,7 @@ impl Lowering {
           _ => unreachable!("Only function type should be in the function arena"),
         };
 
-        self.builder.set_current_block(lentry);
+        self.cx.builder.set_current_block(lentry);
         let mut params_reg =
           Self::get_param_regs(&param_types[..param_types.len().min(PARAM_REG_MAX_NUM as usize)]);
 
@@ -777,7 +777,7 @@ impl Lowering {
 
       // The first iteration: Create Lower IR instructions
       let lbb_id = self.get(Operand::BB(bb_id));
-      self.builder.set_current_block(lbb_id);
+      self.cx.builder.set_current_block(lbb_id);
       let bb = &self.ir.funcs[func_id].cfg[bb_id];
       let cur = bb.cur.clone();
 
@@ -802,11 +802,11 @@ impl Lowering {
     let mut new = vec![];
     // out-degree of src in each move.
     let mut out_degree: FxHashMap<BOperand, usize> = FxHashMap::default();
-    let func_id = self.builder.current_function.unwrap();
+    let func_id = self.cx.builder.current_function.unwrap();
 
     // Compute out-degree of each move.
     for move_lop_id in move_lop_ids.iter() {
-      let move_bop = &self.lower_ir.funcs[func_id].dfg[*move_lop_id];
+      let move_bop = &self.cx.ir_mut().funcs[func_id].dfg[*move_lop_id];
 
       let move_lop_data: LOpData = move_bop.data.clone().into();
       match move_lop_data {
@@ -822,7 +822,7 @@ impl Lowering {
     loop {
       changed = false;
       move_lop_ids.retain(|move_lop_id| {
-        let move_bop = &self.lower_ir.funcs[func_id].dfg[*move_lop_id];
+        let move_bop = &self.cx.ir_mut().funcs[func_id].dfg[*move_lop_id];
 
         let move_lop_data: LOpData = move_bop.data.clone().into();
         // Schedule those moves whose rd's out-degree is 0.
@@ -832,7 +832,7 @@ impl Lowering {
             if (out_degree.contains_key(&rd) && out_degree[&rd] == 0)
               || !out_degree.contains_key(&rd)
             {
-              new.push((*move_lop_id, self.builder.current_block.unwrap()));
+              new.push((*move_lop_id, self.cx.builder.current_block.unwrap()));
               // Decrease the out-degree of the src of this move.
               *out_degree.get_mut(&src).unwrap() -= 1;
               changed = true;
@@ -852,7 +852,7 @@ impl Lowering {
         // Choose the last edge in the cycle to break.
         let move_lop_id = *move_lop_ids.last().unwrap();
         let move_bop =
-          &self.lower_ir.funcs[self.builder.current_function.unwrap()].dfg[move_lop_id];
+          &self.cx.ir_mut().funcs[self.cx.builder.current_function.unwrap()].dfg[move_lop_id];
         let (move_lop_data, typ): (LOpData, BType) =
           (move_bop.data.clone().into(), move_bop.typ.clone());
 
@@ -878,7 +878,7 @@ impl Lowering {
 
             // But we will shcedule it directly rather than putting it back to move_lop_ids,
             // since we want to break the cycle as soon as possible.
-            new.push((src_temp_id, self.builder.current_block.unwrap()));
+            new.push((src_temp_id, self.cx.builder.current_block.unwrap()));
           }
           _ => unreachable!("Expected Move, got {:?}", move_lop_data),
         }
@@ -895,11 +895,11 @@ impl Lowering {
     let (from, to) = (self.get(edge.0), self.get(edge.1));
     let tramp_id = self
       .builder
-      .create_new_block(&mut self.lower_ir, self.builder.current_function);
+      .create_new_block(&mut self.cx.ir_mut(), self.cx.builder.current_function);
 
-    let from_bb = &mut self.lower_ir.funcs[self.builder.current_function.unwrap()].cfg[from];
+    let from_bb = &mut self.cx.ir_mut().funcs[self.cx.builder.current_function.unwrap()].cfg[from];
     let from_term_id = *from_bb.cur.last().unwrap();
-    let from_term = &self.lower_ir.funcs[self.builder.current_function.unwrap()].dfg[from_term_id];
+    let from_term = &self.cx.ir_mut().funcs[self.cx.builder.current_function.unwrap()].dfg[from_term_id];
 
     let from_term_data = match from_term.data.clone() {
       BOpData::L(l_op) => l_op,
@@ -959,9 +959,9 @@ impl Lowering {
       ),
     };
 
-    let current_function = self.builder.current_function;
-    self.lower_ir.replace_op_rauw(
-      &mut self.builder,
+    let current_function = self.cx.builder.current_function;
+    self.cx.ir_mut().replace_op_rauw(
+      &mut self.cx.builder,
       current_function,
       from_term_id,
       from,
@@ -970,7 +970,7 @@ impl Lowering {
 
     // Insert terminator and the moves for phi elimination.
     {
-      let mut guard = BBuilderGuard::new(&mut self.builder);
+      let mut guard = BBuilderGuard::new(&mut self.cx.builder);
       guard.set_current_block(tramp_id);
 
       // Move the moves to the trampoline block's end.
@@ -985,7 +985,7 @@ impl Lowering {
         vec![],
         LOpData::Jump { target_bb: to }.into(),
       );
-      guard.create(&mut self.lower_ir, current_function, jump_lop);
+      guard.create(&mut self.cx.ir_mut(), current_function, jump_lop);
     }
   }
 
@@ -1172,13 +1172,13 @@ impl Lowering {
             // Set current block
             let lfunc_id = self.get(func_id);
             let lbb_id = self.get(bb_id);
-            self.builder.set_current_block(lbb_id);
+            self.cx.builder.set_current_block(lbb_id);
 
             let lterm_id = {
-              let bb = &self.lower_ir.funcs[lfunc_id].cfg[lbb_id];
+              let bb = &self.cx.ir_mut().funcs[lfunc_id].cfg[lbb_id];
               *bb.cur.last().unwrap()
             };
-            self.builder.set_current_inst(lterm_id);
+            self.cx.builder.set_current_inst(lterm_id);
 
             let incoming_vreg_id = self.get(value);
 
@@ -1212,14 +1212,14 @@ impl Lowering {
         let lfunc_id = self.get(func_id);
         let bb_id = edge.0;
         let lbb_id = self.get(bb_id);
-        self.builder.set_current_block(lbb_id);
+        self.cx.builder.set_current_block(lbb_id);
 
         // Set current inst
         let lterm_id = {
-          let bb = &self.lower_ir.funcs[lfunc_id].cfg[lbb_id];
+          let bb = &self.cx.ir_mut().funcs[lfunc_id].cfg[lbb_id];
           *bb.cur.last().unwrap()
         };
-        self.builder.set_current_inst(lterm_id);
+        self.cx.builder.set_current_inst(lterm_id);
 
         let move_lop_ids = phi_moves[&edge].clone();
         let resorted_moves = self.schedule_moves(move_lop_ids);
@@ -1227,6 +1227,6 @@ impl Lowering {
       }
     }
 
-    std::mem::take(&mut self.lower_ir)
+    std::mem::take(&mut self.cx.ir_mut())
   }
 }

@@ -76,10 +76,7 @@ fn type_alignment(typ: &Type) -> u32 {
     Type::Void => 1,
     Type::Bool | Type::Char => 1,
     Type::Int | Type::Float => 4,
-    Type::Pointer { .. } => Type::Pointer {
-      base: Box::new(Type::Int),
-    }
-    .size(),
+    Type::Pointer { .. } => Type::Int.with_ptr().size(),
     Type::Array { base, .. } => type_alignment(base),
     Type::Function { .. } => 1,
   }
@@ -94,7 +91,7 @@ impl Dump for Type {
         Type::Float => write!(s, "float")?,
         Type::Bool => write!(s, "i1")?,
         Type::Void => write!(s, "void")?,
-        Type::Pointer { base } => write!(s, "{}*", dump_type(base)?)?,
+        Type::Pointer { .. } => write!(s, "{}*", dump_type(&typ.unwrap_ptr())?)?,
         Type::Array { dims, base } => {
           let mut current = dump_type(base)?;
           for dim in dims.iter().rev() {
@@ -137,9 +134,7 @@ impl Dump for Op {
       OpData::GEP { base, indices } => {
         let ptr_ty = match base {
           Operand::Value(id) => {
-            let mut t = Type::Pointer {
-              base: Box::new(Type::Int),
-            };
+            let mut t = Type::Int.with_ptr();
             if let Some(f) = ctx.function {
               t = f.dfg[*id].typ.clone();
             }
@@ -151,20 +146,12 @@ impl Dump for Op {
           | Operand::Int(_)
           | Operand::Float(_)
           | Operand::Bool(_)
-          | Operand::Undefined => Type::Pointer {
-            base: Box::new(Type::Int),
-          },
-          Operand::Param(idx) => param_operand_type(
-            *idx,
-            ctx,
-            Type::Pointer {
-              base: Box::new(Type::Int),
-            },
-          ),
+          | Operand::Undefined => Type::Int.with_ptr(),
+          Operand::Param(idx) => param_operand_type(*idx, ctx, Type::Int.with_ptr()),
         };
 
         let gep_base_ty = match &ptr_ty {
-          Type::Pointer { base } => base.as_ref().clone(),
+          Type::Pointer { .. } => ptr_ty.unwrap_ptr(),
           _ => ptr_ty.clone(),
         };
 
@@ -250,9 +237,7 @@ impl Dump for Op {
       OpData::Load { addr } => {
         let ptr_ty = match addr {
           Operand::Value(id) => {
-            let mut t = Type::Pointer {
-              base: Box::new(Type::Int),
-            };
+            let mut t = Type::Int.with_ptr();
             if let Some(f) = ctx.function {
               t = f.dfg[*id].typ.clone();
             }
@@ -264,16 +249,8 @@ impl Dump for Op {
           | Operand::Int(_)
           | Operand::Float(_)
           | Operand::Bool(_)
-          | Operand::Undefined => Type::Pointer {
-            base: Box::new(Type::Int),
-          },
-          Operand::Param(idx) => param_operand_type(
-            *idx,
-            ctx,
-            Type::Pointer {
-              base: Box::new(Type::Int),
-            },
-          ),
+          | Operand::Undefined => Type::Int.with_ptr(),
+          Operand::Param(idx) => param_operand_type(*idx, ctx, Type::Int.with_ptr()),
         };
 
         write!(
@@ -302,9 +279,7 @@ impl Dump for Op {
         };
         let ptr_ty = match addr {
           Operand::Value(id) => {
-            let mut t = Type::Pointer {
-              base: Box::new(Type::Int),
-            };
+            let mut t = Type::Int.with_ptr();
             if let Some(f) = ctx.function {
               t = f.dfg[*id].typ.clone();
             }
@@ -316,16 +291,8 @@ impl Dump for Op {
           | Operand::Int(_)
           | Operand::Float(_)
           | Operand::Bool(_)
-          | Operand::Undefined => Type::Pointer {
-            base: Box::new(Type::Int),
-          },
-          Operand::Param(idx) => param_operand_type(
-            *idx,
-            ctx,
-            Type::Pointer {
-              base: Box::new(Type::Int),
-            },
-          ),
+          | Operand::Undefined => Type::Int.with_ptr(),
+          Operand::Param(idx) => param_operand_type(*idx, ctx, Type::Int.with_ptr()),
         };
 
         write!(
@@ -943,8 +910,8 @@ impl Dump for IR {
           )?;
         } else if let Some(name) = name {
           // Non-array global
-          let pointee_type = if let Type::Pointer { base } = &global_op.typ {
-            base.as_ref().clone()
+          let pointee_type = if let Type::Pointer { .. } = &global_op.typ {
+            global_op.typ.unwrap_ptr()
           } else {
             global_op.typ.clone()
           };

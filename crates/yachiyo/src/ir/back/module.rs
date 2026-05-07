@@ -685,14 +685,14 @@ impl BackIR {
       bb.cur.get(pos + 1).cloned()
     };
 
+    let mut guard = BBuilderGuard::new(builder);
     {
-      let mut guard = BBuilderGuard::new(builder);
       guard.set_current_block(bb_id);
       // We won't bind the new operation with the old vreg. We create a new one directly.
       guard.set_before_inst(self, Some(current_function), next_inst);
       // Remove the old operation.
       self.remove_op(Some(current_function), op_id, Some(bb_id));
-      self.create(&guard, Some(current_function), new_op)
+      guard.create(self, Some(current_function), new_op)
     }
   }
 
@@ -735,12 +735,12 @@ impl BackIR {
       bb.cur.get(pos + 1).cloned()
     };
 
+    let mut guard = BBuilderGuard::new(builder);
     {
-      let mut guard = BBuilderGuard::new(builder);
       guard.set_current_block(bb_id);
       // We won't bind the new operation with the old vreg. We create a new one directly.
       guard.set_before_inst(self, Some(current_function), next_inst);
-      let new_op_id = self.create(&guard, Some(current_function), new_op);
+      let new_op_id = guard.create(self, Some(current_function), new_op);
       // RAUW
       self.replace_all_uses(Some(current_function), op_id, new_op_id);
       // Remove the old operation.
