@@ -7,12 +7,18 @@ use std::collections::VecDeque;
 use std::hash::Hash;
 
 #[derive(Debug)]
-pub struct Worklist<T, S> {
+pub struct Worklist<T, S>
+where
+  Self: WorklistTrait<T>,
+{
   list: VecDeque<T>,
   in_list: S,
 }
 
-impl<T, S: Default> Default for Worklist<T, S> {
+impl<T, S: Default> Default for Worklist<T, S>
+where
+  Self: WorklistTrait<T>,
+{
   fn default() -> Self {
     Self {
       list: VecDeque::new(),
@@ -21,12 +27,57 @@ impl<T, S: Default> Default for Worklist<T, S> {
   }
 }
 
-impl<T, S: Default> Worklist<T, S> {
+impl<T, S: Default> Worklist<T, S>
+where
+  Self: WorklistTrait<T>,
+{
   pub fn new() -> Self {
     Self::default()
   }
+}
+
+impl<T, S> Worklist<T, S>
+where
+  Self: WorklistTrait<T>,
+{
   pub fn get_in_list(&self) -> &S {
     &self.in_list
+  }
+
+  pub fn push_back(&mut self, item: T) {
+    <Self as WorklistTrait<T>>::push_back(self, item);
+  }
+
+  pub fn pop_back(&mut self) -> Option<T> {
+    <Self as WorklistTrait<T>>::pop_back(self)
+  }
+
+  pub fn push_front(&mut self, item: T) {
+    <Self as WorklistTrait<T>>::push_front(self, item);
+  }
+
+  pub fn pop_front(&mut self) -> Option<T> {
+    <Self as WorklistTrait<T>>::pop_front(self)
+  }
+
+  pub fn is_empty(&self) -> bool {
+    <Self as WorklistTrait<T>>::is_empty(self)
+  }
+
+  pub fn len(&self) -> usize {
+    <Self as WorklistTrait<T>>::len(self)
+  }
+
+  pub fn clear(&mut self) {
+    <Self as WorklistTrait<T>>::clear(self);
+  }
+
+  pub fn contains(&self, item: &T) -> bool {
+    <Self as WorklistTrait<T>>::contains(self, item)
+  }
+
+  pub fn remove(&mut self, item: &T) -> bool {
+    <Self as WorklistTrait<T>>::remove(self, item)
   }
 }
 
