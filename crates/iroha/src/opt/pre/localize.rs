@@ -1,4 +1,4 @@
-//! Localize Global Variables.
+//! Localize Global Scalar.
 
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{Attr, Op, OpData, Operand, IR};

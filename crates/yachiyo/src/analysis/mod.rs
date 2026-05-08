@@ -4,8 +4,10 @@
 use crate::debug::info;
 
 mod dom;
+mod call_graph;
 
 pub use dom::*;
+pub use call_graph::*;
 
 pub trait Analysis<'a>: Default {
   type Input;
