@@ -6,7 +6,7 @@ use crate::ir::mid::{
   Builder, BuilderGuard, Function, Op, OpData, OpType, Operand, PhiIncoming, IR,
 };
 use crate::utils::set::BitSet;
-use crate::utils::worklist::{Worklist, WorklistTrait};
+use crate::utils::worklist::Worklist;
 
 use rustc_hash::FxHashMap;
 

@@ -4,7 +4,7 @@ use yachiyo::ir::mid::{OpData, Operand, PhiIncoming};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::r#match::match_src;
 use yachiyo::utils::set::BitSet;
-use yachiyo::utils::worklist::{Worklist, WorklistTrait};
+use yachiyo::utils::worklist::Worklist;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Default)]

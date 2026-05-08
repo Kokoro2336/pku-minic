@@ -6,7 +6,7 @@ use yachiyo::analysis::analyze;
 use yachiyo::ir::mid::{Op, OpData, Operand, SSAUpdater, IR};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::set::BitSet;
-use yachiyo::utils::worklist::{Worklist, WorklistTrait};
+use yachiyo::utils::worklist::Worklist;
 
 use rustc_hash::FxHashMap;
 use std::ops::BitAnd;
