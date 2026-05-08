@@ -77,7 +77,7 @@ impl ISel<'_> {
                             }
 
                             LOpData::DivI { .. }
-                            | LOpData::ModI { .. } => unreachable!("{:?} should have been legalized in canonicalization", lop_data),
+                            | LOpData::ModI { .. } => unreachable!("{:?} should have been legalized in legalization", lop_data),
 
                             LOpData::Xor { .. } => {
                                 // RISC-V doesn't have Xoriw, but we can still use Xori and let the upper bits be folded by the next instruction.
