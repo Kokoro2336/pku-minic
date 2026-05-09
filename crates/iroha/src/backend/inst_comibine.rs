@@ -71,6 +71,11 @@ impl InstCombine<'_> {
             uni_arm: {}
           },
           BOpData::M(mop_data) => match mop_data {
+            MOpData::Li { imm: 0, .. } => {
+              self
+                .cx
+                .replace_all_uses(inst_id, BOperand::Reg(Reg::X(XReg::Zero)));
+            }
             MOpData::Mulw { rs1, rs2, .. } => {
               if rs1.is_zero() || rs2.is_zero() {
                 self

@@ -1,4 +1,4 @@
-//! Loop-closed SSA (LCSSA) transformation.
+//! Loop-closed SSA (LCSSA) Transformation.
 
 use crate::analysis::{DomAnalysis, DomFrontier, DomTree, LoopAnalysis, Loops};
 
