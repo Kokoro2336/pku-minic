@@ -187,10 +187,36 @@ impl StrengthReduct<'_> {
                   attrs,
                   LOpData::SubI { rd, lhs: BOperand::Reg(Reg::X(XReg::Zero)), rhs: lhs }.into()
                 ));
+              } else if let Some(shift) = Self::pow2_shift(imm) {
+                // Create bias
+                let shift_bias_op_id = self.cx.create(BOp::new(
+                  typ.clone(),
+                  attrs.clone(),
+                  LOpData::Sar { rd: BOperand::Undef, lhs, rhs: BOperand::IntImm(31) }.into()
+                ));
+                let shift_bias_vreg_id = *self.cx.get_rd(shift_bias_op_id).unwrap();
+                // And with mask
+                let bias_op_id = self.cx.create(BOp::new(
+                  typ.clone(),
+                  attrs.clone(),
+                  LOpData::And { rd: BOperand::Undef, lhs: shift_bias_vreg_id, rhs: BOperand::IntImm((1 << shift) - 1) }.into()
+                ));
+                let bias_vreg_id = *self.cx.get_rd(bias_op_id).unwrap();
+                // Add bias
+                let add_op_id = self.cx.create(BOp::new(
+                  typ.clone(),
+                  attrs.clone(),
+                  LOpData::AddI { rd: BOperand::Undef, lhs, rhs: bias_vreg_id }.into()
+                ));
+                let add_vreg_id = *self.cx.get_rd(add_op_id).unwrap();
+                // Shift
+                self.cx.replace_op_no_rauw(inst_id, bb_id, BOp::new(
+                  typ,
+                  attrs,
+                  LOpData::Sar { rd, lhs: add_vreg_id, rhs: BOperand::IntImm(shift as i32) }.into()
+                ));
               }
-              // TODO:
-              // - Handle the pow2 case.
-              // - Convert the division to multiplication.
+              // TODO: Convert the division to multiplication.
             },
             LOpData::ModI { rhs, .. } => if let BOperand::IntImm(imm) = rhs {
               if imm == 1 || imm == -1 {
