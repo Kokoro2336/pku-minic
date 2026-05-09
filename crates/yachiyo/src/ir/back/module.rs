@@ -287,7 +287,7 @@ impl BackIR {
                     cfg.add_succ(bb, (target_bb, op));
                 }
             },
-            uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, Call, LoadIntImm, LoadFloatImm, LoadAddress, Ret],
+            uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, Call, LoadIntImm, LoadFloatImm, LoadAddress, Ret],
             uni_arm: {}
         }
       }
@@ -314,7 +314,7 @@ impl BackIR {
                     cfg.add_succ(bb, (offset, op));
                 }
             },
-            uni_ops: [Li, La, Mv, FmvS, Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw, Addiw, Slliw, Srliw, Sraiw, Sllw, Srlw, Sraw, Slt, Slti, Sltu, Sltiu, Xor, Xori, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FcvtWS, FcvtSW, FmvWX, FmvXW, Lw, Sw, Flw, Fsw, Ld, Sd, Fld, Fsd, Call, Ret],
+            uni_ops: [Li, La, Mv, FmvS, Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw, Addiw, Slliw, Srliw, Sraiw, Sllw, Srlw, Sraw, Slt, Slti, Sltu, Sltiu, Xor, Xori, And, Andi, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FcvtWS, FcvtSW, FmvWX, FmvXW, Lw, Sw, Flw, Fsw, Ld, Sd, Fld, Fsd, Call, Ret],
             uni_arm: {}
         }
       }
@@ -351,7 +351,7 @@ impl BackIR {
                     cfg.remove_succ(bb, (target_bb, op));
                 }
             },
-            uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, Call, LoadIntImm, LoadFloatImm, LoadAddress, Ret],
+            uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, Call, LoadIntImm, LoadFloatImm, LoadAddress, Ret],
             uni_arm: {}
         }
       }
@@ -378,7 +378,7 @@ impl BackIR {
                     cfg.remove_succ(bb, (offset, op));
                 }
             },
-            uni_ops: [Li, La, Mv, FmvS, Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw, Addiw, Slliw, Srliw, Sraiw, Sllw, Srlw, Sraw, Slt, Slti, Sltu, Sltiu, Xor, Xori, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FcvtWS, FcvtSW, FmvWX, FmvXW, Lw, Sw, Flw, Fsw, Ld, Sd, Fld, Fsd, Call, Ret],
+            uni_ops: [Li, La, Mv, FmvS, Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw, Addiw, Slliw, Srliw, Sraiw, Sllw, Srlw, Sraw, Slt, Slti, Sltu, Sltiu, Xor, Xori, And, Andi, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FcvtWS, FcvtSW, FmvWX, FmvXW, Lw, Sw, Flw, Fsw, Ld, Sd, Fld, Fsd, Call, Ret],
             uni_arm: {}
         }
       }
@@ -448,7 +448,7 @@ impl BackIR {
     match data {
       BOpData::L(lop_data) => match_rd! {
           target: lop_data,
-          op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, Move, LoadFloatImm, LoadIntImm, LoadAddress],
+          op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, Move, LoadFloatImm, LoadIntImm, LoadAddress],
           rd_arm: LOpData(rd) => {
               match rd {
                   BOperand::Reg(_) => {
@@ -497,7 +497,7 @@ impl BackIR {
               Sllw, Srlw, Sraw,
               Slt, Slti, Sltu, Sltiu,
               Addiw,
-              Xor, Xori,
+              Xor, Xori, And, Andi,
               FaddS, FsubS, FmulS, FdivS,
               FeqS, FltS, FleS,
               FcvtWS, FcvtSW, FmvWX, FmvXW,

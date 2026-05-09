@@ -43,6 +43,11 @@ pub enum LOpData {
     lhs: BOperand,
     rhs: BOperand,
   },
+  And {
+    rd: BOperand,
+    lhs: BOperand,
+    rhs: BOperand,
+  },
 
   // Comparison(S: Signed. And SysY only has signed comparison)
   SNe {
@@ -251,6 +256,7 @@ impl std::fmt::Display for LOpData {
       LOpData::DivI { rd, lhs, rhs } => write!(f, "divI {rd}, {lhs}, {rhs}"),
       LOpData::ModI { rd, lhs, rhs } => write!(f, "modI {rd}, {lhs}, {rhs}"),
       LOpData::Xor { rd, lhs, rhs } => write!(f, "xor {rd}, {lhs}, {rhs}"),
+      LOpData::And { rd, lhs, rhs } => write!(f, "and {rd}, {lhs}, {rhs}"),
       LOpData::SNe { rd, lhs, rhs } => write!(f, "sne {rd}, {lhs}, {rhs}"),
       LOpData::SEq { rd, lhs, rhs } => write!(f, "seq {rd}, {lhs}, {rhs}"),
       LOpData::SGt { rd, lhs, rhs } => write!(f, "sgt {rd}, {lhs}, {rhs}"),

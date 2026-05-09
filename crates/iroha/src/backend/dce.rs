@@ -141,7 +141,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
               bin_ops: [
                   AddI, SubI, MulI, DivI, ModI,
                   SNe, SEq, SGt, SLt, SGe, SLe,
-                  Xor, Shl, Shr, Sar,
+                  Xor, And, Shl, Shr, Sar,
                   AddF, SubF, MulF, DivF,
                   ONe, OEq, OGt, OLt, OGe, OLe
               ],
@@ -182,7 +182,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
               bin_ops: [
                   Add, Sub, Addw, Subw, Mulw, Divw, Remw,
                   Sllw, Srlw, Sraw,
-                  Slt, Sltu, Xor,
+                  Slt, Sltu, Xor, And,
                   FaddS, FsubS, FmulS, FdivS,
                   FeqS, FltS, FleS,
               ],
@@ -202,7 +202,8 @@ impl<'a> BPass<'a> for BDCE<'a> {
                   | MOpData::Slliw { rs1, imm, .. }
                   | MOpData::Srliw { rs1, imm, .. }
                   | MOpData::Sraiw { rs1, imm, .. }
-                  | MOpData::Xori { rs1, imm, .. } => {
+                  | MOpData::Xori { rs1, imm, .. }
+                  | MOpData::Andi { rs1, imm, .. } => {
                       check(self, rs1);
                       check(self, imm);
                   }

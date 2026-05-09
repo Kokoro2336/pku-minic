@@ -405,7 +405,7 @@ impl Arena<BFunction> for BCG {
                         BOpData::L(lop_data) => {
                             match_full_ops! {
                                 target: lop_data,
-                                bin_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, Xor, SNe, SEq, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Shl, Shr, Sar],
+                                bin_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, Xor, And, SNe, SEq, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Shl, Shr, Sar],
                                 bin_arm: LOpData { rd, lhs, rhs } => {
                                     if rd.is_virt() {
                                         remap_with_vregs(rd, &old_arena_vregs);
@@ -476,7 +476,7 @@ impl Arena<BFunction> for BCG {
                         BOpData::M(mop_data) => {
                             match_full_ops! {
                                 target: mop_data,
-                            bin_ops: [Add, Sub, Addw, Subw, Mulw, Divw, Remw, Sllw, Srlw, Sraw, Slt, Sltu, Xor, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS],
+                            bin_ops: [Add, Sub, Addw, Subw, Mulw, Divw, Remw, Sllw, Srlw, Sraw, Slt, Sltu, Xor, And, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS],
                                 bin_arm: MOpData { rd, rs1, rs2 } => {
                                     if rd.is_virt() {
                                         remap_with_vregs(rd, &old_arena_vregs);
@@ -516,7 +516,8 @@ impl Arena<BFunction> for BCG {
                                     | MOpData::Sraiw { rd, rs1, .. }
                                     | MOpData::Slti { rd, rs1, .. }
                                     | MOpData::Sltiu { rd, rs1, .. }
-                                    | MOpData::Xori { rd, rs1, .. } => {
+                                    | MOpData::Xori { rd, rs1, .. }
+                                    | MOpData::Andi { rd, rs1, .. } => {
                                         if rd.is_virt() {
                                             remap_with_vregs(rd, &old_arena_vregs);
                                         }

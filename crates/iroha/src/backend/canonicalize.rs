@@ -41,6 +41,7 @@ impl Canonicalize<'_> {
         LOpData::SGe { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm((l >= r) as i32)),
         LOpData::SLe { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm((l <= r) as i32)),
         LOpData::Xor { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm(l ^ r)),
+        LOpData::And { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm(l & r)),
         LOpData::Shl { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm(l << r)),
         LOpData::Shr { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm(l >> r)),
         LOpData::Sar { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm(((l as i64) >> r) as i32)),
@@ -56,7 +57,7 @@ impl Canonicalize<'_> {
         LOpData::OLe { lhs: BOperand::FloatImm(l), rhs: BOperand::FloatImm(r), .. } => Some(BOperand::IntImm((f32::from_bits(l) <= f32::from_bits(r)) as i32)),
         LOpData::Ret => None,
       },
-      uni_ops: [AddI, SubI, MulI, DivI, ModI, Xor, SNe, SEq, SGt, SLt, SGe, SLe, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, LoadIntImm, LoadFloatImm, LoadAddress, Call, Br, Jump],
+      uni_ops: [AddI, SubI, MulI, DivI, ModI, Xor, And, SNe, SEq, SGt, SLt, SGe, SLe, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, LoadIntImm, LoadFloatImm, LoadAddress, Call, Br, Jump],
       uni_arm: { None }
     }
   }
@@ -75,6 +76,7 @@ impl Canonicalize<'_> {
         LOpData::OEq { rd, lhs, rhs } if Self::should_swap(lhs, rhs) => Some(LOpData::OEq { rd, lhs: rhs, rhs: lhs }),
         LOpData::ONe { rd, lhs, rhs } if Self::should_swap(lhs, rhs) => Some(LOpData::ONe { rd, lhs: rhs, rhs: lhs }),
         LOpData::Xor { rd, lhs, rhs } if Self::should_swap(lhs, rhs) => Some(LOpData::Xor { rd, lhs: rhs, rhs: lhs }),
+        LOpData::And { rd, lhs, rhs } if Self::should_swap(lhs, rhs) => Some(LOpData::And { rd, lhs: rhs, rhs: lhs }),
         LOpData::SGt { rd, lhs, rhs } if Self::should_swap(lhs, rhs) => Some(LOpData::SLt { rd, lhs: rhs, rhs: lhs }),
         LOpData::SGe { rd, lhs, rhs } if Self::should_swap(lhs, rhs) => Some(LOpData::SLe { rd, lhs: rhs, rhs: lhs }),
         LOpData::SLt { rd, lhs, rhs } if Self::should_swap(lhs, rhs) => Some(LOpData::SGt { rd, lhs: rhs, rhs: lhs }),
@@ -84,7 +86,7 @@ impl Canonicalize<'_> {
         LOpData::OLt { rd, lhs, rhs } if Self::should_swap(lhs, rhs) => Some(LOpData::OGt { rd, lhs: rhs, rhs: lhs }),
         LOpData::OLe { rd, lhs, rhs } if Self::should_swap(lhs, rhs) => Some(LOpData::OGe { rd, lhs: rhs, rhs: lhs }),
       },
-      uni_ops: [AddI, SubI, MulI, DivI, ModI, Xor, SNe, SEq, SGt, SLt, SGe, SLe, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, LoadIntImm, LoadFloatImm, LoadAddress, Call, Br, Jump, Ret],
+      uni_ops: [AddI, SubI, MulI, DivI, ModI, Xor, And, SNe, SEq, SGt, SLt, SGe, SLe, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, LoadIntImm, LoadFloatImm, LoadAddress, Call, Br, Jump, Ret],
       uni_arm: { None }
     }
   }
@@ -113,7 +115,7 @@ impl Canonicalize<'_> {
         if let Some(new_lop_data) = Self::canonicalize(lop_data, &attrs) {
           self
             .cx
-            .replace_op_rauw(inst_id, bb_id, BOp::new(typ, attrs, new_lop_data.into()));
+            .replace_op_no_rauw(inst_id, bb_id, BOp::new(typ, attrs, new_lop_data.into()));
         }
       }
     }

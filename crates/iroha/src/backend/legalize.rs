@@ -3,7 +3,7 @@
 
 use yachiyo::base::Type;
 use yachiyo::config::{INT_IMM_MAX, INT_IMM_MIN};
-use yachiyo::ir::back::{BAttr, BOp, BOperand, BType, BackIR, LOpData, Reg};
+use yachiyo::ir::back::{BAttr, BOp, BOperand, BType, BackIR, LOpData};
 use yachiyo::pass::{BPass, BPassContext};
 use yachiyo::utils::r#match::{match_some, match_src};
 
@@ -144,7 +144,7 @@ impl Legalize<'_> {
 
         match_src! {
           target: lop_data,
-          bin_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, AddF, SubF, MulF, DivF, Xor, Shl, Sar, Shr],
+          bin_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, AddF, SubF, MulF, DivF, Xor, And, Shl, Sar, Shr],
           bin_arm: LOpData { lhs, rhs } => {
             match (lhs.is_literal(), rhs.is_literal()) {
               // Canonicalize should fold two-literal binary operations first.
@@ -218,10 +218,12 @@ impl Legalize<'_> {
                     LOpData::OLe { rd, lhs: self.legalize(imm, LegalizeOption::ForceImmLoad), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::Xor { rd, lhs: imm, rhs } =>
                     LOpData::Xor { rd, lhs: self.legalize(imm, LegalizeOption::ForceImmLoad), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::And { rd, lhs: imm, rhs } =>
+                    LOpData::And { rd, lhs: self.legalize(imm, LegalizeOption::ForceImmLoad), rhs: self.legalize(rhs, LegalizeOption::Default) },
 
                   _ => unreachable!("Unexpected op: {:?}", lop_data),
                 };
-                self.replace_op(inst_id, current_block, BOp::new(
+                self.cx.replace_op_no_rauw(inst_id, current_block, BOp::new(
                   typ,
                   attrs,
                   new_lop_data.into(),
@@ -270,6 +272,8 @@ impl Legalize<'_> {
                     LOpData::ONe { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
                   LOpData::Xor { rd, lhs, rhs: imm } =>
                     LOpData::Xor { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
+                  LOpData::And { rd, lhs, rhs: imm } =>
+                    LOpData::And { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
                   LOpData::SubF { rd, lhs, rhs: imm } =>
                     LOpData::SubF { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(imm, LegalizeOption::Default) },
                   LOpData::Shl { rd, lhs, rhs: imm } =>
@@ -293,7 +297,7 @@ impl Legalize<'_> {
 
                   _ => unreachable!("Unexpected op with literal on the right: {:?}", lop_data),
                 };
-                self.replace_op(inst_id, current_block, BOp::new(
+                self.cx.replace_op_no_rauw(inst_id, current_block, BOp::new(
                   typ,
                   attrs,
                   new_lop_data.into(),
@@ -336,13 +340,14 @@ impl Legalize<'_> {
                   LOpData::OEq { rd, .. } => LOpData::OEq { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::ONe { rd, .. } => LOpData::ONe { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::Xor { rd, .. } => LOpData::Xor { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
+                  LOpData::And { rd, .. } => LOpData::And { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::Shl { rd, .. } => LOpData::Shl { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::Shr { rd, .. } => LOpData::Shr { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
                   LOpData::Sar { rd, .. } => LOpData::Sar { rd, lhs: self.legalize(lhs, LegalizeOption::Default), rhs: self.legalize(rhs, LegalizeOption::Default) },
 
                   _ => unreachable!("Unexpected op with no literal operand: {:?}", lop_data),
                 };
-                self.replace_op(inst_id, current_block, BOp::new(
+                self.cx.replace_op_no_rauw(inst_id, current_block, BOp::new(
                   typ,
                   attrs,
                   new_lop_data.into(),
@@ -360,7 +365,7 @@ impl Legalize<'_> {
                 LOpData::Fptosi { rd, value: self.legalize(value, LegalizeOption::ForceImmLoad) },
               _ => unreachable!("Unexpected unary op: {:?}", lop_data),
             };
-            self.replace_op(inst_id, current_block, BOp::new(
+            self.cx.replace_op_no_rauw(inst_id, current_block, BOp::new(
               typ,
               attrs,
               new_lop_data.into(),
@@ -370,7 +375,7 @@ impl Legalize<'_> {
             LOpData::Store { addr, value, val_typ } => {
               // Mem operand should not be
               let new_lop_data = LOpData::Store { addr: self.legalize(addr, LegalizeOption::NoLoad), value: self.legalize(value, LegalizeOption::ForceImmLoad), val_typ };
-              self.replace_op(inst_id, current_block, BOp::new(
+              self.cx.replace_op_no_rauw(inst_id, current_block, BOp::new(
                 typ,
                 attrs,
                 new_lop_data.into(),
@@ -379,7 +384,7 @@ impl Legalize<'_> {
             LOpData::Load { addr, rd } => {
               // Mem operand should not be legalized to Load again, otherwise it will cause infinite loop.
               let new_lop_data = LOpData::Load { addr: self.legalize(addr, LegalizeOption::NoLoad), rd };
-              self.replace_op(inst_id, current_block, BOp::new(
+              self.cx.replace_op_no_rauw(inst_id, current_block, BOp::new(
                 typ,
                 attrs,
                 new_lop_data.into(),
@@ -388,26 +393,11 @@ impl Legalize<'_> {
             LOpData::Move { rd, src } => {
               // Move should not have literal operand, but we still legalize it just in case.
               let new_lop_data = LOpData::Move { rd, src: self.legalize(src, LegalizeOption::ForceImmLoad) };
-              if let BOperand::Reg(Reg::X(_)) | BOperand::Reg(Reg::F(_)) = rd {
-                self.replace_op(inst_id, current_block, BOp::new(
-                  typ,
-                  attrs,
-                  new_lop_data.into(),
-                ));
-              } else if attrs.contains(&BAttr::PhiMove) {
-                // For phi move, we also don't want to RAUW because it might cause issues with phi move elimination later.
-                self.replace_op(inst_id, current_block, BOp::new(
-                  typ,
-                  attrs,
-                  new_lop_data.into(),
-                ));
-              } else {
-                self.replace_op(inst_id, current_block, BOp::new(
-                  typ,
-                  attrs,
-                  new_lop_data.into(),
-                ));
-              }
+              self.cx.replace_op_no_rauw(inst_id, current_block, BOp::new(
+                typ,
+                attrs,
+                new_lop_data.into(),
+              ));
             }
             LOpData::Br { cond, then_bb, else_bb } => {
               let new_lop_data = LOpData::Br {
@@ -415,7 +405,7 @@ impl Legalize<'_> {
                 then_bb,
                 else_bb,
               };
-              self.replace_op(inst_id, current_block, BOp::new(
+              self.cx.replace_op_no_rauw(inst_id, current_block, BOp::new(
                 typ,
                 attrs,
                 new_lop_data.into(),

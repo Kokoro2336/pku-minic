@@ -4,6 +4,7 @@
 use crate::debug::info;
 use crate::ir::back::BOperand;
 use crate::utils::arena::*;
+use crate::utils::set::BitSet;
 
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 
@@ -40,6 +41,29 @@ pub struct BBasicBlock {
 }
 
 impl BCFG {
+  fn dpo_rec(&self, order: &mut Vec<usize>, visited: &mut BitSet, bb_id: BOperand) {
+    if visited.contains(bb_id.get_bb_id()) {
+      return;
+    }
+    visited.insert(bb_id.get_bb_id());
+
+    let bb = &self[bb_id];
+    for (succ, _) in &bb.succs {
+      self.dpo_rec(order, visited, *succ);
+    }
+
+    // Post-order traversal.
+    order.push(bb_id.get_bb_id());
+  }
+
+  pub fn dpo(&self) -> Vec<usize> {
+    let mut order = vec![];
+    let mut visited = BitSet::new();
+    let entry = BOperand::BB(self.entry.unwrap());
+    self.dpo_rec(&mut order, &mut visited, entry);
+    order
+  }
+
   pub fn add_succ(&mut self, bb_idx: BOperand, succ_idx: (BOperand, BOperand)) {
     self[bb_idx.get_bb_id()].succs.push(succ_idx);
   }
