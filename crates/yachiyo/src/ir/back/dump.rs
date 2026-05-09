@@ -377,6 +377,18 @@ impl AsmFormatCtx<'_> {
           self.format_operand(rs1),
           self.format_operand(imm)
         ),
+        MOpData::And { rd, rs1, rs2 } => format!(
+          "and {}, {}, {}",
+          self.format_operand(rd),
+          self.format_operand(rs1),
+          self.format_operand(rs2)
+        ),
+        MOpData::Andi { rd, rs1, imm } => format!(
+          "andi {}, {}, {}",
+          self.format_operand(rd),
+          self.format_operand(rs1),
+          self.format_operand(imm)
+        ),
         MOpData::FaddS { rd, rs1, rs2 } => format!(
           "fadd.s {}, {}, {}",
           self.format_operand(rd),

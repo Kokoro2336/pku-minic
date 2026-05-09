@@ -41,7 +41,7 @@ impl ISel<'_> {
     // For non-phi instructions, we still try to keep SSA form.
     match_full_ops! {
         target: &lop_data,
-        bin_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe],
+        bin_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe],
         bin_arm: LOpData { lhs, rhs, rd } => {
             match (lhs.is_literal(), rhs.is_literal()) {
                 // We've canonicalized our operations.
@@ -77,7 +77,7 @@ impl ISel<'_> {
                             }
 
                             LOpData::DivI { .. }
-                            | LOpData::ModI { .. } => unreachable!("{:?} should have been legalized in canonicalization", lop_data),
+                            | LOpData::ModI { .. } => unreachable!("{:?} should have been legalized in legalization", lop_data),
 
                             LOpData::Xor { .. } => {
                                 // RISC-V doesn't have Xoriw, but we can still use Xori and let the upper bits be folded by the next instruction.
@@ -92,6 +92,21 @@ impl ISel<'_> {
                                 // Extend the higher bits via Addiw.
                                 // We don't need to fetch the vreg, since we reuse rd.
                                 MOpData::Addw { rd: BOperand::Undef, rs1: xori_vreg_id, rs2: BOperand::Reg(Reg::X(XReg::Zero)) }
+                            },
+                            LOpData::And { .. } => {
+                                if typ == BType::I32 {
+                                    let andi_mop_id = self.cx.create(
+                                        BOp::new(
+                                            typ.clone(),
+                                            vec![],
+                                            MOpData::Andi { rd: BOperand::Undef, rs1, imm }.into(),
+                                        )
+                                    );
+                                    let andi_vreg_id = self.cx.get_vreg_id(andi_mop_id);
+                                    MOpData::Addw { rd: BOperand::Undef, rs1: andi_vreg_id, rs2: BOperand::Reg(Reg::X(XReg::Zero)) }
+                                } else {
+                                    MOpData::Andi { rd: BOperand::Undef, rs1, imm }
+                                }
                             },
 
                             LOpData::SNe { .. } => {
@@ -310,6 +325,21 @@ impl ISel<'_> {
                                 // Truncate the higher bits. Xor in SysY is only 32-bits.
                                 MOpData::Addw { rd: BOperand::Undef, rs1: xor_vreg_id, rs2: BOperand::Reg(Reg::X(XReg::Zero)) }
                             }
+                            LOpData::And { .. } => {
+                                if typ == BType::I32 {
+                                    let and_mop_id = self.cx.create(
+                                        BOp::new(
+                                            typ.clone(),
+                                            vec![],
+                                            MOpData::And { rd: BOperand::Undef, rs1, rs2 }.into(),
+                                        )
+                                    );
+                                    let and_vreg_id = self.cx.get_vreg_id(and_mop_id);
+                                    MOpData::Addw { rd: BOperand::Undef, rs1: and_vreg_id, rs2: BOperand::Reg(Reg::X(XReg::Zero)) }
+                                } else {
+                                    MOpData::And { rd: BOperand::Undef, rs1, rs2 }
+                                }
+                            }
 
                             // For relational ops with Float, we use the pseudo ops.
                             LOpData::ONe { .. } => {
@@ -373,7 +403,7 @@ impl ISel<'_> {
                     LOpData::Sitofp { .. } => MOpData::FcvtSW { rd: BOperand::Undef, rs: *value },
                     LOpData::Fptosi { .. } => MOpData::FcvtWS { rd: BOperand::Undef, rs: *value },
                 },
-                uni_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, Ret, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, LoadAddress],
+                uni_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, Ret, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, LoadAddress],
                 uni_arm: {
                     unreachable!("{:?} should have been legalized in legalization", lop_data)
                 }

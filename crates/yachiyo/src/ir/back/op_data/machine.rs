@@ -128,6 +128,17 @@ pub enum MOpData {
     imm: BOperand,
   },
 
+  And {
+    rd: BOperand,
+    rs1: BOperand,
+    rs2: BOperand,
+  },
+  Andi {
+    rd: BOperand,
+    rs1: BOperand,
+    imm: BOperand,
+  },
+
   // Floating-Point Arithmetic (F-Extension)
   FaddS {
     rd: BOperand,

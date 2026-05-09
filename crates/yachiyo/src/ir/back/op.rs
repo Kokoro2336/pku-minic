@@ -288,7 +288,7 @@ impl BDFG {
     match &bop.data {
       BOpData::L(lop_data) => match_rd! {
           target: lop_data,
-          op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, LoadAddress, Move],
+          op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, LoadAddress, Move],
           rd_arm: LOpData(rd) => {
               Some((rd, 0))
           },
@@ -310,7 +310,7 @@ impl BDFG {
               Sllw, Srlw, Sraw,
               Slt, Slti, Sltu, Sltiu,
               Addiw,
-              Xor, Xori,
+              Xor, Xori, And, Andi,
               FaddS, FsubS, FmulS, FdivS,
               FeqS, FltS, FleS,
               FcvtWS, FcvtSW, FmvWX, FmvXW,
@@ -350,7 +350,7 @@ impl BDFG {
     match &mut bop.data {
       BOpData::L(lop_data) => match_rd! {
           target: lop_data,
-          op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, LoadAddress, Move],
+          op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, LoadAddress, Move],
           rd_arm: LOpData(rd) => {
               Some((rd, 0))
           },
@@ -372,7 +372,7 @@ impl BDFG {
               Sllw, Srlw, Sraw,
               Slt, Slti, Sltu, Sltiu,
               Addiw,
-              Xor, Xori,
+              Xor, Xori, And, Andi,
               FaddS, FsubS, FmulS, FdivS,
               FeqS, FltS, FleS,
               FcvtWS, FcvtSW, FmvWX, FmvXW,
@@ -415,7 +415,7 @@ impl BDFG {
           bin_ops: [
               AddI, SubI, MulI, DivI, ModI,
               SNe, SEq, SGt, SLt, SGe, SLe,
-              Xor, Shl, Shr, Sar,
+              Xor, And, Shl, Shr, Sar,
               AddF, SubF, MulF, DivF,
               ONe, OEq, OGt, OLt, OGe, OLe
           ],
@@ -444,7 +444,7 @@ impl BDFG {
           bin_ops: [
               Add, Sub, Addw, Subw, Mulw, Divw, Remw,
               Sllw, Srlw, Sraw,
-              Slt, Sltu, Xor,
+              Slt, Sltu, Xor, And,
               FaddS, FsubS, FmulS, FdivS,
               FeqS, FltS, FleS,
           ],
@@ -463,7 +463,8 @@ impl BDFG {
               | MOpData::Slliw { rs1, imm, .. }
               | MOpData::Srliw { rs1, imm, .. }
               | MOpData::Sraiw { rs1, imm, .. }
-              | MOpData::Xori { rs1, imm, .. } => vec![(rs1, 1), (imm, 2)],
+              | MOpData::Xori { rs1, imm, .. }
+              | MOpData::Andi { rs1, imm, .. } => vec![(rs1, 1), (imm, 2)],
 
               MOpData::Lw { base, offset, .. }
               | MOpData::Flw { base, offset, .. }
@@ -511,7 +512,7 @@ impl BDFG {
           bin_ops: [
               AddI, SubI, MulI, DivI, ModI,
               SNe, SEq, SGt, SLt, SGe, SLe,
-              Xor, Shl, Shr, Sar,
+              Xor, And, Shl, Shr, Sar,
               AddF, SubF, MulF, DivF,
               ONe, OEq, OGt, OLt, OGe, OLe
           ],
@@ -541,7 +542,7 @@ impl BDFG {
           bin_ops: [
               Add, Sub, Addw, Subw, Mulw, Divw, Remw,
               Sllw, Srlw, Sraw,
-              Slt, Sltu, Xor,
+              Slt, Sltu, Xor, And,
               FaddS, FsubS, FmulS, FdivS,
               FeqS, FltS, FleS,
           ],
@@ -560,7 +561,8 @@ impl BDFG {
               | MOpData::Slliw { rs1, imm, .. }
               | MOpData::Srliw { rs1, imm, .. }
               | MOpData::Sraiw { rs1, imm, .. }
-              | MOpData::Xori { rs1, imm, .. } => vec![(rs1, 1), (imm, 2)],
+              | MOpData::Xori { rs1, imm, .. }
+              | MOpData::Andi { rs1, imm, .. } => vec![(rs1, 1), (imm, 2)],
 
               MOpData::Lw { base, offset, .. }
               | MOpData::Flw { base, offset, .. }
