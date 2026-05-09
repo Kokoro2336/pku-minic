@@ -92,11 +92,11 @@ impl StrengthReduct<'_> {
           target: lop_data,
           enu: LOpData,
           minor_arms: {
-            LOpData::MulI { rd, lhs, rhs } => if let BOperand::IntImm(imm) = rhs {
+            LOpData::MulI { rd, lhs, rhs } => if rhs.is_zero() {
+              self.cx.replace_all_uses(inst_id, BOperand::Reg(Reg::X(XReg::Zero)));
+            } else if let BOperand::IntImm(imm) = rhs {
               let bb_id = self.cx.op_bb(inst_id);
-              if imm == 0 {
-                self.cx.replace_all_uses(inst_id, BOperand::Reg(Reg::X(XReg::Zero)));
-              } else if imm == 1 {
+              if imm == 1 {
                 self.cx.replace_all_uses(inst_id, lhs);
               } else if imm == -1 {
                 self.cx.replace_op_no_rauw(inst_id, bb_id, BOp::new(
@@ -232,15 +232,15 @@ impl StrengthReduct<'_> {
               // }
             },
             LOpData::AddI { lhs, rhs, .. }
-            | LOpData::SubI { lhs, rhs, .. } => if let BOperand::IntImm(imm) = rhs {
-              if imm == 0 {
+            | LOpData::SubI { lhs, rhs, .. } => {
+              if rhs.is_zero() {
                 self.cx.replace_all_uses(inst_id, lhs);
               }
             }
             LOpData::Shl { lhs, rhs, .. }
             | LOpData::Shr { lhs, rhs, .. }
-            | LOpData::Sar { lhs, rhs, .. } => if let BOperand::IntImm(imm) = rhs {
-              if imm == 0 {
+            | LOpData::Sar { lhs, rhs, .. } => {
+              if rhs.is_zero() {
                 self.cx.replace_all_uses(inst_id, lhs);
               }
             }

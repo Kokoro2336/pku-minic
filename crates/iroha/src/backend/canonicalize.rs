@@ -21,7 +21,72 @@ impl Canonicalize<'_> {
 
   #[inline(always)]
   fn should_swap(lhs: BOperand, rhs: BOperand) -> bool {
-    lhs.is_literal() && !rhs.is_literal()
+    (lhs.is_literal() || lhs.is_zero()) && !(rhs.is_literal() || rhs.is_zero())
+  }
+
+  #[inline(always)]
+  fn int_const(operand: BOperand) -> Option<i32> {
+    match operand {
+      BOperand::IntImm(value) => Some(value),
+      BOperand::Reg(_) if operand.is_zero() => Some(0),
+      _ => None,
+    }
+  }
+
+  #[inline(always)]
+  fn float_const(operand: BOperand) -> Option<f32> {
+    match operand {
+      BOperand::FloatImm(value) => Some(f32::from_bits(value)),
+      _ => None,
+    }
+  }
+
+  fn fold_int_bin(
+    lhs: BOperand,
+    rhs: BOperand,
+    fold: impl FnOnce(i32, i32) -> i32,
+  ) -> Option<BOperand> {
+    Some(BOperand::IntImm(fold(Self::int_const(lhs)?, Self::int_const(rhs)?)))
+  }
+
+  fn fold_int_div(
+    lhs: BOperand,
+    rhs: BOperand,
+    fold: impl FnOnce(i32, i32) -> i32,
+  ) -> Option<BOperand> {
+    let rhs = Self::int_const(rhs)?;
+    if rhs == 0 {
+      return None;
+    }
+    Some(BOperand::IntImm(fold(Self::int_const(lhs)?, rhs)))
+  }
+
+  fn fold_int_cmp(
+    lhs: BOperand,
+    rhs: BOperand,
+    fold: impl FnOnce(i32, i32) -> bool,
+  ) -> Option<BOperand> {
+    Some(BOperand::IntImm(fold(Self::int_const(lhs)?, Self::int_const(rhs)?) as i32))
+  }
+
+  fn fold_float_bin(
+    lhs: BOperand,
+    rhs: BOperand,
+    fold: impl FnOnce(f32, f32) -> f32,
+  ) -> Option<BOperand> {
+    Some(BOperand::FloatImm(
+      fold(Self::float_const(lhs)?, Self::float_const(rhs)?).to_bits(),
+    ))
+  }
+
+  fn fold_float_cmp(
+    lhs: BOperand,
+    rhs: BOperand,
+    fold: impl FnOnce(f32, f32) -> bool,
+  ) -> Option<BOperand> {
+    Some(BOperand::IntImm(
+      fold(Self::float_const(lhs)?, Self::float_const(rhs)?) as i32,
+    ))
   }
 
   fn fold(lop_data: &LOpData) -> Option<BOperand> {
@@ -29,35 +94,34 @@ impl Canonicalize<'_> {
       target: lop_data.clone(),
       enu: LOpData,
       minor_arms: {
-        LOpData::AddI { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm(l + r)),
-        LOpData::SubI { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm(l - r)),
-        LOpData::MulI { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm(l * r)),
-        LOpData::DivI { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm(l / r)),
-        LOpData::ModI { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm(l % r)),
-        LOpData::SNe { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm((l != r) as i32)),
-        LOpData::SEq { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm((l == r) as i32)),
-        LOpData::SGt { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm((l > r) as i32)),
-        LOpData::SLt { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm((l < r) as i32)),
-        LOpData::SGe { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm((l >= r) as i32)),
-        LOpData::SLe { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm((l <= r) as i32)),
-        LOpData::Xor { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm(l ^ r)),
-        LOpData::And { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm(l & r)),
-        LOpData::Shl { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm(l << r)),
-        LOpData::Shr { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm(l >> r)),
-        LOpData::Sar { lhs: BOperand::IntImm(l), rhs: BOperand::IntImm(r), .. } => Some(BOperand::IntImm(((l as i64) >> r) as i32)),
-        LOpData::AddF { lhs: BOperand::FloatImm(l), rhs: BOperand::FloatImm(r), .. } => Some(BOperand::FloatImm((f32::from_bits(l) + f32::from_bits(r)).to_bits())),
-        LOpData::SubF { lhs: BOperand::FloatImm(l), rhs: BOperand::FloatImm(r), .. } => Some(BOperand::FloatImm((f32::from_bits(l) - f32::from_bits(r)).to_bits())),
-        LOpData::MulF { lhs: BOperand::FloatImm(l), rhs: BOperand::FloatImm(r), .. } => Some(BOperand::FloatImm((f32::from_bits(l) * f32::from_bits(r)).to_bits())),
-        LOpData::DivF { lhs: BOperand::FloatImm(l), rhs: BOperand::FloatImm(r), .. } => Some(BOperand::FloatImm((f32::from_bits(l) / f32::from_bits(r)).to_bits())),
-        LOpData::ONe { lhs: BOperand::FloatImm(l), rhs: BOperand::FloatImm(r), .. } => Some(BOperand::IntImm((f32::from_bits(l) != f32::from_bits(r)) as i32)),
-        LOpData::OEq { lhs: BOperand::FloatImm(l), rhs: BOperand::FloatImm(r), .. } => Some(BOperand::IntImm((f32::from_bits(l) == f32::from_bits(r)) as i32)),
-        LOpData::OGt { lhs: BOperand::FloatImm(l), rhs: BOperand::FloatImm(r), .. } => Some(BOperand::IntImm((f32::from_bits(l) > f32::from_bits(r)) as i32)),
-        LOpData::OLt { lhs: BOperand::FloatImm(l), rhs: BOperand::FloatImm(r), .. } => Some(BOperand::IntImm((f32::from_bits(l) < f32::from_bits(r)) as i32)),
-        LOpData::OGe { lhs: BOperand::FloatImm(l), rhs: BOperand::FloatImm(r), .. } => Some(BOperand::IntImm((f32::from_bits(l) >= f32::from_bits(r)) as i32)),
-        LOpData::OLe { lhs: BOperand::FloatImm(l), rhs: BOperand::FloatImm(r), .. } => Some(BOperand::IntImm((f32::from_bits(l) <= f32::from_bits(r)) as i32)),
-        LOpData::Ret => None,
+        LOpData::AddI { lhs, rhs, .. } => Self::fold_int_bin(lhs, rhs, |l, r| l + r),
+        LOpData::SubI { lhs, rhs, .. } => Self::fold_int_bin(lhs, rhs, |l, r| l - r),
+        LOpData::MulI { lhs, rhs, .. } => Self::fold_int_bin(lhs, rhs, |l, r| l * r),
+        LOpData::DivI { lhs, rhs, .. } => Self::fold_int_div(lhs, rhs, |l, r| l / r),
+        LOpData::ModI { lhs, rhs, .. } => Self::fold_int_div(lhs, rhs, |l, r| l % r),
+        LOpData::SNe { lhs, rhs, .. } => Self::fold_int_cmp(lhs, rhs, |l, r| l != r),
+        LOpData::SEq { lhs, rhs, .. } => Self::fold_int_cmp(lhs, rhs, |l, r| l == r),
+        LOpData::SGt { lhs, rhs, .. } => Self::fold_int_cmp(lhs, rhs, |l, r| l > r),
+        LOpData::SLt { lhs, rhs, .. } => Self::fold_int_cmp(lhs, rhs, |l, r| l < r),
+        LOpData::SGe { lhs, rhs, .. } => Self::fold_int_cmp(lhs, rhs, |l, r| l >= r),
+        LOpData::SLe { lhs, rhs, .. } => Self::fold_int_cmp(lhs, rhs, |l, r| l <= r),
+        LOpData::Xor { lhs, rhs, .. } => Self::fold_int_bin(lhs, rhs, |l, r| l ^ r),
+        LOpData::And { lhs, rhs, .. } => Self::fold_int_bin(lhs, rhs, |l, r| l & r),
+        LOpData::Shl { lhs, rhs, .. } => Self::fold_int_bin(lhs, rhs, |l, r| l << r),
+        LOpData::Shr { lhs, rhs, .. } => Self::fold_int_bin(lhs, rhs, |l, r| l >> r),
+        LOpData::Sar { lhs, rhs, .. } => Self::fold_int_bin(lhs, rhs, |l, r| ((l as i64) >> r) as i32),
+        LOpData::AddF { lhs, rhs, .. } => Self::fold_float_bin(lhs, rhs, |l, r| l + r),
+        LOpData::SubF { lhs, rhs, .. } => Self::fold_float_bin(lhs, rhs, |l, r| l - r),
+        LOpData::MulF { lhs, rhs, .. } => Self::fold_float_bin(lhs, rhs, |l, r| l * r),
+        LOpData::DivF { lhs, rhs, .. } => Self::fold_float_bin(lhs, rhs, |l, r| l / r),
+        LOpData::ONe { lhs, rhs, .. } => Self::fold_float_cmp(lhs, rhs, |l, r| l != r),
+        LOpData::OEq { lhs, rhs, .. } => Self::fold_float_cmp(lhs, rhs, |l, r| l == r),
+        LOpData::OGt { lhs, rhs, .. } => Self::fold_float_cmp(lhs, rhs, |l, r| l > r),
+        LOpData::OLt { lhs, rhs, .. } => Self::fold_float_cmp(lhs, rhs, |l, r| l < r),
+        LOpData::OGe { lhs, rhs, .. } => Self::fold_float_cmp(lhs, rhs, |l, r| l >= r),
+        LOpData::OLe { lhs, rhs, .. } => Self::fold_float_cmp(lhs, rhs, |l, r| l <= r),
       },
-      uni_ops: [AddI, SubI, MulI, DivI, ModI, Xor, And, SNe, SEq, SGt, SLt, SGe, SLe, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, LoadIntImm, LoadFloatImm, LoadAddress, Call, Br, Jump],
+      uni_ops: [Sitofp, Fptosi, Store, Load, Move, LoadIntImm, LoadFloatImm, LoadAddress, Call, Br, Jump, Ret],
       uni_arm: { None }
     }
   }
