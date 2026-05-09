@@ -165,6 +165,13 @@ impl BOperand {
         | BOperand::Reg(Reg::X(RESERVED_REG))
     )
   }
+  #[inline(always)]
+  pub fn is_zero(&self) -> bool {
+    matches!(
+      self,
+      Self::Reg(Reg::X(XReg::Zero)) | Self::IntImm(0) | Self::FloatImm(0)
+    )
+  }
 }
 
 #[derive(Debug, Clone, PartialEq)]

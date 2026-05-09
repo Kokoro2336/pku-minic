@@ -1122,6 +1122,36 @@ impl RegAlloc<'_> {
     self.slot_map.resize(REGS_NUM, BOperand::Undef);
   }
 
+  fn fold_zero_ptr_adds(&mut self) {
+    let func_id = self.cx.current_func();
+    let bb_ids = self.cx.get_func(func_id).cfg.ids();
+    for bb_id in bb_ids {
+      let bb_id = BOperand::BB(bb_id);
+      self.cx.set_current_block(bb_id);
+      let inst_ids = self.cx.get_func(func_id).cfg[bb_id].cur.clone();
+      for inst_id in inst_ids {
+        let op = &self.cx.get_func(func_id).dfg[inst_id];
+        let (op_data, typ, attrs) = (op.data.clone(), op.typ.clone(), op.attrs.clone());
+        let BOpData::L(LOpData::AddI { rd, lhs, rhs }) = op_data else {
+          continue;
+        };
+        if !lhs.is_zero() {
+          continue;
+        }
+        let new_op_data = match rhs {
+          BOperand::Data(_) | BOperand::RoData(_) | BOperand::Bss(_) => {
+            LOpData::LoadAddress { rd, addr: rhs }
+          }
+          BOperand::Reg(_) => LOpData::Move { rd, src: rhs },
+          _ => continue,
+        };
+        self
+          .cx
+          .replace_op_no_rauw(inst_id, bb_id, BOp::new(typ, attrs, new_op_data.into()));
+      }
+    }
+  }
+
   /// typ: The type of rs.
   fn select_store(
     &mut self,
@@ -2046,6 +2076,7 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
       self.reset();
 
       // ========== RA Phase ==========
+      self.fold_zero_ptr_adds();
       for allocator in self.allocators.iter_mut() {
         allocator.init(func_id);
         allocator.run();

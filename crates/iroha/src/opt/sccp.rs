@@ -3,7 +3,7 @@
 //! Reference: https://dl.acm.org/doi/10.1145/103135.103136
 
 use yachiyo::base::Type;
-use yachiyo::ir::mid::{Op, OpData, OpType, Operand, PhiIncoming, IR};
+use yachiyo::ir::mid::{IR, Op, OpData, OpType, Operand, PhiIncoming};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::r#match::match_src;
 use yachiyo::utils::set::BitSet;
@@ -188,6 +188,10 @@ impl SCCP<'_> {
 
     self.br_ops.clear();
     self.in_br_ops.clear();
+
+    for non_phi in self.cx.get_all_non_phi_in_block(Operand::BB(entry)) {
+      self.visit_expr(non_phi, Operand::BB(entry));
+    }
   }
 
   fn visit_expr(&mut self, op_id: Operand, bb_id: Operand) {
@@ -214,14 +218,16 @@ impl SCCP<'_> {
                         val_typ,
                     );
             } else {
-                // If not foldable, we just meet the lattices of the operands.
-                let lattice_list =
-                    vec![
-                        // DO NOT invoke get_xx_id() directly. We just ignore non-value operands, never panics.
-                        Self::get_lattice(self, &lhs),
-                        Self::get_lattice(self, &rhs)
-                    ];
-                self.lattices[op_id.get_op_id()] = Self::cast(Self::meet(lattice_list), val_typ);
+                self.lattices[op_id.get_op_id()] = Self::cast(
+                    if matches!(left_lattice, Lattice::Bottom)
+                        || matches!(right_lattice, Lattice::Bottom)
+                    {
+                        Lattice::Bottom
+                    } else {
+                        Lattice::Top
+                    },
+                    val_typ,
+                );
             }
 
             if old == self.lattices[op_id.get_op_id()] {
@@ -276,7 +282,6 @@ impl SCCP<'_> {
             } => {
                 let cond_lattice = self.get_lattice(&cond);
                 match cond_lattice {
-                    Lattice::Top => {/*do nothing*/}
                     Lattice::Constant(c) => {
                         if let Operand::Bool(b) = c {
                             if b {
@@ -289,7 +294,7 @@ impl SCCP<'_> {
                         }
                     }
                     // Top requires conservative assumption, and Bottom requires no assumption. So we need to push both branches to the edge list.
-                    Lattice::Bottom => {
+                    Lattice::Top | Lattice::Bottom => {
                         self.edge_list.push((bb_id, then_bb));
                         self.edge_list.push((bb_id, else_bb));
                     }
@@ -317,6 +322,7 @@ impl SCCP<'_> {
 
   fn visit_phi(&mut self, op_id: Operand) {
     let func_id = self.cx.current_func();
+    let current_bb = self.cx.get_func(func_id).op_to_bb[op_id].get_bb_id();
     let (op_data, val_typ) = {
       let op = &mut self.cx.get_func_mut(func_id).dfg[op_id];
       (op.data.clone(), op.typ.clone())
@@ -334,7 +340,7 @@ impl SCCP<'_> {
           {
             // Checking whether the incoming edge is executable. If not, we just ignore this incoming value.
             // This is the key to handling infeasible paths.
-            if !self.visited.contains(*bb_id) {
+            if !self.executable.contains(&(*bb_id, current_bb)) {
               return None;
             }
             Some(self.get_lattice(value))

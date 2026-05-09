@@ -133,6 +133,7 @@ fn main() -> Result<()> {
     .register(Box::new(LoopRotate::default()))
     .register(Box::new(LICM::default()))
     // Final clean up before going into the backend.
+    .register(Box::new(SCCP::default()))
     .register(Box::new(SimplifyCFG::default()))
     .register(Box::new(RemoveTrivialPhi::default()))
     .register(Box::new(DCE::default()))
@@ -169,12 +170,18 @@ fn main() -> Result<()> {
 
   // Run Backend Passes.
   BPassManager::new(&cli)
+    // Pre-ISel
     .register(Box::new(Canonicalize::default()))
+    .register(Box::new(InstCombine::default()))
     .register(Box::new(StrengthReduct::default()))
     .register(Box::new(Legalize::default()))
+    // ISel
     .register(Box::new(ISel::default()))
+    // Post-ISel Clean up
+    .register(Box::new(InstCombine::default()))
     .register(Box::new(BDCE::default()))
     .register(Box::new(BCompaction::default()))
+    // Register Allocation
     .register(Box::new(RegAlloc::default()))
     .register(Box::new(Peephole::default()))
     .run(&mut back_ir);

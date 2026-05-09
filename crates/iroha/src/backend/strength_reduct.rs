@@ -85,7 +85,7 @@ impl StrengthReduct<'_> {
       for inst_id in inst_ids {
         self.cx.set_before_inst(Some(inst_id));
         let lop = &self.cx.get_func(func_id).dfg[inst_id];
-        let lop_data: LOpData = lop.data.clone().into();
+        let lop_data = lop.data.clone().into();
         let (typ, attrs) = (lop.typ.clone(), lop.attrs.clone());
 
         match_some! {
@@ -94,17 +94,13 @@ impl StrengthReduct<'_> {
           minor_arms: {
             LOpData::MulI { rd, lhs, rhs } => if let BOperand::IntImm(imm) = rhs {
               let bb_id = self.cx.op_bb(inst_id);
-              if imm == 0 {
-                self.cx.replace_all_uses(inst_id, BOperand::Reg(Reg::X(XReg::Zero)));
-              } else if imm == 1 {
-                self.cx.replace_all_uses(inst_id, lhs);
-              } else if imm == -1 {
+              if imm == -1 {
                 self.cx.replace_op_no_rauw(inst_id, bb_id, BOp::new(
                   typ,
                   attrs,
                   LOpData::SubI { rd, lhs: BOperand::Reg(Reg::X(XReg::Zero)), rhs: lhs }.into()
                 ));
-              } else if let Some(shift) = Self::pow2_shift(imm) {
+              } else if let Some(shift) = if imm == 1 { None } else { Self::pow2_shift(imm) } {
                 self.cx.replace_op_no_rauw(inst_id, bb_id, BOp::new(
                   typ,
                   attrs,
@@ -179,15 +175,13 @@ impl StrengthReduct<'_> {
               }
             },
             LOpData::DivI { rd, lhs, rhs } => if let BOperand::IntImm(imm) = rhs {
-              if imm == 1 {
-                self.cx.replace_all_uses(inst_id, lhs);
-              } else if imm == -1 {
+              if imm == -1 {
                 self.cx.replace_op_no_rauw(inst_id, bb_id, BOp::new(
                   typ,
                   attrs,
                   LOpData::SubI { rd, lhs: BOperand::Reg(Reg::X(XReg::Zero)), rhs: lhs }.into()
                 ));
-              } else if let Some(shift) = Self::pow2_shift(imm) {
+              } else if let Some(shift) = if imm == 1 { None } else { Self::pow2_shift(imm) } {
                 // Create bias
                 let shift_bias_op_id = self.cx.create(BOp::new(
                   typ.clone(),
@@ -218,35 +212,9 @@ impl StrengthReduct<'_> {
               }
               // TODO: Convert the division to multiplication.
             },
-            LOpData::ModI { rhs, .. } => if let BOperand::IntImm(imm) = rhs {
-              if imm == 1 || imm == -1 {
-                self.cx.replace_all_uses(inst_id, BOperand::Reg(Reg::X(XReg::Zero)));
-              }
-              // TODO: Can we prove that lhs is non-negative?
-              // else if let Some(shift) = Self::pow2_shift(imm) {
-              //   self.cx.replace_op_no_rauw(inst_id, bb_id, BOp::new(
-              //     typ,
-              //     attrs,
-              //     LOpData::And { rd, lhs, rhs: BOperand::IntImm((1 << shift) - 1) }.into()
-              //   ));
-              // }
-            },
-            LOpData::AddI { lhs, rhs, .. }
-            | LOpData::SubI { lhs, rhs, .. } => if let BOperand::IntImm(imm) = rhs {
-              if imm == 0 {
-                self.cx.replace_all_uses(inst_id, lhs);
-              }
-            }
-            LOpData::Shl { lhs, rhs, .. }
-            | LOpData::Shr { lhs, rhs, .. }
-            | LOpData::Sar { lhs, rhs, .. } => if let BOperand::IntImm(imm) = rhs {
-              if imm == 0 {
-                self.cx.replace_all_uses(inst_id, lhs);
-              }
-            }
           },
           uni_ops: [
-            AddF, SubF, MulF, DivF,
+            AddI, SubI, AddF, SubF, MulF, DivF, ModI,
             SNe, SEq, SGt, SLt, SGe, SLe,
             Xor, And, Shl, Shr, Sar,
             ONe, OEq, OGt, OLt, OGe, OLe,
