@@ -329,11 +329,7 @@ impl Emit {
               self.builder.current_function,
               mid::Op::new(
                 arg_typ.with_ptr(),
-                if arg_typ.is_scalar() {
-                  vec![Attr::Name(arg_name.clone()), Attr::Promotion]
-                } else {
-                  vec![Attr::Name(arg_name.clone())]
-                },
+                vec![Attr::Name(arg_name.clone()), Attr::Promotion],
                 OpData::Alloca(arg_typ.clone()),
               ),
             );

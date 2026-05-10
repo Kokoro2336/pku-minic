@@ -3,38 +3,32 @@
 use yachiyo::analysis::{Analysis, CallGraph};
 use yachiyo::ir::mid::{OpData, OpType, Operand, IR};
 
-#[derive(Default)]
 pub struct CallGraphAnalysis<'a> {
-  ir: Option<&'a IR>,
+  ir: &'a IR,
 }
 
-impl<'a> Analysis<'a> for CallGraphAnalysis<'a> {
-  type Input = IR;
+impl<'a> Analysis for CallGraphAnalysis<'a> {
+  type Input = &'a IR;
   type Output = CallGraph;
 
   fn name(&self) -> &str {
     "Call Graph Analysis"
   }
 
-  fn mount(&mut self, input: &'a Self::Input) {
-    self.ir = Some(input);
+  fn new(input: Self::Input) -> Self {
+    Self { ir: input }
   }
 
   fn run(&mut self) -> Self::Output {
-    let funcs_len = self.ir.as_ref().unwrap().funcs.len();
+    let funcs_len = self.ir.funcs.len();
     let mut callers = vec![vec![]; funcs_len];
     let mut callees = vec![vec![]; funcs_len];
 
-    for func_id in self.ir.as_mut().unwrap().funcs.collect() {
+    for func_id in self.ir.funcs.collect() {
       let func_id = Operand::Func(func_id);
-      let call_ops = self
-        .ir
-        .as_ref()
-        .unwrap()
-        .get_all_ops(Some(func_id), OpType::Call);
+      let call_ops = self.ir.get_all_ops(Some(func_id), OpType::Call);
       for call_op in call_ops {
-        let OpData::Call { func, .. } = &self.ir.as_ref().unwrap().funcs[func_id].dfg[call_op].data
-        else {
+        let OpData::Call { func, .. } = &self.ir.funcs[func_id].dfg[call_op].data else {
           unreachable!()
         };
 

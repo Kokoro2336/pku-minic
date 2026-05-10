@@ -313,25 +313,24 @@ impl<'a> BuildDomFrontier<'a> {
   }
 }
 
-#[derive(Default)]
 pub struct DomAnalysis<'a> {
-  func: Option<&'a Function>,
+  func: &'a Function,
 }
 
-impl<'a> Analysis<'a> for DomAnalysis<'a> {
-  type Input = Function;
+impl<'a> Analysis for DomAnalysis<'a> {
+  type Input = &'a Function;
   type Output = (DomTree, DomFrontier);
 
   fn name(&self) -> &str {
     "Dominance Analysis"
   }
 
-  fn mount(&mut self, func: &'a Self::Input) {
-    self.func = Some(func);
+  fn new(input: Self::Input) -> Self {
+    Self { func: input }
   }
 
   fn run(&mut self) -> Self::Output {
-    let func = self.func.unwrap();
+    let func = self.func;
     let mut dom_tree_builder = BuildDomTree::new(func);
     let dom_trees = dom_tree_builder.build();
 

@@ -1,11 +1,13 @@
 //! Pass management for IR.
 
-use crate::base::Type;
-use crate::cli::Cli;
 #[cfg(feature = "debug")]
 use crate::debug::info;
+
+use crate::analysis::{AffineExpr, MemLoc};
+use crate::base::Type;
+use crate::cli::Cli;
 use crate::debug::DumpLLVM;
-use crate::ir::mid::{Builder, Function, Globals, LoopInfo, Op, OpType, Operand, IR};
+use crate::ir::mid::{Builder, Function, Globals, LoopInfo, Op, OpData, OpType, Operand, IR};
 
 use std::collections::VecDeque;
 use std::ops::{Deref, DerefMut};
@@ -279,6 +281,51 @@ impl<'a> PassContext<'a> {
     self
       .ir_mut()
       .slay_phi_incoming(current_function_option, phi_id, bb_id);
+  }
+
+  pub fn trace_ptr(&self, operand: Operand, mem_loc: &mut MemLoc) {
+    match operand {
+      Operand::Global(_) => mem_loc.base = operand,
+      Operand::Param(_) => {
+        let func_id = self.current_func();
+        let (_, param_typ) = &self.get_func(func_id).params[operand];
+        if matches!(param_typ, Type::Pointer { .. }) {
+          mem_loc.base = operand;
+        } else {
+          mem_loc.set_unknown();
+        }
+      }
+      Operand::Value(_) => {
+        let op = &self.get_func(self.current_func()).dfg[operand];
+        let op_data = &op.data;
+        match op_data {
+          OpData::GEP { base, indices } => {
+            let base_typ = self.get_op_type(*base);
+            mem_loc.offset += &AffineExpr::from_gep(base_typ, indices.clone());
+            self.trace_ptr(*base, mem_loc);
+          }
+          OpData::Alloca(_) => mem_loc.base = operand,
+          OpData::Load { .. } => mem_loc.set_unknown(),
+          _ => mem_loc.set_unknown(),
+        }
+      }
+      Operand::Func(_)
+      | Operand::Bool(_)
+      | Operand::Int(_)
+      | Operand::Float(_)
+      | Operand::Undefined
+      | Operand::BB(_) => {
+        mem_loc.set_unknown();
+      }
+    }
+  }
+
+  /// This API should receive the addr in Load/Store/GEP.
+  pub fn compute_mem_loc(&self, operand: Operand) -> MemLoc {
+    let typ = self.get_op_type(operand);
+    let mut mem_loc = MemLoc::new(typ.unwrap_ptr());
+    self.trace_ptr(operand, &mut mem_loc);
+    mem_loc
   }
 }
 

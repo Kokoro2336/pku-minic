@@ -769,8 +769,18 @@ impl Lowering {
               typ: param_typ.clone().into(),
               offset: 0,
             });
-            // Manually map the param to the slot.
-            self.param_map[idx] = slot_id;
+            self.create_and_map_param(
+              idx,
+              BOp::new(
+                (*param_typ).clone().into(),
+                vec![],
+                LOpData::Load {
+                  rd: BOperand::Undef,
+                  addr: slot_id,
+                }
+                .into(),
+              ),
+            );
           }
         }
       }

@@ -46,7 +46,10 @@ impl Canonicalize<'_> {
     rhs: BOperand,
     fold: impl FnOnce(i32, i32) -> i32,
   ) -> Option<BOperand> {
-    Some(BOperand::IntImm(fold(Self::int_const(lhs)?, Self::int_const(rhs)?)))
+    Some(BOperand::IntImm(fold(
+      Self::int_const(lhs)?,
+      Self::int_const(rhs)?,
+    )))
   }
 
   fn fold_int_div(
@@ -66,7 +69,9 @@ impl Canonicalize<'_> {
     rhs: BOperand,
     fold: impl FnOnce(i32, i32) -> bool,
   ) -> Option<BOperand> {
-    Some(BOperand::IntImm(fold(Self::int_const(lhs)?, Self::int_const(rhs)?) as i32))
+    Some(BOperand::IntImm(
+      fold(Self::int_const(lhs)?, Self::int_const(rhs)?) as i32,
+    ))
   }
 
   fn fold_float_bin(
@@ -167,7 +172,9 @@ impl Canonicalize<'_> {
         let op = &self.cx.get_func(func_id).dfg[inst_id];
         let (lop_data, typ, attrs) = match op.data.clone() {
           BOpData::L(lop_data) => (lop_data, op.typ.clone(), op.attrs.clone()),
-          BOpData::M(mop_data) => unreachable!("Unexpected machine op in Canonicalize: {:?}", mop_data),
+          BOpData::M(mop_data) => {
+            unreachable!("Unexpected machine op in Canonicalize: {:?}", mop_data)
+          }
         };
 
         if let Some(folded) = Self::fold(&lop_data) {
