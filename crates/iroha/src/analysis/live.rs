@@ -11,9 +11,8 @@ pub type LiveSet = ArraySet<BOperand>;
 pub type LiveIns = Vec<LiveSet>;
 pub type LiveOuts = Vec<LiveSet>;
 
-#[derive(Default)]
 pub struct LiveAnalysis<'a> {
-  func: Option<&'a BFunction>,
+  func: &'a BFunction,
 
   /// The live set for the current block being processed.
   current_live: LiveSet,
@@ -29,10 +28,6 @@ pub struct LiveAnalysis<'a> {
 }
 
 impl LiveAnalysis<'_> {
-  pub fn new() -> Self {
-    Self::default()
-  }
-
   fn dfs(&mut self, bb_id: BOperand) {
     if self.visited.contains(bb_id.get_bb_id()) {
       return;
@@ -40,7 +35,7 @@ impl LiveAnalysis<'_> {
 
     self.visited.insert(bb_id.get_bb_id());
 
-    let bb = &self.func.unwrap().cfg[bb_id];
+    let bb = &self.func.cfg[bb_id];
     for (succ, _) in &bb.succs {
       self.dfs(*succ);
     }
@@ -50,7 +45,7 @@ impl LiveAnalysis<'_> {
   }
 
   fn init(&mut self) {
-    let cfg_len = self.func.unwrap().cfg.len();
+    let cfg_len = self.func.cfg.len();
 
     // Clear and resize live_ins and live_outs.
     self.live_ins.clear();
@@ -66,24 +61,18 @@ impl LiveAnalysis<'_> {
 
   #[inline(always)]
   fn get_rd(&self, op_id: BOperand) -> Option<BOperand> {
-    self.func.unwrap().get_rd(op_id).cloned()
+    self.func.get_rd(op_id).cloned()
   }
 
   #[inline(always)]
   fn get_src(&self, op_id: BOperand) -> Vec<BOperand> {
-    self
-      .func
-      .unwrap()
-      .get_src(op_id)
-      .into_iter()
-      .cloned()
-      .collect()
+    self.func.get_src(op_id).into_iter().cloned().collect()
   }
 
   #[inline(always)]
   fn process_def(&mut self, op_id: BOperand) {
     let def = self.get_rd(op_id);
-    let op = &self.func.unwrap().dfg[op_id];
+    let op = &self.func.dfg[op_id];
     // If the instruction has an implicit def, remove it from the live set.
     op.attrs
       .iter()
@@ -122,7 +111,7 @@ impl LiveAnalysis<'_> {
   #[inline(always)]
   fn process_use(&mut self, op_id: BOperand) {
     let mut uses = self.get_src(op_id);
-    let op = &self.func.unwrap().dfg[op_id];
+    let op = &self.func.dfg[op_id];
     op.attrs
       .iter()
       .find(|attr| matches!(attr, BAttr::ImplicitUse(_)))
@@ -152,7 +141,7 @@ impl LiveAnalysis<'_> {
       .extend(self.live_outs[bb_id.get_bb_id()].iter().cloned());
 
     // Process instructions in reverse order.
-    let bb = &self.func.unwrap().cfg[bb_id];
+    let bb = &self.func.cfg[bb_id];
     for op_id in bb.cur.iter().rev() {
       // Process defs first, then uses.
       self.process_def(*op_id);
@@ -161,21 +150,28 @@ impl LiveAnalysis<'_> {
   }
 }
 
-impl<'a> Analysis<'a> for LiveAnalysis<'a> {
-  type Input = BFunction;
+impl<'a> Analysis for LiveAnalysis<'a> {
+  type Input = &'a BFunction;
   type Output = (LiveIns, LiveOuts);
 
   fn name(&self) -> &'static str {
     "Live Analysis"
   }
 
-  fn mount(&mut self, func: &'a Self::Input) {
-    self.func = Some(func);
+  fn new(input: Self::Input) -> Self {
+    Self {
+      func: input,
+      current_live: LiveSet::new(),
+      dfs_post_order: Worklist::new(),
+      visited: BitSet::new(),
+      live_ins: LiveIns::new(),
+      live_outs: LiveOuts::new(),
+    }
   }
 
   fn run(&mut self) -> Self::Output {
     self.init();
-    let entry = self.func.unwrap().cfg.entry.unwrap();
+    let entry = self.func.cfg.entry.unwrap();
     self.dfs(BOperand::BB(entry));
 
     // Run main loop
@@ -183,7 +179,7 @@ impl<'a> Analysis<'a> for LiveAnalysis<'a> {
       let old_live_in_len = self.live_ins[bb_id.get_bb_id()].len();
 
       // Update live_outs of the block based on live_ins of its successors.
-      let bb = &self.func.unwrap().cfg[bb_id];
+      let bb = &self.func.cfg[bb_id];
       for (succ, _) in &bb.succs {
         let succ_live_in = &self.live_ins[succ.get_bb_id()];
         // Get the union of live_outs of the block and live_ins of its successor.
@@ -198,7 +194,7 @@ impl<'a> Analysis<'a> for LiveAnalysis<'a> {
 
       // If the live-in set changes, we need to reprocess the predecessors.
       if old_live_in_len != self.live_ins[bb_id.get_bb_id()].len() {
-        let bb = &self.func.unwrap().cfg[bb_id];
+        let bb = &self.func.cfg[bb_id];
         for (pred, _) in &bb.preds {
           self.dfs_post_order.push_back(*pred);
         }

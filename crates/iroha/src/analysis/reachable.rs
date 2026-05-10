@@ -4,9 +4,8 @@ use yachiyo::analysis::Analysis;
 use yachiyo::ir::mid::{Function, Operand};
 use yachiyo::utils::set::BitSet;
 
-#[derive(Default)]
 pub struct Reachability<'a> {
-  func: Option<&'a Function>,
+  func: &'a Function,
   visited: BitSet,
 }
 
@@ -16,27 +15,30 @@ impl Reachability<'_> {
       return;
     }
     self.visited.insert(bb_id.get_bb_id());
-    let cfg = &self.func.as_ref().unwrap().cfg;
+    let cfg = &self.func.cfg;
     for (succ, _) in &cfg[bb_id].succs {
       self.dfs(*succ);
     }
   }
 }
 
-impl<'a> Analysis<'a> for Reachability<'a> {
-  type Input = Function;
+impl<'a> Analysis for Reachability<'a> {
+  type Input = &'a Function;
   type Output = BitSet;
 
   fn name(&self) -> &str {
     "Reachability Analysis"
   }
 
-  fn mount(&mut self, input: &'a Self::Input) {
-    self.func = Some(input);
+  fn new(input: Self::Input) -> Self {
+    Self {
+      func: input,
+      visited: BitSet::new(),
+    }
   }
 
   fn run(&mut self) -> Self::Output {
-    let entry = self.func.as_ref().unwrap().cfg.entry.unwrap();
+    let entry = self.func.cfg.entry.unwrap();
     self.dfs(Operand::BB(entry));
     std::mem::take(&mut self.visited)
   }

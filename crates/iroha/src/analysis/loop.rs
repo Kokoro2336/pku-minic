@@ -87,9 +87,8 @@ impl IndexMut<LoopId> for Loops {
   }
 }
 
-#[derive(Default)]
 pub struct LoopAnalysis<'a> {
-  func: Option<&'a Function>,
+  func: &'a Function,
   /// LoopId -> LoopData
   loops: Loops,
   /// BBId -> LoopId
@@ -98,7 +97,7 @@ pub struct LoopAnalysis<'a> {
 
 impl LoopAnalysis<'_> {
   fn init(&mut self) {
-    let cfg_len = self.func.unwrap().cfg.len();
+    let cfg_len = self.func.cfg.len();
     self.loops.clear();
     self.block_to_loop.clear();
     self.block_to_loop.resize(cfg_len, None);
@@ -106,11 +105,11 @@ impl LoopAnalysis<'_> {
 
   /// Traverse the CFG in reverse post-order and find natural loops.
   fn find_loop_header(&mut self, dom_tree: &DomTree) {
-    let bbs_dpo = self.func.unwrap().cfg.dpo();
+    let bbs_dpo = self.func.cfg.dpo();
 
     // RPO traversal
     for bb_id in bbs_dpo.into_iter().rev() {
-      let bb = &self.func.unwrap().cfg[bb_id];
+      let bb = &self.func.cfg[bb_id];
       for (pred_id, _) in &bb.preds {
         if dom_tree.is_dom(bb_id.get_bb_id(), pred_id.get_bb_id()) {
           self.loops.push(LoopData::new(bb_id));
@@ -129,7 +128,7 @@ impl LoopAnalysis<'_> {
       {
         let lp = &self.loops[lp_id.into()];
         stack.extend(
-          self.func.unwrap().cfg[lp.header]
+          self.func.cfg[lp.header]
             .preds
             .iter()
             .filter(|(pred_id, _)| dom_tree.is_dom(lp.header.get_bb_id(), pred_id.get_bb_id()))
@@ -182,7 +181,7 @@ impl LoopAnalysis<'_> {
         match continue_dfs {
           Some(node) => stack.extend(
             // Continue processing the preds of the block.
-            self.func.unwrap().cfg[node]
+            self.func.cfg[node]
               .preds
               .iter()
               // Push all the preds, not the dominated one.
@@ -233,7 +232,7 @@ impl LoopAnalysis<'_> {
     for lp_id in 0..self.loops.len() {
       let lp = &mut self.loops[lp_id.into()];
       for block_id in lp.blocks.iter() {
-        let block = &self.func.unwrap().cfg[block_id];
+        let block = &self.func.cfg[block_id];
         for (succ_id, _) in &block.succs {
           if !lp.blocks.contains(succ_id.get_bb_id()) {
             lp.exit_blocks.insert(succ_id.get_bb_id());
@@ -244,18 +243,22 @@ impl LoopAnalysis<'_> {
   }
 }
 
-impl<'a> Analysis<'a> for LoopAnalysis<'a> {
-  type Input = Function;
+impl<'a> Analysis for LoopAnalysis<'a> {
+  type Input = &'a Function;
   type Output = (Loops, Vec<Option<LoopId>>);
 
   fn name(&self) -> &str {
     "Loop Analysis"
   }
-  fn mount(&mut self, func: &'a Self::Input) {
-    self.func = Some(func);
+  fn new(input: Self::Input) -> Self {
+    Self {
+      func: input,
+      loops: Loops::default(),
+      block_to_loop: Vec::new(),
+    }
   }
   fn run(&mut self) -> Self::Output {
-    let (dom_tree, _) = analyze::<DomAnalysis>(self.func.unwrap());
+    let (dom_tree, _) = analyze::<DomAnalysis>(self.func);
     self.init();
     self.find_loop_header(&dom_tree);
     self.discover_loop_blocks(&dom_tree);

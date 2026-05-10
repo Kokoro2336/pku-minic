@@ -3,24 +3,25 @@
 #[cfg(feature = "debug")]
 use crate::debug::info;
 
-mod dom;
+mod alias;
 mod call_graph;
+mod dom;
 
-pub use dom::*;
+pub use alias::*;
 pub use call_graph::*;
+pub use dom::*;
 
-pub trait Analysis<'a>: Default {
+pub trait Analysis {
   type Input;
   type Output;
 
   fn name(&self) -> &str;
-  fn mount(&mut self, input: &'a Self::Input);
+  fn new(input: Self::Input) -> Self;
   fn run(&mut self) -> Self::Output;
 }
 
-pub fn analyze<'a, A: Analysis<'a>>(input: &'a A::Input) -> A::Output {
-  let mut analysis = A::default();
-  analysis.mount(input);
+pub fn analyze<A: Analysis>(input: A::Input) -> A::Output {
+  let mut analysis = A::new(input);
 
   #[cfg(feature = "debug")]
 

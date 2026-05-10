@@ -6,9 +6,10 @@ use std::hash::{Hash, Hasher};
 const RISCV_BITS: u32 = 64;
 
 /// type of value
-#[derive(Debug, Clone, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Eq, PartialOrd, Ord, Default)]
 pub enum Type {
   Int,
+  #[default]
   Void,
   Float,
   Bool,
