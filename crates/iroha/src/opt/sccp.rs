@@ -3,7 +3,7 @@
 //! Reference: https://dl.acm.org/doi/10.1145/103135.103136
 
 use yachiyo::base::Type;
-use yachiyo::ir::mid::{IR, Op, OpData, OpType, Operand, PhiIncoming};
+use yachiyo::ir::mid::{Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::r#match::match_src;
 use yachiyo::utils::set::BitSet;

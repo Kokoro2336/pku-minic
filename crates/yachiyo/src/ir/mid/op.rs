@@ -425,18 +425,24 @@ impl DFG {
       },
       fallback: {
         OpData::Load { addr } => {
-          if matches!(addr, Operand::Value(_) | Operand::Global(_)) {
+          if matches!(
+            addr,
+            Operand::Value(_) | Operand::Global(_) | Operand::Param(_)
+          ) {
             vec![(addr, 0)]
           } else {
-            panic!("DFG match_src_tuple: Load address operand is not Value or Global");
+            panic!("DFG match_src_tuple: Load address operand is not Value, Global, or Param");
           }
         }
         OpData::Store { addr, value } => {
           let mut srcs = Vec::new();
-          if matches!(addr, Operand::Value(_) | Operand::Global(_)) {
+          if matches!(
+            addr,
+            Operand::Value(_) | Operand::Global(_) | Operand::Param(_)
+          ) {
             srcs.push((addr, 0));
           } else {
-            panic!("DFG match_src_tuple: Store address operand is not Value or Global");
+            panic!("DFG match_src_tuple: Store address operand is not Value, Global, or Param");
           }
           srcs.push((value, 1));
           srcs
@@ -467,10 +473,13 @@ impl DFG {
         }
         OpData::GEP { base, indices } => {
           let mut srcs = Vec::new();
-          if matches!(base, Operand::Value(_) | Operand::Global(_)) {
+          if matches!(
+            base,
+            Operand::Value(_) | Operand::Global(_) | Operand::Param(_)
+          ) {
             srcs.push((base, 0));
           } else {
-            panic!("DFG match_src_tuple: GEP base operand is not Value or Global");
+            panic!("DFG match_src_tuple: GEP base operand is not Value, Global, or Param");
           }
           for (i, index) in indices.iter().enumerate() {
             srcs.push((index, i + 1));
@@ -504,18 +513,24 @@ impl DFG {
       },
       fallback: {
         OpData::Load { addr } => {
-          if matches!(addr, Operand::Value(_) | Operand::Global(_)) {
+          if matches!(
+            addr,
+            Operand::Value(_) | Operand::Global(_) | Operand::Param(_)
+          ) {
             vec![(addr, 0)]
           } else {
-            panic!("DFG match_src_tuple_mut: Load address operand is not Value or Global");
+            panic!("DFG match_src_tuple_mut: Load address operand is not Value, Global, or Param");
           }
         }
         OpData::Store { addr, value } => {
           let mut srcs = Vec::new();
-          if matches!(addr, Operand::Value(_) | Operand::Global(_)) {
+          if matches!(
+            addr,
+            Operand::Value(_) | Operand::Global(_) | Operand::Param(_)
+          ) {
             srcs.push((addr, 0));
           } else {
-            panic!("DFG match_src_tuple_mut: Store address operand is not Value or Global");
+            panic!("DFG match_src_tuple_mut: Store address operand is not Value, Global, or Param");
           }
           srcs.push((value, 1));
           srcs
@@ -546,10 +561,13 @@ impl DFG {
         }
         OpData::GEP { base, indices } => {
           let mut srcs = Vec::new();
-          if matches!(base, Operand::Value(_) | Operand::Global(_)) {
+          if matches!(
+            base,
+            Operand::Value(_) | Operand::Global(_) | Operand::Param(_)
+          ) {
             srcs.push((base, 0));
           } else {
-            panic!("DFG match_src_tuple_mut: GEP base operand is not Value or Global");
+            panic!("DFG match_src_tuple_mut: GEP base operand is not Value, Global, or Param");
           }
           for (i, index) in indices.iter_mut().enumerate() {
             srcs.push((index, i + 1));
