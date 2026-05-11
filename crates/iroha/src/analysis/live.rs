@@ -154,7 +154,7 @@ impl<'a> Analysis for LiveAnalysis<'a> {
   type Input = &'a BFunction;
   type Output = (LiveIns, LiveOuts);
 
-  fn name(&self) -> &'static str {
+  fn name() -> &'static str {
     "Live Analysis"
   }
 

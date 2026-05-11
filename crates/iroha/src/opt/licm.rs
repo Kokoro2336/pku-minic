@@ -1,9 +1,11 @@
 //! Loop Invariant Code Motion (LICM).
 
-use crate::analysis::{DomAnalysis, DomTree, LoopAnalysis, LoopData, LoopId, Loops};
+use crate::analysis::{
+  alias, CallGraphAnalysis, DomAnalysis, DomTree, LoopAnalysis, LoopData, LoopId, Loops,
+};
 
-use yachiyo::analysis::analyze;
-use yachiyo::ir::mid::{OpType, Operand, IR};
+use yachiyo::analysis::{analyze, AliasResult, CallGraph, MemLoc};
+use yachiyo::ir::mid::{OpData, OpType, Operand, IR};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::set::BitSet;
 
@@ -14,6 +16,7 @@ pub struct LICM<'a> {
   /// LoopId -> OpId -> whether the value produced by the op is an invariant.
   invariants: Vec<BitSet>,
   block_to_loop: Vec<Option<LoopId>>,
+  call_graph: CallGraph,
 }
 
 impl LICM<'_> {
@@ -38,27 +41,85 @@ impl LICM<'_> {
         | OpType::Br
         | OpType::Jump
         | OpType::Ret
-        // TODO: Hoist Load/Store after AA.
-        | OpType::Load
+        // TODO: Hoist Store.
         | OpType::Store
     )
   }
 
   fn is_invariant(&self, lp_id: LoopId, lp_data: &LoopData, value: Operand) -> bool {
     match value {
-      Operand::Int(_) | Operand::Float(_) | Operand::Bool(_) | Operand::Param(_) => return true,
+      Operand::Int(_)
+      | Operand::Float(_)
+      | Operand::Bool(_)
+      | Operand::Param(_)
+      | Operand::Global(_) => return true,
       // Actually, BB is also invariant too. But we won't hoist an op with such operand, so we return false.
-      // TODO: Global requires AA to judge whether it's invariant.
-      Operand::Global(_) | Operand::Undefined => return false,
+      Operand::Undefined => return false,
       Operand::Value(_) => {}
       Operand::BB(_) | Operand::Func(_) => unreachable!(),
     }
 
-    let func_id = self.cx.current_func();
-    let value_bb_id = self.cx.get_func(func_id).op_to_bb[value].get_bb_id();
+    let value_bb_id = self.cx.op_bb(value).get_bb_id();
     self.invariants[usize::from(lp_id)].contains(value.get_op_id())
       || self.block_to_loop[value_bb_id].is_none()
       || !lp_data.blocks.contains(value_bb_id)
+  }
+
+  /// Only for address.
+  /// For Load:
+  /// - The MemLoc's base and offset should also be invariant.
+  /// - The MemLoc should not alias with any store in the loop.
+  fn is_mem_loc_invariant(&mut self, lp_id: LoopId, lp_data: &LoopData, addr: Operand) -> bool {
+    if !self.is_invariant(lp_id, lp_data, addr) {
+      return false;
+    }
+
+    let mem_loc = self.cx.compute_mem_loc(addr);
+
+    self.mem_loc_operands_invariant(lp_id, lp_data, &mem_loc)
+      && !self.loop_may_clobber_mem_loc(lp_data, addr)
+  }
+
+  fn mem_loc_operands_invariant(
+    &self,
+    lp_id: LoopId,
+    lp_data: &LoopData,
+    mem_loc: &MemLoc,
+  ) -> bool {
+    let Some(offset_keys) = mem_loc.offset.get_keys() else {
+      return false;
+    };
+
+    std::iter::once(mem_loc.base)
+      .chain(offset_keys.cloned())
+      .all(|operand| self.is_invariant(lp_id, lp_data, operand))
+  }
+
+  fn loop_may_clobber_mem_loc(&mut self, lp_data: &LoopData, addr: Operand) -> bool {
+    for bb_id in lp_data.blocks.iter() {
+      let bb_id = Operand::BB(bb_id);
+      let cur = self.cx.get_bb(bb_id).cur.clone();
+
+      for inst_id in cur {
+        if self.inst_may_clobber_mem_loc(inst_id, addr) {
+          return true;
+        }
+      }
+    }
+
+    false
+  }
+
+  fn inst_may_clobber_mem_loc(&mut self, inst_id: Operand, addr: Operand) -> bool {
+    let op_data = self.cx.get_op(inst_id).data.clone();
+
+    match op_data {
+      OpData::Store {
+        addr: store_addr, ..
+      } => alias(&mut self.cx, addr, store_addr, &self.call_graph) != AliasResult::NoAlias,
+
+      _ => matches!(OpType::from(&op_data), OpType::Call),
+    }
   }
 
   #[inline(always)]
@@ -91,7 +152,15 @@ impl LICM<'_> {
           }
 
           let src = self.cx.get_src_owned(inst_id);
-          if self.meet(lp_id.into(), loop_data, &src) {
+          let is_invariant = if let OpData::Load { addr, .. } = &self.cx.get_op(inst_id).data {
+            // Check Load individually.
+            self.is_invariant(lp_id.into(), loop_data, *addr)
+              && self.is_mem_loc_invariant(lp_id.into(), loop_data, *addr)
+          } else {
+            self.meet(lp_id.into(), loop_data, &src)
+          };
+
+          if is_invariant {
             // Mark the op as an invariant.
             self.invariants[lp_id].insert(inst_id.get_op_id());
             // Move the op to the pre-header block.
@@ -133,6 +202,9 @@ impl<'a> Pass<'a> for LICM<'a> {
     self.cx.mount(ir);
   }
   fn run(&mut self) {
+    // Run call graph analysis first.
+    self.call_graph = analyze::<CallGraphAnalysis>(self.cx.ir());
+
     for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
       let (loops_data, block_to_loop) = analyze::<LoopAnalysis>(self.cx.get_func(func_id));

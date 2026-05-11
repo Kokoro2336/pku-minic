@@ -26,7 +26,7 @@ impl<'a> Analysis for Reachability<'a> {
   type Input = &'a Function;
   type Output = BitSet;
 
-  fn name(&self) -> &str {
+  fn name() -> &'static str {
     "Reachability Analysis"
   }
 

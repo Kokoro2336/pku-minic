@@ -7,7 +7,9 @@ use crate::analysis::{AffineExpr, MemLoc};
 use crate::base::Type;
 use crate::cli::Cli;
 use crate::debug::DumpLLVM;
-use crate::ir::mid::{Builder, Function, Globals, LoopInfo, Op, OpData, OpType, Operand, IR};
+use crate::ir::mid::{
+  BasicBlock, Builder, Function, Globals, LoopInfo, Op, OpData, OpType, Operand, IR,
+};
 
 use std::collections::VecDeque;
 use std::ops::{Deref, DerefMut};
@@ -35,6 +37,9 @@ impl<'cx, 'a> PassContextGuard<'cx, 'a> {
       current_inst: cx.builder.current_inst,
       cx,
     }
+  }
+  pub fn cx(&mut self) -> &mut PassContext<'a> {
+    self.cx
   }
 }
 
@@ -326,6 +331,29 @@ impl<'a> PassContext<'a> {
     let mut mem_loc = MemLoc::new(typ.unwrap_ptr());
     self.trace_ptr(operand, &mut mem_loc);
     mem_loc
+  }
+
+  pub fn get_op(&self, op_id: Operand) -> &Op {
+    let func_id = self.current_func();
+    &self.get_func(func_id).dfg[op_id]
+  }
+
+  pub fn get_bb(&self, bb_id: Operand) -> &BasicBlock {
+    let func_id = self.current_func();
+    &self.get_func(func_id).cfg[bb_id]
+  }
+
+  /// For cases where guard doesn't live long enough, e.g., in AliasAnalysis.
+  pub fn with_current_func<R>(
+    &mut self,
+    func_id: Operand,
+    f: impl FnOnce(&mut PassContext<'a>) -> R,
+  ) -> R {
+    let original_func = self.builder.current_function;
+    self.set_current_func(Some(func_id));
+    let result = f(self);
+    self.set_current_func(original_func);
+    result
   }
 }
 

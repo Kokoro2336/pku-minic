@@ -199,7 +199,9 @@ impl<'a> Pass<'a> for Localize<'a> {
     let func_ids = self.cx.ir().funcs.collect_internal();
 
     // Reversely propagate might-used globals through call graph
-    let CallGraph { callers, callees } = analyze::<CallGraphAnalysis>(self.cx.ir());
+    let CallGraph {
+      callers, callees, ..
+    } = analyze::<CallGraphAnalysis>(self.cx.ir());
     let mut worklist: Worklist<Operand, BitSet> = Worklist::new();
     for &func_id in &func_ids {
       worklist.push_back(Operand::Func(func_id));

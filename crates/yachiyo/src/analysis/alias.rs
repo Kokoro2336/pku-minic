@@ -7,7 +7,7 @@ use rustc_hash::FxHashMap;
 use std::cmp::PartialEq;
 use std::ops::{AddAssign, SubAssign};
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct MemLoc {
   pub base: Operand,
   pub offset: AffineExpr,
@@ -107,6 +107,13 @@ impl AffineExpr {
     match (self, other) {
       (AffineExpr::L(e1), AffineExpr::L(e2)) => e1.diff_constant(e2),
       _ => None,
+    }
+  }
+
+  pub fn get_keys(&self) -> Option<impl Iterator<Item = &Operand>> {
+    match self {
+      AffineExpr::L(e) => Some(e.get_keys()),
+      AffineExpr::Unknown => None,
     }
   }
 }
@@ -277,6 +284,10 @@ impl LinearExpr {
     } else {
       None
     }
+  }
+
+  pub fn get_keys(&self) -> impl Iterator<Item = &Operand> {
+    self.terms.keys()
   }
 }
 

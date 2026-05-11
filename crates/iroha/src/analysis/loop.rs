@@ -247,7 +247,7 @@ impl<'a> Analysis for LoopAnalysis<'a> {
   type Input = &'a Function;
   type Output = (Loops, Vec<Option<LoopId>>);
 
-  fn name(&self) -> &str {
+  fn name() -> &'static str {
     "Loop Analysis"
   }
   fn new(input: Self::Input) -> Self {
