@@ -7,7 +7,9 @@ use crate::analysis::{AffineExpr, MemLoc};
 use crate::base::Type;
 use crate::cli::Cli;
 use crate::debug::DumpLLVM;
-use crate::ir::mid::{Builder, Function, Globals, LoopInfo, Op, OpData, OpType, Operand, IR};
+use crate::ir::mid::{
+  BasicBlock, Builder, Function, Globals, LoopInfo, Op, OpData, OpType, Operand, IR,
+};
 
 use std::collections::VecDeque;
 use std::ops::{Deref, DerefMut};
@@ -326,6 +328,16 @@ impl<'a> PassContext<'a> {
     let mut mem_loc = MemLoc::new(typ.unwrap_ptr());
     self.trace_ptr(operand, &mut mem_loc);
     mem_loc
+  }
+
+  pub fn get_op(&self, op_id: Operand) -> &Op {
+    let func_id = self.current_func();
+    &self.get_func(func_id).dfg[op_id]
+  }
+
+  pub fn get_bb(&self, bb_id: Operand) -> &BasicBlock {
+    let func_id = self.current_func();
+    &self.get_func(func_id).cfg[bb_id]
   }
 }
 

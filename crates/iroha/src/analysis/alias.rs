@@ -57,7 +57,7 @@ impl Analysis for AliasAnalysis {
   }
 }
 
-pub fn is_alias(cx: &PassContext<'_>, a: Operand, b: Operand) -> AliasResult {
+pub fn alias(cx: &PassContext<'_>, a: Operand, b: Operand) -> AliasResult {
   let (a_loc, b_loc) = (cx.compute_mem_loc(a), cx.compute_mem_loc(b));
   AliasAnalysis::new((a_loc, b_loc)).run()
 }

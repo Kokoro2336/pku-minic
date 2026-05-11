@@ -109,6 +109,13 @@ impl AffineExpr {
       _ => None,
     }
   }
+
+  pub fn get_keys(&self) -> Option<impl Iterator<Item = &Operand>> {
+    match self {
+      AffineExpr::L(e) => Some(e.get_keys()),
+      AffineExpr::Unknown => None,
+    }
+  }
 }
 
 impl AddAssign<&AffineExpr> for AffineExpr {
@@ -277,6 +284,10 @@ impl LinearExpr {
     } else {
       None
     }
+  }
+
+  pub fn get_keys(&self) -> impl Iterator<Item = &Operand> {
+    self.terms.keys()
   }
 }
 
