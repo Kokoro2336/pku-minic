@@ -1,12 +1,12 @@
 //! Global Value Numbering (GVN) .
 
-use yachiyo::analysis::analyze;
+use yachiyo::analysis::{analyze, AliasResult, CallGraph};
 use yachiyo::ir::mid::{OpData, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::set::BitSet;
 use yachiyo::utils::table::SymbolTable;
 
-use crate::analysis::{DomAnalysis, DomTree};
+use crate::analysis::{alias, CallGraphAnalysis, DomAnalysis, DomTree};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum CanonicalExpr {
@@ -31,7 +31,6 @@ enum CanonicalExpr {
   /// Phi's operands are sorted by the block id.
   Phi(Vec<PhiIncoming>),
 
-  // - Load produce a value, we don't consider it as memory is not constrained by SSA form.
   // - GEP is not to be canonicalized too.
   // TODO: When we can determine whether a function has side effects, we can add Call here.
   /// For other operations that we don't consider, we represent then as None.
@@ -39,6 +38,7 @@ enum CanonicalExpr {
 }
 
 enum GVNPhase {
+  /// BasicBlock
   Start(Operand),
   End,
 }
@@ -54,6 +54,8 @@ pub struct GVN<'a> {
   dfs_post_order: Vec<Operand>,
   /// BBId -> Reveresed Post-Order DFS number
   rdfn: Vec<usize>,
+
+  call_graph: CallGraph,
 }
 
 impl From<&OpData> for CanonicalExpr {
@@ -169,27 +171,78 @@ impl GVN<'_> {
     self.symbols.enter_scope();
   }
 
+  fn forward(&mut self, mem_entries: &[Operand], load_id: Operand) -> Option<Operand> {
+    let OpData::Load { addr: origin } = self.cx.get_op_data(load_id).clone() else {
+      unreachable!()
+    };
+
+    for &mem_entry in mem_entries.iter().rev() {
+      match self.cx.get_op_data(mem_entry).clone() {
+        OpData::Load { addr } => {
+          let res = alias(&mut self.cx, addr, origin, &self.call_graph);
+          match res {
+            AliasResult::MustAlias => return Some(mem_entry),
+            AliasResult::NoAlias => continue,
+            AliasResult::MayAlias => return None,
+          }
+        }
+        OpData::Store { addr, value } => {
+          let res = alias(&mut self.cx, addr, origin, &self.call_graph);
+          match res {
+            AliasResult::MustAlias => return Some(value),
+            AliasResult::NoAlias => continue,
+            AliasResult::MayAlias => return None,
+          }
+        }
+        OpData::Call { .. } => return None,
+        _ => unreachable!(),
+      }
+    }
+
+    None
+  }
+
   fn run(&mut self, dom_tree: &DomTree) {
     let func_id = self.cx.current_func();
     while let Some(phase) = self.stack.pop() {
       match phase {
         GVNPhase::Start(bb_id) => {
-          let insts = self.cx.get_func(func_id).cfg[bb_id.get_bb_id()].cur.clone();
+          // Update snapshot for mem_entries
+          let mut mem_entries = vec![];
+          let insts = self.cx.get_bb(bb_id).cur.clone();
 
           // Start GVN
           for inst in insts {
             let op_data = &self.cx.get_func(func_id).dfg[inst.get_op_id()].data;
-            if let OpData::GEP { base, indices } = op_data {
-              if indices.len() == 1
-                && indices.iter().all(|index| matches!(index, Operand::Int(0)))
-                // TODO: Global's use-def not supported yet.
-                && !matches!(base, Operand::Global(_))
-              {
-                // We can canonicalize GEP with single zero indices to its base pointer.
-                // If indices.len() > 1, we can't eliminate it since replacement would iccur type mismatch.
-                self.cx.replace_all_uses(inst, *base);
+            match op_data {
+              OpData::GEP { base, indices } => {
+                if indices.len() == 1
+                  && indices.iter().all(|index| matches!(index, Operand::Int(0)))
+                  // TODO: Global's use-def not supported yet.
+                  && !matches!(base, Operand::Global(_))
+                {
+                  // We can canonicalize GEP with single zero indices to its base pointer.
+                  // If indices.len() > 1, we can't eliminate it since replacement would iccur type mismatch.
+                  self.cx.replace_all_uses(inst, *base);
+                  continue;
+                }
+              }
+              OpData::Store { .. } => {
+                mem_entries.push(inst);
                 continue;
               }
+              OpData::Load { .. } => {
+                let forwarded = self.forward(&mem_entries, inst);
+                if let Some(value) = forwarded {
+                  self.cx.replace_all_uses(inst, value);
+                } else {
+                  mem_entries.push(inst);
+                }
+                continue;
+              }
+              // TODO: If we can determine whether a function can be folded, we shouldn't push Call to mem_entries for now.
+              OpData::Call { .. } => mem_entries.push(inst),
+              _ => {}
             }
 
             // Canonicalize the instruction
@@ -240,6 +293,9 @@ impl<'a> Pass<'a> for GVN<'a> {
   }
 
   fn run(&mut self) {
+    // Run Call Graph analysis to get the call graph.
+    self.call_graph = analyze::<CallGraphAnalysis>(self.cx.ir());
+
     // run dominance analysis to get the dominator tree
     for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
