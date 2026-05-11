@@ -15,7 +15,7 @@ pub trait Analysis {
   type Input;
   type Output;
 
-  fn name(&self) -> &str;
+  fn name() -> &'static str;
   fn new(input: Self::Input) -> Self;
   fn run(&mut self) -> Self::Output;
 }
@@ -24,9 +24,10 @@ pub fn analyze<A: Analysis>(input: A::Input) -> A::Output {
   let mut analysis = A::new(input);
 
   #[cfg(feature = "debug")]
-
   info!("Running analysis: {}", analysis.name());
+
   let result = analysis.run();
+
   #[cfg(feature = "debug")]
   info!("Finished analysis: {}", analysis.name());
 

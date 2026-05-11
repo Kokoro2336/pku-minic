@@ -14,7 +14,7 @@ impl<'a> Analysis for CallGraphAnalysis<'a> {
   type Input = &'a IR;
   type Output = CallGraph;
 
-  fn name(&self) -> &str {
+  fn name() -> &'static str {
     "Call Graph Analysis"
   }
 

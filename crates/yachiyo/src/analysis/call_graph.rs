@@ -6,6 +6,7 @@ use crate::utils::arena::IndexedArena;
 use rustc_hash::FxHashMap;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 
+#[derive(Default)]
 pub struct CallGraph {
   /// Callers of each function.
   pub callers: Vec<Vec<Operand>>,
@@ -17,6 +18,28 @@ pub struct CallGraph {
   pub caller_to_info: FxHashMap<Operand, Vec<CallSiteInfoId>>,
   /// Callee -> CallSiteInfo
   pub callee_to_info: FxHashMap<Operand, Vec<CallSiteInfoId>>,
+}
+
+impl CallGraph {
+  pub fn get_call_sites_by_caller(&self, caller: Operand) -> Vec<&CallSiteInfo> {
+    self
+      .caller_to_info
+      .get(&caller)
+      .into_iter()
+      .flatten()
+      .map(|info_id| &self[*info_id])
+      .collect()
+  }
+
+  pub fn get_call_sites_by_callee(&self, callee: Operand) -> Vec<&CallSiteInfo> {
+    self
+      .callee_to_info
+      .get(&callee)
+      .into_iter()
+      .flatten()
+      .map(|info_id| &self[*info_id])
+      .collect()
+  }
 }
 
 #[derive(Debug)]
@@ -68,5 +91,19 @@ impl Index<CallSiteInfoId> for CallGraph {
 impl IndexMut<CallSiteInfoId> for CallGraph {
   fn index_mut(&mut self, index: CallSiteInfoId) -> &mut Self::Output {
     &mut self.call_site_infos[index.0]
+  }
+}
+
+impl Index<CallSiteInfoId> for IndexedArena<CallSiteInfo> {
+  type Output = CallSiteInfo;
+
+  fn index(&self, index: CallSiteInfoId) -> &Self::Output {
+    &self[index.0]
+  }
+}
+
+impl IndexMut<CallSiteInfoId> for IndexedArena<CallSiteInfo> {
+  fn index_mut(&mut self, index: CallSiteInfoId) -> &mut Self::Output {
+    &mut self[index.0]
   }
 }

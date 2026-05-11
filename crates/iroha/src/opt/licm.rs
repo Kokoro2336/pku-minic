@@ -1,8 +1,10 @@
 //! Loop Invariant Code Motion (LICM).
 
-use crate::analysis::{alias, DomAnalysis, DomTree, LoopAnalysis, LoopData, LoopId, Loops};
+use crate::analysis::{
+  alias, CallGraphAnalysis, DomAnalysis, DomTree, LoopAnalysis, LoopData, LoopId, Loops,
+};
 
-use yachiyo::analysis::{analyze, AliasResult};
+use yachiyo::analysis::{analyze, AliasResult, CallGraph, MemLoc};
 use yachiyo::ir::mid::{OpData, OpType, Operand, IR};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::set::BitSet;
@@ -14,6 +16,7 @@ pub struct LICM<'a> {
   /// LoopId -> OpId -> whether the value produced by the op is an invariant.
   invariants: Vec<BitSet>,
   block_to_loop: Vec<Option<LoopId>>,
+  call_graph: CallGraph,
 }
 
 impl LICM<'_> {
@@ -66,27 +69,57 @@ impl LICM<'_> {
   /// For Load:
   /// - The MemLoc's base and offset should also be invariant.
   /// - The MemLoc should not alias with any store in the loop.
-  fn is_mem_loc_invariant(&self, lp_id: LoopId, lp_data: &LoopData, value: Operand) -> bool {
-    let mem_loc = self.cx.compute_mem_loc(value);
+  fn is_mem_loc_invariant(&mut self, lp_id: LoopId, lp_data: &LoopData, addr: Operand) -> bool {
+    if !self.is_invariant(lp_id, lp_data, addr) {
+      return false;
+    }
+
+    let mem_loc = self.cx.compute_mem_loc(addr);
+
+    self.mem_loc_operands_invariant(lp_id, lp_data, &mem_loc)
+      && !self.loop_may_clobber_mem_loc(lp_data, addr)
+  }
+
+  fn mem_loc_operands_invariant(
+    &self,
+    lp_id: LoopId,
+    lp_data: &LoopData,
+    mem_loc: &MemLoc,
+  ) -> bool {
     let Some(offset_keys) = mem_loc.offset.get_keys() else {
-      // If the offset is not affine, we conservatively assume it's variant.
       return false;
     };
-    let mut checklist = std::iter::once(mem_loc.base).chain(offset_keys.cloned());
 
-    checklist.all(|operand| self.is_invariant(lp_id, lp_data, operand))
-      && lp_data.blocks.iter().all(|bb_id| {
-        let bb_id = Operand::BB(bb_id);
-        self.cx.get_bb(bb_id).cur.iter().all(|&inst_id| {
-          let op = self.cx.get_op(inst_id);
-          if let OpData::Store { addr, .. } = &op.data {
-            alias(&self.cx, value, *addr) == AliasResult::NoAlias
-          } else {
-            // TODO: for now, we conservatively assume that any call in the loop will clobber the memory.
-            !matches!(OpType::from(&op.data), OpType::Call)
-          }
-        })
-      })
+    std::iter::once(mem_loc.base)
+      .chain(offset_keys.cloned())
+      .all(|operand| self.is_invariant(lp_id, lp_data, operand))
+  }
+
+  fn loop_may_clobber_mem_loc(&mut self, lp_data: &LoopData, addr: Operand) -> bool {
+    for bb_id in lp_data.blocks.iter() {
+      let bb_id = Operand::BB(bb_id);
+      let cur = self.cx.get_bb(bb_id).cur.clone();
+
+      for inst_id in cur {
+        if self.inst_may_clobber_mem_loc(inst_id, addr) {
+          return true;
+        }
+      }
+    }
+
+    false
+  }
+
+  fn inst_may_clobber_mem_loc(&mut self, inst_id: Operand, addr: Operand) -> bool {
+    let op_data = self.cx.get_op(inst_id).data.clone();
+
+    match op_data {
+      OpData::Store {
+        addr: store_addr, ..
+      } => alias(&mut self.cx, addr, store_addr, &self.call_graph) != AliasResult::NoAlias,
+
+      _ => matches!(OpType::from(&op_data), OpType::Call),
+    }
   }
 
   #[inline(always)]
@@ -169,6 +202,9 @@ impl<'a> Pass<'a> for LICM<'a> {
     self.cx.mount(ir);
   }
   fn run(&mut self) {
+    // Run call graph analysis first.
+    self.call_graph = analyze::<CallGraphAnalysis>(self.cx.ir());
+
     for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
       let (loops_data, block_to_loop) = analyze::<LoopAnalysis>(self.cx.get_func(func_id));

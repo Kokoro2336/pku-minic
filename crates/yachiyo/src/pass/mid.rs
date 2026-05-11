@@ -38,6 +38,9 @@ impl<'cx, 'a> PassContextGuard<'cx, 'a> {
       cx,
     }
   }
+  pub fn cx(&mut self) -> &mut PassContext<'a> {
+    self.cx
+  }
 }
 
 impl<'a> Deref for PassContextGuard<'_, 'a> {
@@ -338,6 +341,19 @@ impl<'a> PassContext<'a> {
   pub fn get_bb(&self, bb_id: Operand) -> &BasicBlock {
     let func_id = self.current_func();
     &self.get_func(func_id).cfg[bb_id]
+  }
+
+  /// For cases where guard doesn't live long enough, e.g., in AliasAnalysis.
+  pub fn with_current_func<R>(
+    &mut self,
+    func_id: Operand,
+    f: impl FnOnce(&mut PassContext<'a>) -> R,
+  ) -> R {
+    let original_func = self.builder.current_function;
+    self.set_current_func(Some(func_id));
+    let result = f(self);
+    self.set_current_func(original_func);
+    result
   }
 }
 

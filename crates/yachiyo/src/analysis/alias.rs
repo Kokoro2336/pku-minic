@@ -7,7 +7,7 @@ use rustc_hash::FxHashMap;
 use std::cmp::PartialEq;
 use std::ops::{AddAssign, SubAssign};
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct MemLoc {
   pub base: Operand,
   pub offset: AffineExpr,

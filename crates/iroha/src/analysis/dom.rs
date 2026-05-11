@@ -321,7 +321,7 @@ impl<'a> Analysis for DomAnalysis<'a> {
   type Input = &'a Function;
   type Output = (DomTree, DomFrontier);
 
-  fn name(&self) -> &str {
+  fn name() -> &'static str {
     "Dominance Analysis"
   }
 
