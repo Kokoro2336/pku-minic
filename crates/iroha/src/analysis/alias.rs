@@ -9,6 +9,14 @@ pub struct AliasAnalysis<'cx, 'ir, 'cg> {
   a: Operand,
   b: Operand,
   call_graph: &'cg CallGraph,
+  visiting: Vec<AliasQuery>,
+}
+
+#[derive(Clone)]
+struct AliasQuery {
+  func: Operand,
+  a: MemLoc,
+  b: MemLoc,
 }
 
 impl<'cx, 'ir, 'cg> Analysis for AliasAnalysis<'cx, 'ir, 'cg> {
@@ -27,6 +35,7 @@ impl<'cx, 'ir, 'cg> Analysis for AliasAnalysis<'cx, 'ir, 'cg> {
       a,
       b,
       call_graph,
+      visiting: vec![],
     }
   }
 
@@ -35,16 +44,36 @@ impl<'cx, 'ir, 'cg> Analysis for AliasAnalysis<'cx, 'ir, 'cg> {
       self.cx.compute_mem_loc(self.a),
       self.cx.compute_mem_loc(self.b),
     );
-    Self::alias_rec(self.cx, self.call_graph, &mut a_mem_loc, &mut b_mem_loc)
+    Self::alias_rec(
+      self.cx,
+      self.call_graph,
+      &mut a_mem_loc,
+      &mut b_mem_loc,
+      &mut self.visiting,
+    )
   }
 }
 
 impl AliasAnalysis<'_, '_, '_> {
+  fn in_progress(
+    visiting: &[AliasQuery],
+    func: Operand,
+    a_mem_loc: &MemLoc,
+    b_mem_loc: &MemLoc,
+  ) -> bool {
+    visiting.iter().any(|query| {
+      query.func == func
+        && ((query.a == *a_mem_loc && query.b == *b_mem_loc)
+          || (query.a == *b_mem_loc && query.b == *a_mem_loc))
+    })
+  }
+
   fn alias_rec(
     cx: &mut PassContext<'_>,
     call_graph: &CallGraph,
     a_mem_loc: &mut MemLoc,
     b_mem_loc: &mut MemLoc,
+    visiting: &mut Vec<AliasQuery>,
   ) -> AliasResult {
     let (a_base, b_base) = (a_mem_loc.base, b_mem_loc.base);
 
@@ -63,6 +92,31 @@ impl AliasAnalysis<'_, '_, '_> {
         RangeRelation::Overlap | RangeRelation::Unknown => AliasResult::MayAlias,
       };
     }
+
+    let current_func = cx.current_func();
+    if Self::in_progress(visiting, current_func, a_mem_loc, b_mem_loc) {
+      return AliasResult::MayAlias;
+    }
+
+    visiting.push(AliasQuery {
+      func: current_func,
+      a: a_mem_loc.clone(),
+      b: b_mem_loc.clone(),
+    });
+
+    let result = Self::alias_rec_impl(cx, call_graph, a_mem_loc, b_mem_loc, visiting);
+    visiting.pop();
+    result
+  }
+
+  fn alias_rec_impl(
+    cx: &mut PassContext<'_>,
+    call_graph: &CallGraph,
+    a_mem_loc: &mut MemLoc,
+    b_mem_loc: &mut MemLoc,
+    visiting: &mut Vec<AliasQuery>,
+  ) -> AliasResult {
+    let (a_base, b_base) = (a_mem_loc.base, b_mem_loc.base);
 
     match (a_base, b_base) {
       (Operand::Global(_), Operand::Global(_)) => AliasResult::NoAlias,
@@ -92,6 +146,7 @@ impl AliasAnalysis<'_, '_, '_> {
               call_graph,
               &mut a_arg_mem_loc,
               &mut b_arg_mem_loc,
+              visiting,
             )
           });
 
@@ -144,6 +199,7 @@ impl AliasAnalysis<'_, '_, '_> {
               call_graph,
               &mut arg_mem_loc,
               &mut global_mem_loc,
+              visiting,
             )
           });
 

@@ -24,12 +24,12 @@ pub fn analyze<A: Analysis>(input: A::Input) -> A::Output {
   let mut analysis = A::new(input);
 
   #[cfg(feature = "debug")]
-  info!("Running analysis: {}", analysis.name());
+  info!("Running analysis: {}", A::name());
 
   let result = analysis.run();
 
   #[cfg(feature = "debug")]
-  info!("Finished analysis: {}", analysis.name());
+  info!("Finished analysis: {}", A::name());
 
   result
 }

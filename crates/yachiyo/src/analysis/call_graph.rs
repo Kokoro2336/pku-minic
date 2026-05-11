@@ -51,7 +51,7 @@ pub struct CallSiteInfo {
   pub args: Vec<Operand>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CallSiteInfoId(usize);
 
 impl Deref for CallSiteInfoId {

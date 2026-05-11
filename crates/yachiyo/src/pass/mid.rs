@@ -355,6 +355,11 @@ impl<'a> PassContext<'a> {
     self.set_current_func(original_func);
     result
   }
+
+  #[inline(always)]
+  pub fn get_op_data(&self, op_id: Operand) -> &OpData {
+    &self.get_op(op_id).data
+  }
 }
 
 pub trait Pass<'a> {
