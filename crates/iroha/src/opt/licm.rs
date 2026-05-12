@@ -143,16 +143,16 @@ impl LICM<'_> {
           continue;
         }
 
-        let cur = self.cx.get_func(func_id).cfg[*bb_id].cur.clone();
+        let cur = self.cx.get_bb(*bb_id).cur.clone();
         // An invariant can be hoisted multiple times through different loops.
         for inst_id in cur {
-          let op_typ = OpType::from(&self.cx.get_func(func_id).dfg[inst_id].data);
+          let op_typ = OpType::from(self.cx.get_op_data(inst_id));
           if Self::unhoistable(op_typ) {
             continue;
           }
 
           let src = self.cx.get_src_owned(inst_id);
-          let is_invariant = if let OpData::Load { addr, .. } = &self.cx.get_op(inst_id).data {
+          let is_invariant = if let OpData::Load { addr, .. } = self.cx.get_op_data(inst_id) {
             // Check Load individually.
             self.is_invariant(lp_id.into(), loop_data, *addr)
               && self.is_mem_loc_invariant(lp_id.into(), loop_data, *addr)
@@ -165,7 +165,9 @@ impl LICM<'_> {
             self.invariants[lp_id].insert(inst_id.get_op_id());
             // Move the op to the pre-header block.
             let header_id = loop_data.header;
-            let pre_header_id = self.cx.get_func(func_id).cfg[header_id]
+            let pre_header_id = self
+              .cx
+              .get_bb(header_id)
               .preds
               .iter()
               .filter(|(pred_id, _)| !dom_tree.is_dom(header_id.get_bb_id(), pred_id.get_bb_id()))
@@ -176,10 +178,7 @@ impl LICM<'_> {
             assert!(pre_header_id.len() == 1);
 
             let pre_header_id = pre_header_id[0];
-            let pre_header_term = *self.cx.get_func(func_id).cfg[pre_header_id]
-              .cur
-              .last()
-              .unwrap();
+            let pre_header_term = *self.cx.get_bb(pre_header_id).cur.last().unwrap();
 
             self
               .cx

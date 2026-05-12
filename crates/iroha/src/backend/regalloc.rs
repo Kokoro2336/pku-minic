@@ -1128,9 +1128,9 @@ impl RegAlloc<'_> {
     for bb_id in bb_ids {
       let bb_id = BOperand::BB(bb_id);
       self.cx.set_current_block(bb_id);
-      let inst_ids = self.cx.get_func(func_id).cfg[bb_id].cur.clone();
+      let inst_ids = self.cx.get_bb(bb_id).cur.clone();
       for inst_id in inst_ids {
-        let op = &self.cx.get_func(func_id).dfg[inst_id];
+        let op = self.cx.get_op(inst_id);
         let (op_data, typ, attrs) = (op.data.clone(), op.typ.clone(), op.attrs.clone());
         let BOpData::L(LOpData::AddI { rd, lhs, rhs }) = op_data else {
           continue;
@@ -1751,9 +1751,9 @@ impl RegAlloc<'_> {
 
     for bb_id in bb_ids {
       let bb_id = BOperand::BB(bb_id);
-      let inst_ids = self.cx.get_func(func_id).cfg[bb_id].cur.clone();
+      let inst_ids = self.cx.get_bb(bb_id).cur.clone();
       for inst_id in inst_ids {
-        let data = &self.cx.get_func(func_id).dfg[inst_id].data;
+        let data = self.cx.get_op_data(inst_id);
         if data.is_call() {
           is_leaf = false;
         }
@@ -1814,9 +1814,9 @@ impl RegAlloc<'_> {
       let bb_id = BOperand::BB(bb_id);
       self.cx.set_current_block(bb_id);
 
-      let inst_ids = self.cx.get_func(func_id).cfg[bb_id].cur.clone();
+      let inst_ids = self.cx.get_bb(bb_id).cur.clone();
       for inst_id in inst_ids {
-        let op = &self.cx.get_func(func_id).dfg[inst_id];
+        let op = self.cx.get_op(inst_id);
         let (op_data, rd_typ, attrs) = (op.data.clone(), op.typ.clone(), op.attrs.clone());
 
         if let BOpData::L(LOpData::Store {

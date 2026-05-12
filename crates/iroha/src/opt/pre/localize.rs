@@ -61,11 +61,10 @@ impl Localize<'_> {
           .iter()
           .map(|(op_id, idx)| (**op_id, *idx))
           .collect::<Vec<_>>();
-        let dfg = &mut self.cx.get_func_mut(func_id).dfg;
 
         for (src_id, src_idx) in src_tuple {
           if src_id == global {
-            dfg.replace_use((mem_inst, src_idx), global, alloca_id);
+            self.cx.replace_use((mem_inst, src_idx), global, alloca_id);
           }
         }
       }
@@ -92,7 +91,7 @@ impl Localize<'_> {
         let barrier_bb = guard.op_bb(barrier);
         guard.set_current_block(barrier_bb);
 
-        let op_data = guard.get_func(func_id).dfg[barrier].data.clone();
+        let op_data = guard.get_op_data(barrier).clone();
         match op_data {
           OpData::Call { func, .. } => {
             if !self.might_used_globals[func.get_func_id()].contains(global.get_global_id()) {
@@ -168,12 +167,13 @@ impl<'a> Pass<'a> for Localize<'a> {
     // Iterate over each function,
     for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
-      let func = &self.cx.get_func(func_id);
+      self.cx.set_current_func(Some(func_id));
+      let bb_ids = self.cx.get_func(func_id).cfg.collect();
       // Collect memory instructions and barriers
-      for bb_id in func.cfg.collect() {
-        let cur = self.cx.get_func(func_id).cfg[bb_id].cur.clone();
+      for bb_id in bb_ids {
+        let cur = self.cx.get_bb(Operand::BB(bb_id)).cur.clone();
         for inst in cur {
-          let op_data = &self.cx.get_func(func_id).dfg[inst].data;
+          let op_data = self.cx.get_op_data(inst);
           match op_data {
             OpData::Load { addr } | OpData::Store { addr, .. } => {
               if matches!(addr, Operand::Global(_)) && self.is_mutable_global(*addr) {

@@ -136,10 +136,10 @@ impl Legalize<'_> {
       self.cx.set_current_block(bb_id);
       let current_block = bb_id;
 
-      let inst_ids = self.cx.get_func(func_id).cfg[bb_id].cur.clone();
+      let inst_ids = self.cx.get_bb(bb_id).cur.clone();
       for inst_id in inst_ids {
         self.cx.set_before_inst(Some(inst_id));
-        let op = &self.cx.get_func(func_id).dfg[inst_id];
+        let op = self.cx.get_op(inst_id);
         let (lop_data, typ, attrs) = (op.data.clone().into(), op.typ.clone(), op.attrs.clone());
 
         match_src! {

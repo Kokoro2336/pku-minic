@@ -26,7 +26,6 @@ impl LoopSimplify<'_> {
       return;
     }
 
-    let func_id = self.cx.current_func();
     // If there are multiple outer preds, insert a pre-header.
     let new_bb_id = self.cx.create_new_block();
     self.cx.set_current_block(new_bb_id);
@@ -41,9 +40,9 @@ impl LoopSimplify<'_> {
 
     // Replace terminator of preds
     for &pred_id in preds.iter() {
-      let pred = &self.cx.get_func(func_id).cfg[pred_id];
+      let pred = self.cx.get_bb(pred_id);
       let term_id = *pred.cur.last().unwrap();
-      let term_op_data = self.cx.get_func(func_id).dfg[term_id].data.clone();
+      let term_op_data = self.cx.get_op_data(term_id).clone();
       match_some! {
         target: term_op_data,
         enu: OpData,
@@ -97,7 +96,7 @@ impl LoopSimplify<'_> {
     // Process phi nodes in the header block.
     let phis = self.cx.get_all_ops_in_block(header_id, OpType::Phi);
     for phi_id in phis {
-      let phi_op_data = self.cx.get_func(func_id).dfg[phi_id].data.clone();
+      let phi_op_data = self.cx.get_op_data(phi_id).clone();
       let phi_typ = self.cx.get_op_type(phi_id);
       if let OpData::Phi { incomings } = phi_op_data {
         let pred_incomings = incomings
@@ -144,14 +143,13 @@ impl LoopSimplify<'_> {
 
   /// For simplicity, we insert one dedicated exiting block.
   fn dedicated_exits(&mut self, loop_data: &mut LoopData) {
-    let func_id = self.cx.current_func();
     let mut deprecated_exits = BitSet::new();
     let mut new_exits = BitSet::new();
 
     // Find out all exit blocks of the loop, and for each exit block.
     for exit_bb_id in loop_data.exit_blocks.iter() {
       let exit_bb_id = Operand::BB(exit_bb_id);
-      let exit_bb_preds = self.cx.get_func(func_id).cfg[exit_bb_id].preds.clone();
+      let exit_bb_preds = self.cx.get_bb(exit_bb_id).preds.clone();
       let should_insert_dedicated = exit_bb_preds
         .iter()
         .any(|(pred_id, _)| !loop_data.blocks.contains(pred_id.get_bb_id()));
@@ -181,9 +179,9 @@ impl LoopSimplify<'_> {
           ));
 
           // Replace terminator of exit_bb_pred_id
-          let pred = &self.cx.get_func(func_id).cfg[*exit_bb_pred_id];
+          let pred = self.cx.get_bb(*exit_bb_pred_id);
           let term_id = *pred.cur.last().unwrap();
-          let term_op_data = self.cx.get_func(func_id).dfg[term_id].data.clone();
+          let term_op_data = self.cx.get_op_data(term_id).clone();
           match_some! {
             target: term_op_data,
             enu: OpData,
@@ -236,7 +234,7 @@ impl LoopSimplify<'_> {
           // Process phi nodes in the exit block.
           let phis = self.cx.get_all_ops_in_block(exit_bb_id, OpType::Phi);
           for phi_id in phis {
-            let phi_op_data = self.cx.get_func(func_id).dfg[phi_id].data.clone();
+            let phi_op_data = self.cx.get_op_data(phi_id).clone();
             if let OpData::Phi { incomings } = phi_op_data {
               for incoming in incomings {
                 if let PhiIncoming::Data { value, bb } = incoming {
@@ -262,14 +260,13 @@ impl LoopSimplify<'_> {
   }
 
   fn run(&mut self, dom_tree: &DomTree, loops_data: &mut Vec<LoopData>) {
-    let func_id = self.cx.current_func();
     for loop_data in loops_data {
       // Ensure dedicated exits first.
       self.dedicated_exits(loop_data);
 
       // Processing headers and latches.
       let header_id = loop_data.header;
-      let header = &self.cx.get_func(func_id).cfg[header_id];
+      let header = self.cx.get_bb(header_id);
       let (mut pre_header_preds, mut latch_preds) = (vec![], vec![]);
       for (pred_id, _) in header.preds.iter() {
         if dom_tree.is_dom(header_id.get_bb_id(), pred_id.get_bb_id()) {

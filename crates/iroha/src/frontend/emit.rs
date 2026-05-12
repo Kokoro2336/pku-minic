@@ -50,7 +50,9 @@ impl Emit {
   #[inline(always)]
   fn alloc_param(&mut self, param: (String, Type)) -> Operand {
     let func_id = self.builder.current_function.unwrap();
-    let param_idx = self.program.funcs[func_id].params.alloc(param);
+    let param_idx = self.program.funcs[func_id]
+      .params
+      .alloc(Param::new(param.0, param.1));
     Operand::Param(param_idx)
   }
 
@@ -64,7 +66,7 @@ impl Emit {
     match operand {
       Operand::Value(id) => dfg[*id].typ.clone(),
       Operand::Global(id) => globals[*id].typ.clone(),
-      Operand::Param(id) => current_func.params[*id].1.clone(),
+      Operand::Param(id) => current_func.params[*id].typ.clone(),
       Operand::Int(_) => Type::Int,
       Operand::Float(_) => Type::Float,
       Operand::Bool(_) => Type::Bool,

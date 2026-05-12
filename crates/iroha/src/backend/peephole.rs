@@ -20,9 +20,9 @@ impl Peephole<'_> {
     let bb_ids = self.cx.get_func(func_id).cfg.ids();
     for bb_id in bb_ids {
       let bb_id = BOperand::BB(bb_id);
-      let inst_ids = self.cx.get_func(func_id).cfg[bb_id].cur.clone();
+      let inst_ids = self.cx.get_bb(bb_id).cur.clone();
       for inst_id in inst_ids {
-        let op_data = self.cx.get_func(func_id).dfg[inst_id].data.clone();
+        let op_data = self.cx.get_op_data(inst_id).clone();
         match op_data {
           BOpData::L(lop_data) => match_some! {
               target: lop_data,

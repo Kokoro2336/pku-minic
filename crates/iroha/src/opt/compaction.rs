@@ -2,7 +2,6 @@
 
 use yachiyo::ir::mid::IR;
 use yachiyo::pass::{Pass, PassContext};
-use yachiyo::utils::arena::Arena;
 
 #[derive(Default)]
 pub struct Compaction<'a> {
@@ -17,6 +16,6 @@ impl<'a> Pass<'a> for Compaction<'a> {
     self.cx.mount(ir);
   }
   fn run(&mut self) {
-    self.cx.ir_mut().funcs.gc();
+    self.cx.ir_mut().gc();
   }
 }

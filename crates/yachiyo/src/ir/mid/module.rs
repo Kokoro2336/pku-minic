@@ -1,7 +1,7 @@
 //! Module definition of IR.
 
 use crate::ir::mid::{
-  BasicBlock, Builder, BuilderGuard, Op, OpData, OpType, Operand, PhiIncoming, CG, DFG,
+  BasicBlock, Builder, BuilderGuard, Function, Op, OpData, OpType, Operand, PhiIncoming, CG, DFG,
 };
 use crate::utils::arena::{Arena, ArenaItem};
 use crate::utils::r#match::match_some;
@@ -64,18 +64,177 @@ impl IndexMut<usize> for Globals {
 
 impl Globals {
   /// Replace an operand use inside a global op without maintaining use-def lists.
-  pub fn replace_use(&mut self, op_tuple: (Operand, usize), old: Operand, new: Operand) {
+  pub fn replace_use(&mut self, op_tuple: (Operand, usize), old: Operand, new: Operand) -> bool {
     let (op_id, operand_idx) = op_tuple;
     let op_id = match op_id {
       Operand::Global(op_id) => op_id,
-      _ => return,
+      _ => return false,
     };
 
     let src_tuples = DFG::match_src_tuple_mut(&mut self.0[op_id].data);
+    let mut replaced = false;
     for (src, idx) in src_tuples {
       if *src == old && idx == operand_idx {
         *src = new;
+        replaced = true;
       }
+    }
+    replaced
+  }
+}
+
+/// GlobalId -> (UserId, operand_idx)
+#[derive(Default, Debug, Clone)]
+pub struct GlobalUses(Vec<Vec<(Operand, usize)>>);
+
+impl Index<Operand> for GlobalUses {
+  type Output = Vec<(Operand, usize)>;
+
+  fn index(&self, index: Operand) -> &Self::Output {
+    match index {
+      Operand::Global(index) => &self.0[index],
+      _ => panic!(
+        "GlobalUses index: expected a global operand, got {:?}",
+        index
+      ),
+    }
+  }
+}
+
+impl IndexMut<Operand> for GlobalUses {
+  fn index_mut(&mut self, index: Operand) -> &mut Self::Output {
+    match index {
+      Operand::Global(index) => &mut self.0[index],
+      _ => panic!(
+        "GlobalUses index_mut: expected a global operand, got {:?}",
+        index
+      ),
+    }
+  }
+}
+
+impl GlobalUses {
+  fn ensure_global(&mut self, global: Operand) {
+    let Operand::Global(global_id) = global else {
+      return;
+    };
+
+    if global_id >= self.0.len() {
+      self.0.resize_with(global_id + 1, Vec::new);
+    }
+  }
+
+  pub fn add_use(&mut self, global: Operand, user_tuple: (Operand, usize)) {
+    let Operand::Global(_) = global else {
+      return;
+    };
+
+    self.ensure_global(global);
+    self[global].push(user_tuple);
+  }
+
+  pub fn remove_use(&mut self, global: Operand, user_tuple: (Operand, usize)) {
+    let Operand::Global(_) = global else {
+      return;
+    };
+
+    self.ensure_global(global);
+    let users = &mut self[global];
+    if let Some(pos) = users.iter().position(|x| *x == user_tuple) {
+      users.swap_remove(pos);
+    } else {
+      panic!(
+        "Use {:?}: not found in users of global {:?}",
+        user_tuple, global
+      );
+    }
+  }
+
+  pub fn users(&self, global: Operand) -> Vec<(Operand, usize)> {
+    let Operand::Global(global_id) = global else {
+      return vec![];
+    };
+
+    self.0.get(global_id).cloned().unwrap_or_default()
+  }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FuncsGlobalUses(Vec<GlobalUses>);
+
+impl Index<Operand> for FuncsGlobalUses {
+  type Output = GlobalUses;
+
+  fn index(&self, index: Operand) -> &Self::Output {
+    match index {
+      Operand::Func(index) => &self.0[index],
+      _ => panic!(
+        "FuncsGlobalUses index: expected a function operand, got {:?}",
+        index
+      ),
+    }
+  }
+}
+
+impl IndexMut<Operand> for FuncsGlobalUses {
+  fn index_mut(&mut self, index: Operand) -> &mut Self::Output {
+    match index {
+      Operand::Func(index) => &mut self.0[index],
+      _ => panic!(
+        "FuncsGlobalUses index_mut: expected a function operand, got {:?}",
+        index
+      ),
+    }
+  }
+}
+
+impl FuncsGlobalUses {
+  fn ensure_func(&mut self, func: Operand) {
+    let Operand::Func(func_id) = func else {
+      return;
+    };
+
+    if func_id >= self.0.len() {
+      self.0.resize_with(func_id + 1, GlobalUses::default);
+    }
+  }
+
+  pub fn add_use(&mut self, func: Operand, global: Operand, user_tuple: (Operand, usize)) {
+    self.ensure_func(func);
+    self[func].add_use(global, user_tuple);
+  }
+
+  pub fn remove_use(&mut self, func: Operand, global: Operand, user_tuple: (Operand, usize)) {
+    self.ensure_func(func);
+    self[func].remove_use(global, user_tuple);
+  }
+
+  pub fn users(&self, func: Option<Operand>, global: Operand) -> Vec<(Operand, usize)> {
+    match func {
+      Some(Operand::Func(func_id)) => self
+        .0
+        .get(func_id)
+        .map(|global_uses| global_uses.users(global))
+        .unwrap_or_default(),
+      Some(func) => panic!(
+        "FuncsGlobalUses users: expected a function operand, got {:?}",
+        func
+      ),
+      None => self
+        .0
+        .iter()
+        .flat_map(|global_uses| global_uses.users(global))
+        .collect(),
+    }
+  }
+
+  pub fn clear_func(&mut self, func: Operand) {
+    let Operand::Func(func_id) = func else {
+      return;
+    };
+
+    if func_id < self.0.len() {
+      self.0[func_id] = GlobalUses::default();
     }
   }
 }
@@ -86,6 +245,8 @@ pub struct IR {
   /// 1. global variables
   /// 2. SysY library functions
   pub globals: Globals,
+  /// FuncId -> GlobalId -> (UserId, operand_idx)
+  global_uses: FuncsGlobalUses,
   /// global funcs
   pub funcs: CG,
 }
@@ -94,6 +255,7 @@ impl IR {
   pub fn new() -> Self {
     Self {
       globals: Globals::default(),
+      global_uses: FuncsGlobalUses::default(),
       funcs: CG::new(),
     }
   }
@@ -104,10 +266,8 @@ impl IR {
       .into_iter()
       .map(|(src, idx)| (*src, idx))
       .collect::<Vec<(Operand, usize)>>();
-    let current_function = current_function.unwrap();
-    let dfg = &mut self.funcs[current_function].dfg;
     for (src, idx) in src_tuples {
-      dfg.add_use(src, (op, idx));
+      self.add_use(current_function, src, (op, idx));
     }
   }
 
@@ -117,11 +277,147 @@ impl IR {
       .into_iter()
       .map(|(src, idx)| (*src, idx))
       .collect::<Vec<(Operand, usize)>>();
-    let current_function = current_function.unwrap();
-    let dfg = &mut self.funcs[current_function].dfg;
     for (src, idx) in src_tuples {
-      dfg.remove_use(src, (op, idx));
+      self.remove_use(current_function, src, (op, idx));
     }
+  }
+
+  pub fn add_use(
+    &mut self,
+    current_function: Option<Operand>,
+    used: Operand,
+    user_tuple: (Operand, usize),
+  ) {
+    match used {
+      Operand::Value(_) => {
+        let current_function = current_function.unwrap();
+        self.funcs[current_function].dfg.add_use(used, user_tuple);
+      }
+      Operand::Param(_) => {
+        let current_function = current_function.unwrap();
+        self.funcs[current_function]
+          .params
+          .add_use(used, user_tuple);
+      }
+      Operand::Global(_) => {
+        let current_function = current_function
+          .unwrap_or_else(|| panic!("IR add_use: global use without current function"));
+        self.global_uses.add_use(current_function, used, user_tuple);
+      }
+      Operand::Int(_)
+      | Operand::Float(_)
+      | Operand::Bool(_)
+      | Operand::Undefined
+      | Operand::Func(_)
+      | Operand::BB(_) => {}
+    }
+  }
+
+  pub fn remove_use(
+    &mut self,
+    current_function: Option<Operand>,
+    used: Operand,
+    user_tuple: (Operand, usize),
+  ) {
+    match used {
+      Operand::Value(_) => {
+        let current_function = current_function.unwrap();
+        self.funcs[current_function]
+          .dfg
+          .remove_use(used, user_tuple);
+      }
+      Operand::Param(_) => {
+        let current_function = current_function.unwrap();
+        self.funcs[current_function]
+          .params
+          .remove_use(used, user_tuple);
+      }
+      Operand::Global(_) => {
+        let current_function = current_function
+          .unwrap_or_else(|| panic!("IR remove_use: global use without current function"));
+        self
+          .global_uses
+          .remove_use(current_function, used, user_tuple);
+      }
+      Operand::Int(_)
+      | Operand::Float(_)
+      | Operand::Bool(_)
+      | Operand::Undefined
+      | Operand::Func(_)
+      | Operand::BB(_) => {}
+    }
+  }
+
+  pub fn replace_use(
+    &mut self,
+    current_function: Option<Operand>,
+    op_tuple: (Operand, usize),
+    old: Operand,
+    new: Operand,
+  ) {
+    let (user, operand_idx) = op_tuple;
+    let replaced = match user {
+      Operand::Value(_) => {
+        let current_function = current_function.unwrap();
+        let src_tuples = self.funcs[current_function].get_src_tuple_mut(user);
+        let mut replaced = false;
+        for (src, idx) in src_tuples {
+          if *src == old && idx == operand_idx {
+            *src = new;
+            replaced = true;
+          }
+        }
+        replaced
+      }
+      Operand::Global(_) => self.globals.replace_use(op_tuple, old, new),
+      _ => false,
+    };
+
+    if !replaced {
+      panic!(
+        "IR replace_use: use tuple ({:?}, {}) for {:?} not found",
+        user, operand_idx, old
+      );
+    }
+
+    self.remove_use(current_function, old, op_tuple);
+    self.add_use(current_function, new, op_tuple);
+  }
+
+  pub fn users(
+    &self,
+    current_function: Option<Operand>,
+    operand: Operand,
+  ) -> Vec<(Operand, usize)> {
+    match operand {
+      Operand::Value(_) => {
+        let current_function = current_function.unwrap();
+        self.funcs[current_function].dfg[operand].users.clone()
+      }
+      Operand::Param(_) => {
+        let current_function = current_function.unwrap();
+        self.funcs[current_function].params.users(operand)
+      }
+      Operand::Global(_) => self.global_uses.users(current_function, operand),
+      Operand::Int(_)
+      | Operand::Float(_)
+      | Operand::Bool(_)
+      | Operand::Undefined
+      | Operand::Func(_)
+      | Operand::BB(_) => vec![],
+    }
+  }
+
+  pub fn clear_uses(&mut self, current_function: Option<Operand>) {
+    let current_function = current_function.unwrap();
+    let func = &mut self.funcs[current_function];
+    for item in func.dfg.storage.iter_mut() {
+      if let ArenaItem::Data(op) = item {
+        op.users.clear();
+      }
+    }
+    func.params.clear_uses();
+    self.global_uses.clear_func(current_function);
   }
 
   pub fn replace_some_uses(
@@ -131,9 +427,7 @@ impl IR {
     new: Operand,
     user_list: Vec<(Operand, usize)>,
   ) {
-    let current_function = current_function.unwrap();
-    let dfg = &mut self.funcs[current_function].dfg;
-    let users = dfg[old.get_op_id()].users.clone();
+    let users = self.users(current_function, old);
     for user in user_list {
       if !users.contains(&user) {
         panic!(
@@ -141,7 +435,7 @@ impl IR {
           user, old
         );
       }
-      dfg.replace_use(user, old, new);
+      self.replace_use(current_function, user, old, new);
     }
   }
 
@@ -151,11 +445,9 @@ impl IR {
     old: Operand,
     new: Operand,
   ) {
-    let current_function = current_function.unwrap();
-    let dfg = &mut self.funcs[current_function].dfg;
-    let users = dfg[old.get_op_id()].users.clone();
+    let users = self.users(current_function, old);
     for use_op in users {
-      dfg.replace_use(use_op, old, new);
+      self.replace_use(current_function, use_op, old, new);
     }
   }
 
@@ -382,8 +674,8 @@ impl IR {
     bb: Option<Operand>,
   ) -> Op {
     if matches!(op, Operand::Global(_)) {
-      let removed_op = self.globals.remove(op.get_op_id());
-      assert!(removed_op.users.is_empty());
+      assert!(self.users(None, op).is_empty());
+      let removed_op = self.globals.remove(op.get_global_id());
       return removed_op;
     }
 
@@ -507,13 +799,22 @@ impl IR {
     current_function: Option<Operand>,
     op_id: Operand,
   ) -> Vec<(&Operand, usize)> {
-    let current_function = current_function.unwrap();
-    self.funcs[current_function].get_src_tuple(op_id)
+    match op_id {
+      Operand::Value(_) => {
+        let current_function = current_function.unwrap();
+        self.funcs[current_function].get_src_tuple(op_id)
+      }
+      Operand::Global(_) => DFG::match_src_tuple(&self.globals[op_id].data),
+      _ => vec![],
+    }
   }
 
   pub fn get_src(&self, current_function: Option<Operand>, op_id: Operand) -> Vec<&Operand> {
-    let current_function = current_function.unwrap();
-    self.funcs[current_function].get_src(op_id)
+    self
+      .get_src_tuple(current_function, op_id)
+      .into_iter()
+      .map(|(src, _)| src)
+      .collect()
   }
 
   pub fn get_src_tuple_mut(
@@ -521,8 +822,14 @@ impl IR {
     current_function: Option<Operand>,
     op_id: Operand,
   ) -> Vec<(&mut Operand, usize)> {
-    let current_function = current_function.unwrap();
-    self.funcs[current_function].get_src_tuple_mut(op_id)
+    match op_id {
+      Operand::Value(_) => {
+        let current_function = current_function.unwrap();
+        self.funcs[current_function].get_src_tuple_mut(op_id)
+      }
+      Operand::Global(_) => DFG::match_src_tuple_mut(&mut self.globals[op_id].data),
+      _ => vec![],
+    }
   }
 
   pub fn get_src_mut(
@@ -543,15 +850,24 @@ impl IR {
     value: Operand,
     bb: Operand,
   ) {
-    let dfg = &mut self.funcs[current_function.unwrap()].dfg;
+    let current_function = current_function.unwrap();
     let phi_id = phi.get_op_id();
 
-    if let OpData::Phi { incomings } = &mut dfg[phi_id].data {
+    let old_incoming = match &self.funcs[current_function].dfg[phi_id].data {
+      OpData::Phi { incomings } => incomings[idx].clone(),
+      _ => unreachable!(),
+    };
+
+    if let PhiIncoming::Data { value, .. } = old_incoming {
+      self.remove_use(Some(current_function), value, (phi, idx));
+    }
+
+    if let OpData::Phi { incomings } = &mut self.funcs[current_function].dfg[phi_id].data {
       incomings[idx] = PhiIncoming::Data { value, bb };
-      dfg.add_use(value, (phi, idx));
     } else {
       unreachable!()
     }
+    self.add_use(Some(current_function), value, (phi, idx));
   }
 
   /// This function append a new phi incoming and return the new incoming index.
@@ -562,16 +878,17 @@ impl IR {
     value: Operand,
     bb: Operand,
   ) {
-    let dfg = &mut self.funcs[current_function.unwrap()].dfg;
+    let current_function = current_function.unwrap();
     let phi_id = phi.get_op_id();
 
-    if let OpData::Phi { incomings } = &mut dfg[phi_id].data {
+    let idx = if let OpData::Phi { incomings } = &mut self.funcs[current_function].dfg[phi_id].data
+    {
       incomings.push(PhiIncoming::Data { value, bb });
-      let idx = incomings.len() - 1;
-      dfg.add_use(value, (phi, idx));
+      incomings.len() - 1
     } else {
       unreachable!()
-    }
+    };
+    self.add_use(Some(current_function), value, (phi, idx));
   }
 
   /// Set a phi incoming slot to None while preserving arity.
@@ -595,9 +912,8 @@ impl IR {
     let phi_id = phi.get_op_id();
 
     let current_function = current_function.unwrap();
-    let dfg = &mut self.funcs[current_function].dfg;
 
-    if let OpData::Phi { incomings } = dfg[phi_id].data.clone() {
+    if let OpData::Phi { incomings } = self.funcs[current_function].dfg[phi_id].data.clone() {
       if let Some(pos) = incomings.iter().position(|inc| {
         if let PhiIncoming::Data { bb: inc_bb, .. } = inc {
           inc_bb == &bb
@@ -605,40 +921,24 @@ impl IR {
           false
         }
       }) {
-        if let PhiIncoming::Data { value, .. } = &incomings[pos] {
-          dfg.remove_use(*value, (phi, pos));
+        for (idx, incoming) in incomings.iter().enumerate() {
+          if let PhiIncoming::Data { value, .. } = incoming {
+            self.remove_use(Some(current_function), *value, (phi, idx));
+          }
         }
 
-        let updated_incomings = if let OpData::Phi { incomings } = &mut dfg[phi_id].data {
-          // DO NOT use swap_remove here.
-          incomings.remove(pos);
-          incomings.clone()
-        } else {
-          panic!("IR slay_phi_incoming: not a phi node");
-        };
+        let updated_incomings =
+          if let OpData::Phi { incomings } = &mut self.funcs[current_function].dfg[phi_id].data {
+            // DO NOT use swap_remove here.
+            incomings.remove(pos);
+            incomings.clone()
+          } else {
+            panic!("IR slay_phi_incoming: not a phi node");
+          };
 
-        // Rewrite each shifted incoming's exact use tuple once. A phi may use the
-        // same value in multiple incoming slots, so scanning by value alone can
-        // accidentally decrement the same use more than once.
-        for (new_idx, incoming) in updated_incomings.iter().enumerate().skip(pos) {
-          if let PhiIncoming::Data {
-            value: Operand::Value(id),
-            ..
-          } = incoming
-          {
-            let old_idx = new_idx + 1;
-            let uses = &mut dfg[*id].users;
-            if let Some((_, use_idx)) = uses
-              .iter_mut()
-              .find(|(user, use_idx)| user == &phi && *use_idx == old_idx)
-            {
-              *use_idx = new_idx;
-            } else {
-              panic!(
-                "IR slay_phi_incoming: use tuple ({:?}, {}) not found for {:?}",
-                phi, old_idx, incoming
-              );
-            }
+        for (idx, incoming) in updated_incomings.iter().enumerate() {
+          if let PhiIncoming::Data { value, .. } = incoming {
+            self.add_use(Some(current_function), *value, (phi, idx));
           }
         }
       } else {
@@ -650,6 +950,40 @@ impl IR {
     } else {
       panic!("IR slay_phi_incoming: not a phi node");
     }
+  }
+
+  pub fn gc(&mut self) -> Vec<ArenaItem<Function>> {
+    for func_id in self.funcs.collect_internal() {
+      let func_id = Operand::Func(func_id);
+      let func = &mut self.funcs[func_id];
+      for item in func.dfg.storage.iter_mut() {
+        if let ArenaItem::Data(op) = item {
+          op.users.clear();
+        }
+      }
+      func.params.clear_uses();
+    }
+
+    self.global_uses = FuncsGlobalUses::default();
+    let old_arena = self.funcs.gc();
+
+    for func_id in self.funcs.collect_internal() {
+      let func_id = Operand::Func(func_id);
+      let blocks = self.funcs[func_id]
+        .cfg
+        .collect()
+        .into_iter()
+        .map(|bb| self.funcs[func_id].cfg[Operand::BB(bb)].cur.clone())
+        .collect::<Vec<_>>();
+
+      for ops in blocks {
+        for op_id in ops {
+          self.add_uses(Some(func_id), op_id);
+        }
+      }
+    }
+
+    old_arena
   }
 }
 

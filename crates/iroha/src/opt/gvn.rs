@@ -149,14 +149,13 @@ impl GVN<'_> {
   }
 
   fn dfs(&mut self, bb_id: Operand) {
-    let func_id = self.cx.current_func();
     if self.visited.contains(bb_id.get_bb_id()) {
       return;
     }
 
     self.visited.insert(bb_id.get_bb_id());
 
-    let succs = self.cx.get_func(func_id).cfg[bb_id].succs.clone();
+    let succs = self.cx.get_bb(bb_id).succs.clone();
     for (succ, _) in succs {
       self.dfs(succ);
     }
@@ -203,17 +202,16 @@ impl GVN<'_> {
   }
 
   fn run(&mut self, dom_tree: &DomTree) {
-    let func_id = self.cx.current_func();
     while let Some(phase) = self.stack.pop() {
       match phase {
         GVNPhase::Start(bb_id) => {
-          // Update snapshot for mem_entries
+          // Local store-load forwaring
           let mut mem_entries = vec![];
           let insts = self.cx.get_bb(bb_id).cur.clone();
 
           // Start GVN
           for inst in insts {
-            let op_data = &self.cx.get_func(func_id).dfg[inst.get_op_id()].data;
+            let op_data = self.cx.get_op_data(inst);
             match op_data {
               OpData::GEP { base, indices } => {
                 if indices.len() == 1

@@ -79,7 +79,7 @@ impl SCCP<'_> {
 
       Operand::Undefined => Lattice::Top,
 
-      Operand::Global(_) | Operand::Param { .. } => Lattice::Bottom,
+      Operand::Global(_) | Operand::Param(_) => Lattice::Bottom,
 
       Operand::BB(_) | Operand::Func(_) => panic!(
         "SCCP get_lattice: operand {:?} is not a value or constant",
@@ -175,7 +175,9 @@ impl SCCP<'_> {
     self.edge_list.clear();
 
     self.edge_list.extend(
-      func.cfg[entry]
+      self
+        .cx
+        .get_bb(Operand::BB(entry))
         .succs
         .iter()
         .map(|(succ, _)| (Operand::BB(entry), *succ))
@@ -195,9 +197,8 @@ impl SCCP<'_> {
   }
 
   fn visit_expr(&mut self, op_id: Operand, bb_id: Operand) {
-    let func_id = self.cx.current_func();
     let (op_data, val_typ) = {
-      let op = &mut self.cx.get_func_mut(func_id).dfg[op_id];
+      let op = self.cx.get_op(op_id);
       (op.data.clone(), op.typ.clone())
     };
     let old = Self::get_lattice(self, &op_id);
@@ -235,10 +236,10 @@ impl SCCP<'_> {
             }
 
             // If the lattice has changed, we need to propagate the change to users.
-            for (user, _) in self.cx.get_func(func_id).dfg[op_id].users.iter() {
+            for (user, _) in self.cx.users(op_id) {
                 if !self.in_inst_list.contains(user.get_op_id()) {
                     self.in_inst_list.insert(user.get_op_id());
-                    self.inst_list.push(*user);
+                    self.inst_list.push(user);
                 }
             }
         },
@@ -251,10 +252,10 @@ impl SCCP<'_> {
                 return;
             }
             // If the lattice has changed, we need to propagate the change to users.
-            for (user, _) in self.cx.get_func(func_id).dfg[op_id].users.iter() {
+            for (user, _) in self.cx.users(op_id) {
                 if !self.in_inst_list.contains(user.get_op_id()) {
                     self.in_inst_list.insert(user.get_op_id());
-                    self.inst_list.push(*user);
+                    self.inst_list.push(user);
                 }
             }
         },
@@ -267,10 +268,10 @@ impl SCCP<'_> {
                     return;
                 }
                 // If the lattice has changed, we need to propagate the change to users.
-                for (user, _) in self.cx.get_func(func_id).dfg[op_id].users.iter() {
+                for (user, _) in self.cx.users(op_id) {
                     if !self.in_inst_list.contains(user.get_op_id()) {
                         self.in_inst_list.insert(user.get_op_id());
-                        self.inst_list.push(*user);
+                        self.inst_list.push(user);
                     }
                 }
             }
@@ -321,10 +322,9 @@ impl SCCP<'_> {
   }
 
   fn visit_phi(&mut self, op_id: Operand) {
-    let func_id = self.cx.current_func();
-    let current_bb = self.cx.get_func(func_id).op_to_bb[op_id].get_bb_id();
+    let current_bb = self.cx.op_bb(op_id).get_bb_id();
     let (op_data, val_typ) = {
-      let op = &mut self.cx.get_func_mut(func_id).dfg[op_id];
+      let op = self.cx.get_op(op_id);
       (op.data.clone(), op.typ.clone())
     };
     let old = Self::get_lattice(self, &op_id);
@@ -355,10 +355,10 @@ impl SCCP<'_> {
         return;
       }
       // If the lattice has changed, we need to propagate the change to users.
-      for (user, _) in self.cx.get_func(func_id).dfg[op_id].users.iter() {
+      for (user, _) in self.cx.users(op_id) {
         if !self.in_inst_list.contains(user.get_op_id()) {
           self.in_inst_list.insert(user.get_op_id());
-          self.inst_list.push(*user);
+          self.inst_list.push(user);
         }
       }
     } else {
@@ -396,9 +396,8 @@ impl SCCP<'_> {
         }
 
         // If to only has only one outgoing edge, push succ to edge_list.
-        let cfg = &mut self.cx.get_func_mut(self.cx.current_func()).cfg;
-        if cfg[to.get_bb_id()].succs.len() == 1 {
-          let (succ, _) = cfg[to.get_bb_id()].succs[0];
+        if self.cx.get_bb(to).succs.len() == 1 {
+          let (succ, _) = self.cx.get_bb(to).succs[0];
           self.edge_list.push((to, succ));
         }
       }
@@ -408,12 +407,11 @@ impl SCCP<'_> {
         // Critical: remove the inst first.
         self.in_inst_list.remove(op_id.get_op_id());
 
-        let dfg = &mut self.cx.get_func_mut(self.cx.current_func()).dfg;
-        let op_data = dfg[op_id].data.clone();
+        let op_data = self.cx.get_op_data(op_id).clone();
         if op_data.is(OpType::Phi) {
           self.visit_phi(op_id);
         } else {
-          let bb_id = self.cx.get_func(self.cx.current_func()).op_to_bb[op_id];
+          let bb_id = self.cx.op_bb(op_id);
           // If any incoming edge is executable, we need to visit the instruction.
           if self.visited.contains(bb_id.get_bb_id()) {
             self.visit_expr(op_id, bb_id);
@@ -425,7 +423,6 @@ impl SCCP<'_> {
 
   // Rewrite the program based on the results of propagation. And then return the existing phi nodes after rewriting.
   fn rewrite(&mut self) {
-    let func_id = self.cx.current_func();
     // Replace optimizable instructions with constants.
     self
       .lattices
@@ -440,8 +437,7 @@ impl SCCP<'_> {
 
     // Replace br with jump if the condition is a constant.
     for br_op in std::mem::take(&mut self.br_ops) {
-      let dfg = &mut self.cx.get_func_mut(self.cx.current_func()).dfg;
-      let op = dfg[br_op].clone();
+      let op = self.cx.get_op(br_op).clone();
       if let OpData::Br {
         cond,
         then_bb,
@@ -457,7 +453,7 @@ impl SCCP<'_> {
               } else {
                 (else_bb, then_bb)
               };
-              let bb_id = self.cx.get_func(self.cx.current_func()).op_to_bb[br_op];
+              let bb_id = self.cx.op_bb(br_op);
               self.cx.replace_op(
                 br_op,
                 bb_id,
@@ -471,7 +467,7 @@ impl SCCP<'_> {
               // Slay the phi incoming in other_bb.
               let other_bb_phis = self.cx.get_all_ops_in_block(other_bb, OpType::Phi);
               for phi_id in other_bb_phis {
-                let phi = self.cx.get_func(func_id).dfg[phi_id].data.clone();
+                let phi = self.cx.get_op_data(phi_id).clone();
                 if let OpData::Phi { incomings } = phi {
                   for incoming in incomings.iter() {
                     if let PhiIncoming::Data { bb, .. } = incoming {

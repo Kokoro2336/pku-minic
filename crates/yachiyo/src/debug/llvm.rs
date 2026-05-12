@@ -47,7 +47,7 @@ fn global_operand_name(id: usize, ctx: &DumpContext) -> String {
 fn param_operand_type(idx: usize, ctx: &DumpContext, default: Type) -> Type {
   if let Some(func) = ctx.function {
     if idx < func.params.len() {
-      return func.params[idx].1.clone();
+      return func.params[idx].typ.clone();
     }
   }
   default

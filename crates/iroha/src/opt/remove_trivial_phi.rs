@@ -59,13 +59,12 @@ impl RemoveTrivialPhi<'_> {
     self.cx.set_current_func(Some(func_id));
 
     self.phi_ids = self.cx.get_all_ops(OpType::Phi);
-    let op_to_bb = &self.cx.ir().funcs[func_id].op_to_bb;
     self.worklist = self
       .phi_ids
       .iter()
       .map(|phi_id| {
         let check_result = Self::check(self.cx.ir(), func_id, *phi_id);
-        (*phi_id, op_to_bb[*phi_id], check_result)
+        (*phi_id, self.cx.op_bb(*phi_id), check_result)
       })
       .collect();
   }
@@ -73,14 +72,12 @@ impl RemoveTrivialPhi<'_> {
   fn remove_phi(&mut self) {
     // Check whether the phi_ids are valid
     while let Some((phi_id, bb_id, check_result)) = self.worklist.pop() {
-      let uses = {
-        let func_id = self.cx.current_func();
-        let func = self.cx.get_func_mut(func_id);
-        let phi_op = &mut func.dfg[phi_id];
+      {
+        let phi_op = self.cx.get_op_mut(phi_id);
         // Remove OldIdx Attr
         phi_op.attrs.retain(|attr| !matches!(attr, Attr::OldIdx(_)));
-        phi_op.users.clone()
-      };
+      }
+      let uses = self.cx.users(phi_id);
       let current_function = self.cx.current_func();
       match check_result {
         CheckType::Empty => {

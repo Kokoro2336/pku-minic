@@ -49,17 +49,14 @@ impl BDCE<'_> {
 
   pub fn init(&mut self, func_id: BOperand) {
     self.cx.set_current_func(func_id);
-    let func = self.cx.get_func(func_id);
     self.worklist.clear();
 
     // Initialize the worklist
-    for block_id in func.cfg.collect() {
-      let block = &func.cfg[block_id];
+    let block_ids = self.cx.get_func(func_id).cfg.collect();
+    for block_id in block_ids {
+      let block = self.cx.get_bb(BOperand::BB(block_id));
       for inst_id in block.cur.iter() {
-        let is_impure = {
-          let inst = &func.dfg[*inst_id];
-          inst.data.is_impure()
-        };
+        let is_impure = self.cx.get_op_data(*inst_id).is_impure();
         if self.is_dead(*inst_id) && !is_impure {
           self.worklist.push_back(*inst_id);
         }
@@ -89,10 +86,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
               BOperand::Inst(op_id) => {
                 let op = BOperand::Inst(op_id);
 
-                let should_push = {
-                    let func = this.cx.get_func(this.cx.current_func());
-                    !func.dfg[op].data.is_impure()
-                };
+                let should_push = !this.cx.get_op_data(op).is_impure();
 
                 if should_push {
                     this.worklist.push_back(op);
@@ -105,10 +99,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
                 };
 
                 for def in defs {
-                    let should_push = {
-                        let func = this.cx.get_func(this.cx.current_func());
-                        !func.dfg[def].data.is_impure()
-                    };
+                    let should_push = !this.cx.get_op_data(def).is_impure();
 
                     if should_push {
                         this.worklist.push_back(def);
@@ -126,10 +117,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
     for func_id in func_ids {
       self.init(BOperand::Func(func_id));
       while let Some(op_id) = self.worklist.pop_back() {
-        let bb_id = {
-          let func = self.cx.get_func(self.cx.current_func());
-          func.op_to_bb[op_id]
-        };
+        let bb_id = self.cx.op_bb(op_id);
         self.cx.set_current_block(bb_id);
 
         let removed_op = self.cx.remove_op(op_id, Some(bb_id));
