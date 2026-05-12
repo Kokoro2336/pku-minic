@@ -2,8 +2,9 @@
 //! Based on Wegman and Zadeck's paper Constant Propagation with Conditional Branches.
 //! Reference: https://dl.acm.org/doi/10.1145/103135.103136
 
+use yachiyo::ast::Literal;
 use yachiyo::base::Type;
-use yachiyo::ir::mid::{Op, OpData, OpType, Operand, PhiIncoming, IR};
+use yachiyo::ir::mid::{Attr, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::r#match::match_src;
 use yachiyo::utils::set::BitSet;
@@ -79,7 +80,52 @@ impl SCCP<'_> {
 
       Operand::Undefined => Lattice::Top,
 
-      Operand::Global(_) | Operand::Param(_) => Lattice::Bottom,
+      // TODO: Interprocedural SCCP is not supported yet, so we treat all parameters as Bottom for now.
+      Operand::Param(_) => Lattice::Bottom,
+
+      Operand::Global(_) => {
+        let (mutable, typ, values) = self
+          .cx
+          .get_op(*operand)
+          .attrs
+          .iter()
+          .find_map(|attr| {
+            if let Attr::GlobalArray {
+              mutable,
+              typ,
+              values,
+              ..
+            } = attr
+            {
+              Some((*mutable, typ.clone(), values.clone()))
+            } else {
+              None
+            }
+          })
+          .unwrap();
+
+        if !mutable && typ.is_scalar() {
+          // Fold constant scalar
+          let value = if let Some(values) = values {
+            assert!(values.len() == 1);
+            match values.first().unwrap() {
+              Literal::Int(i) => Operand::Int(*i),
+              Literal::Float(f) => Operand::Float(f.to_bits()),
+              _ => unreachable!(),
+            }
+          } else {
+            match typ {
+              Type::Int => Operand::Int(0),
+              Type::Float => Operand::Float(0.0f32.to_bits()),
+              _ => unreachable!(),
+            }
+          };
+          Lattice::Constant(value)
+        } else {
+          // Conservatively return Bottom
+          Lattice::Bottom
+        }
+      }
 
       Operand::BB(_) | Operand::Func(_) => panic!(
         "SCCP get_lattice: operand {:?} is not a value or constant",

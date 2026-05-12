@@ -216,11 +216,16 @@ impl Emit {
       match node_typ {
         NodeType::VarAccess => {
           let typ = node_value_type(&this.ast, node_id);
-          op = this.builder.create(
-            &mut this.program,
-            this.builder.current_function,
-            mid::Op::new(typ, vec![], OpData::Load { addr: op }),
-          );
+          match op {
+            Operand::Int(_) | Operand::Float(_) | Operand::Bool(_) => {}
+            _ => {
+              op = this.builder.create(
+                &mut this.program,
+                this.builder.current_function,
+                mid::Op::new(typ, vec![], OpData::Load { addr: op }),
+              );
+            }
+          }
         }
         NodeType::ArrayAccess => {
           let typ = node_value_type(&this.ast, node_id);
@@ -430,24 +435,41 @@ impl Emit {
           } else {
             None
           };
-          let alloca = self.builder.create(
-            &mut self.program,
-            self.builder.current_function,
-            mid::Op::new(
-              typ.with_ptr(),
-              vec![
-                Attr::GlobalArray {
-                  name: name.clone(),
-                  mutable,
-                  typ: typ.clone(),
-                  values: init_literals,
-                },
-                Attr::Name(name.clone()),
-              ],
-              OpData::GlobalAlloca(typ.clone()),
-            ),
-          );
-          self.globals.insert(name, alloca);
+          let global_op = if !mutable && typ.is_scalar() {
+            if let Some(init_literal) = init_literals {
+              assert!(init_literal.len() == 1);
+              match init_literal.first().unwrap() {
+                Literal::Int(i) => Operand::Int(*i),
+                Literal::Float(f) => Operand::Float(f.to_bits()),
+                _ => unreachable!(),
+              }
+            } else {
+              match &typ {
+                Type::Int => Operand::Int(0),
+                Type::Float => Operand::Float(0.0f32.to_bits()),
+                _ => unreachable!(),
+              }
+            }
+          } else {
+            self.builder.create(
+              &mut self.program,
+              self.builder.current_function,
+              mid::Op::new(
+                typ.with_ptr(),
+                vec![
+                  Attr::GlobalArray {
+                    name: name.clone(),
+                    mutable,
+                    typ: typ.clone(),
+                    values: init_literals,
+                  },
+                  Attr::Name(name.clone()),
+                ],
+                OpData::GlobalAlloca(typ.clone()),
+              ),
+            )
+          };
+          self.globals.insert(name, global_op);
         } else {
           if self.builder.current_function.clone().is_some() && !self.has_active_insertion_point() {
             return None;
