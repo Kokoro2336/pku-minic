@@ -2,7 +2,6 @@
 //! Ensuring that every loop in the IR only has a single pre-header and a single latch, with dedicated exits.
 
 use crate::analysis::{DomAnalysis, DomTree, LoopAnalysis, LoopData};
-use yachiyo::analysis::analyze;
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
@@ -293,9 +292,9 @@ impl<'a> Pass<'a> for LoopSimplify<'a> {
       let func_id = Operand::Func(func_id);
       self.init(func_id);
       let func = self.cx.get_func(func_id);
-      let (mut loops_data, _) = analyze::<LoopAnalysis>(func);
-      let (dom_tree, _) = analyze::<DomAnalysis>(func);
-      self.run(&dom_tree, &mut loops_data);
+      let (loops_data, _) = &mut *self.cx.analyze_mut::<LoopAnalysis>(func);
+      let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(func);
+      self.run(dom_tree, loops_data);
     }
   }
 }

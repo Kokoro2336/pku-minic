@@ -3,12 +3,17 @@
 #[cfg(feature = "debug")]
 use crate::debug::info;
 
+use crate::analysis::{self, Analysis};
 use crate::cli::Cli;
 use crate::debug::DumpASM;
 use crate::ir::back::{
   BBasicBlock, BBuilder, BFunction, BOp, BOpData, BOperand, BType, BackIR, Reg, Slot,
 };
+use crate::pass::{AnalysisRef, AnalysisRefMut};
 
+use rustc_hash::FxHashMap;
+use std::any::{type_name, Any};
+use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::ops::{Deref, DerefMut};
 
@@ -16,6 +21,7 @@ use std::ops::{Deref, DerefMut};
 pub struct BPassContext<'a> {
   pub ir: Option<&'a mut BackIR>,
   pub builder: BBuilder,
+  analysis_cache: RefCell<FxHashMap<&'static str, Box<dyn Any>>>,
 }
 
 pub struct BPassContextGuard<'cx, 'a> {
@@ -65,6 +71,7 @@ impl<'a> BPassContext<'a> {
 
   pub fn mount(&mut self, ir: &'a mut BackIR) {
     self.ir = Some(ir);
+    self.analysis_cache.borrow_mut().clear();
   }
 
   pub fn ir(&self) -> &BackIR {
@@ -126,6 +133,71 @@ impl<'a> BPassContext<'a> {
 
   pub fn get_func_mut(&mut self, func_id: BOperand) -> &mut BFunction {
     &mut self.ir_mut().funcs[func_id]
+  }
+
+  pub fn analyze<A>(&self, input: A::Input) -> AnalysisRef<A::Output>
+  where
+    A: Analysis,
+    A::Output: 'static,
+  {
+    let result = analysis::analyze::<A>(input);
+    {
+      self
+        .analysis_cache
+        .borrow_mut()
+        .insert(type_name::<A>(), Box::new(result));
+    }
+    self.get_analysis_result::<A>().unwrap()
+  }
+
+  pub fn analyze_mut<A>(&self, input: A::Input) -> AnalysisRefMut<A::Output>
+  where
+    A: Analysis,
+    A::Output: 'static,
+  {
+    let result = analysis::analyze::<A>(input);
+    {
+      self
+        .analysis_cache
+        .borrow_mut()
+        .insert(type_name::<A>(), Box::new(result));
+    }
+    self.get_analysis_result_mut::<A>().unwrap()
+  }
+
+  pub fn get_analysis_result<A>(&self) -> Option<AnalysisRef<A::Output>>
+  where
+    A: Analysis,
+    A::Output: 'static,
+  {
+    let cache = self.analysis_cache.borrow();
+    cache
+      .get(type_name::<A>())
+      .and_then(|result| result.downcast_ref::<A::Output>())
+      .map(|result| AnalysisRef::new(result as *const A::Output))
+  }
+
+  pub fn get_analysis_result_mut<A>(&self) -> Option<AnalysisRefMut<A::Output>>
+  where
+    A: Analysis,
+    A::Output: 'static,
+  {
+    let mut cache = self.analysis_cache.borrow_mut();
+    cache
+      .get_mut(type_name::<A>())
+      .and_then(|result| result.downcast_mut::<A::Output>())
+      .map(|result| AnalysisRefMut::new(result as *mut A::Output))
+  }
+
+  pub fn clean_analysis_cache<A>(&self)
+  where
+    A: Analysis,
+  {
+    self.analysis_cache.borrow_mut().remove(type_name::<A>());
+  }
+
+  pub fn clear_analysis_cache(&self) {
+    self.analysis_cache.borrow_mut().clear();
   }
 
   #[inline(always)]
@@ -341,8 +413,8 @@ impl<'a> BPassManager<'a> {
     }
   }
 
-  pub fn register(mut self, pass: Box<dyn BPass<'a> + 'a>) -> Self {
-    self.passes.push_back(pass);
+  pub fn register<P: 'a + Default + BPass<'a>>(mut self) -> Self {
+    self.passes.push_back(Box::new(P::default()));
     self
   }
 

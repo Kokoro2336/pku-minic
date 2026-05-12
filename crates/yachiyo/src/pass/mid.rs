@@ -3,14 +3,18 @@
 #[cfg(feature = "debug")]
 use crate::debug::info;
 
-use crate::analysis::{AffineExpr, MemLoc};
+use crate::analysis::{self, AffineExpr, Analysis, MemLoc};
 use crate::base::Type;
 use crate::cli::Cli;
 use crate::debug::DumpLLVM;
 use crate::ir::mid::{
   BasicBlock, Builder, Function, Globals, LoopInfo, Op, OpData, OpType, Operand, IR,
 };
+use crate::pass::{AnalysisRef, AnalysisRefMut};
 
+use rustc_hash::FxHashMap;
+use std::any::{type_name, Any};
+use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::ops::{Deref, DerefMut};
 
@@ -18,6 +22,7 @@ use std::ops::{Deref, DerefMut};
 pub struct PassContext<'a> {
   pub ir: Option<&'a mut IR>,
   pub builder: Builder,
+  analysis_cache: RefCell<FxHashMap<&'static str, Box<dyn Any>>>,
 }
 
 pub struct PassContextGuard<'cx, 'a> {
@@ -73,6 +78,7 @@ impl<'a> PassContext<'a> {
 
   pub fn mount(&mut self, ir: &'a mut IR) {
     self.ir = Some(ir);
+    self.analysis_cache.borrow_mut().clear();
   }
 
   pub fn ir(&self) -> &IR {
@@ -136,6 +142,71 @@ impl<'a> PassContext<'a> {
 
   pub fn get_func_mut(&mut self, func_id: Operand) -> &mut Function {
     &mut self.ir_mut().funcs[func_id]
+  }
+
+  pub fn analyze<A>(&self, input: A::Input) -> AnalysisRef<A::Output>
+  where
+    A: Analysis,
+    A::Output: 'static,
+  {
+    let result = analysis::analyze::<A>(input);
+    {
+      self
+        .analysis_cache
+        .borrow_mut()
+        .insert(type_name::<A>(), Box::new(result));
+    }
+    self.get_analysis_result::<A>().unwrap()
+  }
+
+  pub fn analyze_mut<A>(&self, input: A::Input) -> AnalysisRefMut<A::Output>
+  where
+    A: Analysis,
+    A::Output: 'static,
+  {
+    let result = analysis::analyze::<A>(input);
+    {
+      self
+        .analysis_cache
+        .borrow_mut()
+        .insert(type_name::<A>(), Box::new(result));
+    }
+    self.get_analysis_result_mut::<A>().unwrap()
+  }
+
+  pub fn get_analysis_result<A>(&self) -> Option<AnalysisRef<A::Output>>
+  where
+    A: Analysis,
+    A::Output: 'static,
+  {
+    let cache = self.analysis_cache.borrow();
+    cache
+      .get(type_name::<A>())
+      .and_then(|result| result.downcast_ref::<A::Output>())
+      .map(|result| AnalysisRef::new(result as *const A::Output))
+  }
+
+  pub fn get_analysis_result_mut<A>(&self) -> Option<AnalysisRefMut<A::Output>>
+  where
+    A: Analysis,
+    A::Output: 'static,
+  {
+    let mut cache = self.analysis_cache.borrow_mut();
+    cache
+      .get_mut(type_name::<A>())
+      .and_then(|result| result.downcast_mut::<A::Output>())
+      .map(|result| AnalysisRefMut::new(result as *mut A::Output))
+  }
+
+  pub fn clean_analysis_cache<A>(&self)
+  where
+    A: Analysis,
+  {
+    self.analysis_cache.borrow_mut().remove(type_name::<A>());
+  }
+
+  pub fn clear_analysis_cache(&self) {
+    self.analysis_cache.borrow_mut().clear();
   }
 
   pub fn get_op_type(&self, operand: Operand) -> Type {
@@ -366,13 +437,21 @@ impl<'a> PassContext<'a> {
   #[inline(always)]
   pub fn get_op(&self, op_id: Operand) -> &Op {
     let func_id = self.current_func();
-    &self.get_func(func_id).dfg[op_id]
+    match op_id {
+      Operand::Value(_) => &self.get_func(func_id).dfg[op_id],
+      Operand::Global(_) => &self.ir().globals[op_id],
+      _ => unreachable!("Expected Value or Global operand, got {:?}", op_id),
+    }
   }
 
   #[inline(always)]
   pub fn get_op_mut(&mut self, op_id: Operand) -> &mut Op {
     let func_id = self.current_func();
-    &mut self.get_func_mut(func_id).dfg[op_id]
+    match op_id {
+      Operand::Value(_) => &mut self.get_func_mut(func_id).dfg[op_id],
+      Operand::Global(_) => &mut self.ir_mut().globals[op_id],
+      _ => unreachable!("Expected Value or Global operand, got {:?}", op_id),
+    }
   }
 
   #[inline(always)]
@@ -436,8 +515,8 @@ impl<'a> PassManager<'a> {
     }
   }
 
-  pub fn register(mut self, pass: Box<dyn Pass<'a> + 'a>) -> Self {
-    self.passes.push_back(pass);
+  pub fn register<P: 'a + Default + Pass<'a>>(mut self) -> Self {
+    self.passes.push_back(Box::new(P::default()));
     self
   }
 

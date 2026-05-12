@@ -2,7 +2,6 @@
 
 use crate::analysis::{DomAnalysis, DomFrontier, DomTree, LoopAnalysis, LoopData};
 
-use yachiyo::analysis::analyze;
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{
   ssa_updater_params, Op, OpData, OpType, Operand, PhiIncoming, SSAUpdater, DFG, IR,
@@ -405,14 +404,16 @@ impl<'a> Pass<'a> for LoopRotate<'a> {
       let func_id = Operand::Func(func_id);
       self.init(func_id);
       let func = self.cx.get_func(func_id);
-      let (mut loops, _) = analyze::<LoopAnalysis>(func);
-      let (dom_tree, _) = analyze::<DomAnalysis>(func);
-      self.run(&dom_tree, &mut loops);
+      {
+        let (loops, _) = &mut *self.cx.analyze_mut::<LoopAnalysis>(func);
+        let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(func);
+        self.run(dom_tree, loops);
+      }
 
       let func = self.cx.get_func(func_id);
-      let (dom_tree, dom_frontier) = analyze::<DomAnalysis>(func);
-      self.update_moved_phis(func_id, &dom_tree, &dom_frontier);
-      self.update_normal_insts(func_id, &dom_tree, &dom_frontier);
+      let (dom_tree, dom_frontier) = &*self.cx.analyze::<DomAnalysis>(func);
+      self.update_moved_phis(func_id, dom_tree, dom_frontier);
+      self.update_normal_insts(func_id, dom_tree, dom_frontier);
     }
   }
 }

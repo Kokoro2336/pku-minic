@@ -294,14 +294,13 @@ impl<'a> Pass<'a> for GVN<'a> {
 
   fn run(&mut self) {
     // Run Call Graph analysis to get the call graph.
-    let call_graph = self.cx.analyze::<CallGraphAnalysis>(self.cx.ir());
+    let call_graph = &*self.cx.analyze::<CallGraphAnalysis>(self.cx.ir());
 
     // run dominance analysis to get the dominator tree
     for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
       let func = self.cx.get_func(func_id);
-      let dom_analysis = self.cx.analyze::<DomAnalysis>(func);
-      let (dom_tree, _) = &*dom_analysis;
+      let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(func);
 
       self.init(func_id);
       let entry = Operand::BB(self.cx.get_func(func_id).cfg.entry.unwrap());
@@ -312,7 +311,7 @@ impl<'a> Pass<'a> for GVN<'a> {
 
       // Update stack and symbol table.
       self.enter_scope(entry);
-      self.run(dom_tree, &call_graph);
+      self.run(dom_tree, call_graph);
     }
   }
 }

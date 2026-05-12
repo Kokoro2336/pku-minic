@@ -4,8 +4,7 @@
 #[cfg(feature = "debug")]
 use yachiyo::debug::info;
 
-use crate::analysis::{DomAnalysis, DomFrontier, DomTree};
-use yachiyo::analysis::analyze;
+use crate::analysis::{DomAnalysis, DomTree};
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{Attr, Builder, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
@@ -14,8 +13,6 @@ use std::collections::HashMap;
 
 struct InsertPhi<'a> {
   cx: PassContext<'a>,
-  // Former computed frontiers
-  frontiers: Vec<DomFrontier>,
 
   // Ancillary state fields
   // VarId -> Vec of BBId
@@ -33,12 +30,11 @@ struct InsertPhi<'a> {
 }
 
 impl<'a> InsertPhi<'a> {
-  pub fn new(program: &'a mut IR, frontiers: Vec<DomFrontier>) -> Self {
+  pub fn new(program: &'a mut IR) -> Self {
     let mut cx = PassContext::default();
     cx.mount(program);
     Self {
       cx,
-      frontiers,
       defsites: vec![],
       origins: vec![],
       phis: vec![],
@@ -114,11 +110,10 @@ impl<'a> InsertPhi<'a> {
   pub fn insert(&mut self) {
     let defsites_len = self.defsites.len();
     let func_id = self.cx.current_func();
-    let func_idx = func_id.get_func_id();
+    let (_, dom_frontier) = &*self.cx.analyze::<DomAnalysis>(self.cx.get_func(func_id));
     for idx in 0..defsites_len {
       while let Some(bb_id) = self.defsites[idx].pop() {
-        let frontiers = self.frontiers[func_idx][bb_id].clone();
-        for frontier in frontiers {
+        for &frontier in dom_frontier[bb_id].iter() {
           // If the phi already exists, we don't need to insert it again, but we still need to update the origins.
           if !self.phis[idx].contains(&frontier) {
             // Get number of preds of the frontier block
@@ -198,10 +193,10 @@ enum RenamingPhase {
   Leave(Vec<usize>),
 }
 
-struct Renaming<'a> {
+struct Renaming<'a, 'dom> {
   program: Option<&'a mut IR>,
   builder: Builder,
-  dom_trees: Vec<DomTree>,
+  dom_tree: &'dom DomTree,
   // version stack
   versions: Vec<Vec<Operand>>,
 
@@ -218,12 +213,12 @@ struct Renaming<'a> {
   stack: Vec<RenamingPhase>,
 }
 
-impl<'a> Renaming<'a> {
-  pub fn new(program: &'a mut IR, dom_trees: Vec<DomTree>) -> Self {
+impl<'a, 'dom> Renaming<'a, 'dom> {
+  pub fn new(program: &'a mut IR, dom_tree: &'dom DomTree) -> Self {
     Self {
       program: Some(program),
       builder: Builder::new(),
-      dom_trees,
+      dom_tree,
       versions: vec![],
       op_to_var: HashMap::new(),
       var_to_op: HashMap::new(),
@@ -479,8 +474,7 @@ impl<'a> Renaming<'a> {
 
           // 4. Process children in domtree
           // Clone children list to avoid borrow
-          let children = self.dom_trees[self.builder.current_function.unwrap().get_func_id()]
-            [bb_id]
+          let children = self.dom_tree[bb_id]
             .iter()
             .map(|bb_id| RenamingPhase::Enter(*bb_id))
             .collect::<Vec<RenamingPhase>>();
@@ -497,61 +491,59 @@ impl<'a> Renaming<'a> {
     }
   }
 
-  pub fn run(&mut self) {
+  pub fn run(&mut self, func_id: Operand) {
     // remove load/store is done in rename
 
-    let func_ids = self.program.as_ref().unwrap().funcs.collect_internal();
-    for idx in func_ids {
-      self.builder.set_current_func(Some(Operand::Func(idx)));
-      self.init();
-      let head = {
-        let func = &self.program.as_ref().unwrap().funcs[idx];
-        match func.cfg.entry {
-          Some(id) => id,
-          None => continue,
-        }
-      };
-      self.rename();
-
-      // Clean up removed ops for this function
-      for (op, bb) in &self.removed {
-        self.program.as_deref_mut().unwrap().remove_op(
-          self.builder.current_function,
-          *op,
-          Some(*bb),
-        );
+    let idx = func_id.get_func_id();
+    self.builder.set_current_func(Some(func_id));
+    self.init();
+    let head = {
+      let func = &self.program.as_ref().unwrap().funcs[idx];
+      match func.cfg.entry {
+        Some(id) => id,
+        None => return,
       }
-      self.removed.clear();
+    };
+    self.rename();
 
-      // Remove all the promoted allocas in entry block. You should do this after load/store removal, since some allocas might be used by dead load/store.
-      let promoted_allocas = {
-        self
-          .program
-          .as_deref_mut()
-          .unwrap()
-          .get_all_ops_in_block(
-            self.builder.current_function,
-            Operand::BB(head),
-            OpType::Alloca,
-          )
-          .into_iter()
-          .filter(|alloca| {
-            let func = &self.program.as_ref().unwrap().funcs[idx];
-            let alloca_op = &func.dfg[*alloca];
-            alloca_op
-              .attrs
-              .iter()
-              .any(|attr| matches!(attr, Attr::Promotion))
-          })
-          .collect::<Vec<Operand>>()
-      };
-      for alloca in promoted_allocas {
-        self.program.as_deref_mut().unwrap().remove_op(
+    // Clean up removed ops for this function
+    for (op, bb) in &self.removed {
+      self
+        .program
+        .as_deref_mut()
+        .unwrap()
+        .remove_op(self.builder.current_function, *op, Some(*bb));
+    }
+    self.removed.clear();
+
+    // Remove all the promoted allocas in entry block. You should do this after load/store removal, since some allocas might be used by dead load/store.
+    let promoted_allocas = {
+      self
+        .program
+        .as_deref_mut()
+        .unwrap()
+        .get_all_ops_in_block(
           self.builder.current_function,
-          alloca,
-          Some(Operand::BB(head)),
-        );
-      }
+          Operand::BB(head),
+          OpType::Alloca,
+        )
+        .into_iter()
+        .filter(|alloca| {
+          let func = &self.program.as_ref().unwrap().funcs[idx];
+          let alloca_op = &func.dfg[*alloca];
+          alloca_op
+            .attrs
+            .iter()
+            .any(|attr| matches!(attr, Attr::Promotion))
+        })
+        .collect::<Vec<Operand>>()
+    };
+    for alloca in promoted_allocas {
+      self.program.as_deref_mut().unwrap().remove_op(
+        self.builder.current_function,
+        alloca,
+        Some(Operand::BB(head)),
+      );
     }
   }
 }
@@ -569,27 +561,13 @@ impl<'a> Pass<'a> for Mem2Reg<'a> {
     self.cx.mount(program);
   }
   fn run(&mut self) {
-    let func_num = self.cx.ir().funcs.len();
-    let (mut dom_trees, mut frontiers) = (
-      vec![DomTree::default(); func_num],
-      vec![DomFrontier::default(); func_num],
-    );
-
-    for func_id in self.cx.ir().funcs.collect_internal() {
-      let func_id = Operand::Func(func_id);
-      let func = self.cx.get_func(func_id);
-      let (dom_tree, frontier) = analyze::<DomAnalysis>(func);
-      dom_trees[func_id.get_func_id()] = dom_tree;
-      frontiers[func_id.get_func_id()] = frontier;
-    }
-
     // 3. Insert Phi nodes
     #[cfg(feature = "debug")]
     info!("Start inserting phi nodes.");
 
     {
       let program = self.cx.ir_mut();
-      InsertPhi::new(program, frontiers).run();
+      InsertPhi::new(program).run();
     }
 
     #[cfg(feature = "debug")]
@@ -600,9 +578,13 @@ impl<'a> Pass<'a> for Mem2Reg<'a> {
     info!("Start renaming variables.");
 
     {
-      let program = self.cx.ir_mut();
-      let mut renamer = Renaming::new(program, dom_trees);
-      renamer.run();
+      for func_id in self.cx.ir().funcs.collect_internal() {
+        let func_id = Operand::Func(func_id);
+        let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(self.cx.get_func(func_id));
+        let program = self.cx.ir_mut();
+        let mut renamer = Renaming::new(program, dom_tree);
+        renamer.run(func_id);
+      }
     }
     #[cfg(feature = "debug")]
     info!("Variables renamed.");

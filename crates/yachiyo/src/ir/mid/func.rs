@@ -239,7 +239,10 @@ impl Arena<Function> for CG {
                 }
               }
             }
-            OpData::Call { func: Operand::Func(func_id), .. } => {
+            OpData::Call {
+              func: Operand::Func(func_id),
+              ..
+            } => {
               remap_idx(func_id, &old_arena);
             }
             _ => {}

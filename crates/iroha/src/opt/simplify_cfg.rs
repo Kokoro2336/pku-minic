@@ -1,6 +1,5 @@
 //! Simplify CFG.
 
-use yachiyo::analysis::analyze;
 use yachiyo::ir::mid::{OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::arena::Arena;
@@ -306,7 +305,7 @@ impl SimplifyCFG<'_> {
 
   fn rewrite(&mut self) {
     let func_id = self.cx.current_func();
-    let visited = analyze::<Reachability>(self.cx.get_func(func_id));
+    let visited = &*self.cx.analyze::<Reachability>(self.cx.get_func(func_id));
     let dead_blocks = self
       .cx
       .get_func(func_id)
