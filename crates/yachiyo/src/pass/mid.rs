@@ -280,6 +280,48 @@ impl<'a> PassContext<'a> {
       .move_op_to_bb_at(current_function_option, op_id, from_bb, to_bb, before_op);
   }
 
+  pub fn redirect_bb(&mut self, operand: Operand, old_bb: Operand, new_bb: Operand) -> Operand {
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    ir.redirect_bb(
+      &mut self.builder,
+      current_function_option,
+      operand,
+      old_bb,
+      new_bb,
+    )
+  }
+
+  pub fn split_block_before(&mut self, split_point: Option<Operand>) -> Operand {
+    let current_function_option = self.builder.current_function;
+    let current_block = self
+      .builder
+      .current_block
+      .expect("PassContext split_block_before: current_block is None");
+    let ir = self.ir.as_deref_mut().unwrap();
+    ir.split_block_before(
+      &mut self.builder,
+      current_function_option,
+      current_block,
+      split_point,
+    )
+  }
+
+  pub fn split_block_after(&mut self, split_point: Option<Operand>) -> Operand {
+    let current_function_option = self.builder.current_function;
+    let current_block = self
+      .builder
+      .current_block
+      .expect("PassContext split_block_after: current_block is None");
+    let ir = self.ir.as_deref_mut().unwrap();
+    ir.split_block_after(
+      &mut self.builder,
+      current_function_option,
+      current_block,
+      split_point,
+    )
+  }
+
   pub fn replace_all_uses(&mut self, old: Operand, new: Operand) {
     let current_function_option = self.builder.current_function;
     self
@@ -294,8 +336,13 @@ impl<'a> PassContext<'a> {
       .replace_use(current_function_option, op_tuple, old, new);
   }
 
-  pub fn users(&self, operand: Operand) -> Vec<(Operand, usize)> {
+  pub fn users(&self, operand: Operand) -> &[(Operand, usize)] {
     self.ir().users(self.builder.current_function, operand)
+  }
+
+  pub fn users_mut(&mut self, operand: Operand) -> &mut Vec<(Operand, usize)> {
+    let current_function_option = self.builder.current_function;
+    self.ir_mut().users_mut(current_function_option, operand)
   }
 
   pub fn get_all_ops(&self, op_typ: OpType) -> Vec<Operand> {
@@ -366,6 +413,10 @@ impl<'a> PassContext<'a> {
   pub fn clear_uses(&mut self) {
     let current_function_option = self.builder.current_function;
     self.ir_mut().clear_uses(current_function_option);
+  }
+
+  pub fn get_term(&self, bb_id: Operand) -> Operand {
+    *self.get_bb(bb_id).cur.last().unwrap()
   }
 
   pub fn append_phi_incoming(&mut self, phi_id: Operand, bb_id: Operand, value: Operand) {

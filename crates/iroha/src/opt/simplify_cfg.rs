@@ -51,7 +51,8 @@ impl SimplifyCFG<'_> {
       for (src, idx) in src_tuple {
         self.cx.remove_use(src, (*inst, idx));
       }
-      for (user, _) in self.cx.users(*inst) {
+      let users = self.cx.users(*inst).to_vec();
+      for (user, _) in users {
         let op_data = self.cx.get_op_data(user).clone();
         if let OpData::Phi { incomings } = op_data {
           for incoming in incomings {
@@ -106,7 +107,7 @@ impl SimplifyCFG<'_> {
   ) {
     self.cx.move_op_to_bb_at(op_id, from_bb, to_bb, before_op);
     // If a user of the moved instruction is a phi node in the original block, we need to update the phi node to point to the new block.
-    let users = self.cx.users(op_id);
+    let users = self.cx.users(op_id).to_vec();
     for (user, _) in users {
       let user_op_data = self.cx.get_op_data(user).clone();
       if let OpData::Phi { incomings } = user_op_data {

@@ -282,7 +282,7 @@ impl SCCP<'_> {
             }
 
             // If the lattice has changed, we need to propagate the change to users.
-            for (user, _) in self.cx.users(op_id) {
+            for (user, _) in self.cx.users(op_id).iter().copied() {
                 if !self.in_inst_list.contains(user.get_op_id()) {
                     self.in_inst_list.insert(user.get_op_id());
                     self.inst_list.push(user);
@@ -298,7 +298,7 @@ impl SCCP<'_> {
                 return;
             }
             // If the lattice has changed, we need to propagate the change to users.
-            for (user, _) in self.cx.users(op_id) {
+            for (user, _) in self.cx.users(op_id).iter().copied() {
                 if !self.in_inst_list.contains(user.get_op_id()) {
                     self.in_inst_list.insert(user.get_op_id());
                     self.inst_list.push(user);
@@ -314,7 +314,7 @@ impl SCCP<'_> {
                     return;
                 }
                 // If the lattice has changed, we need to propagate the change to users.
-                for (user, _) in self.cx.users(op_id) {
+                for (user, _) in self.cx.users(op_id).iter().copied() {
                     if !self.in_inst_list.contains(user.get_op_id()) {
                         self.in_inst_list.insert(user.get_op_id());
                         self.inst_list.push(user);
@@ -401,7 +401,7 @@ impl SCCP<'_> {
         return;
       }
       // If the lattice has changed, we need to propagate the change to users.
-      for (user, _) in self.cx.users(op_id) {
+      for (user, _) in self.cx.users(op_id).iter().copied() {
         if !self.in_inst_list.contains(user.get_op_id()) {
           self.in_inst_list.insert(user.get_op_id());
           self.inst_list.push(user);

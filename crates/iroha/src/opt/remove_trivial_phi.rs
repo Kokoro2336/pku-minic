@@ -77,7 +77,7 @@ impl RemoveTrivialPhi<'_> {
         // Remove OldIdx Attr
         phi_op.attrs.retain(|attr| !matches!(attr, Attr::OldIdx(_)));
       }
-      let uses = self.cx.users(phi_id);
+      let uses = self.cx.users(phi_id).to_vec();
       let current_function = self.cx.current_func();
       match check_result {
         CheckType::Empty => {

@@ -929,6 +929,22 @@ impl Arena<Op> for DFG {
 }
 
 impl DFG {
+  pub fn users(&self, op_id: Operand) -> &[(Operand, usize)] {
+    let Operand::Value(op_id) = op_id else {
+      return &[];
+    };
+
+    &self[op_id].users
+  }
+
+  pub fn users_mut(&mut self, op_id: Operand) -> &mut Vec<(Operand, usize)> {
+    let Operand::Value(op_id) = op_id else {
+      panic!("DFG users_mut: expected Value operand, got {:?}", op_id);
+    };
+
+    &mut self[op_id].users
+  }
+
   pub fn add_use(&mut self, op_id: Operand, user_tuple: (Operand, usize)) {
     let op_id = match_some! {
         target: op_id,

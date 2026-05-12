@@ -1,5 +1,6 @@
 //! Module definition of IR.
 
+use crate::base::Type;
 use crate::ir::mid::{
   BasicBlock, Builder, BuilderGuard, Function, Op, OpData, OpType, Operand, PhiIncoming, CG, DFG,
 };
@@ -150,12 +151,24 @@ impl GlobalUses {
     }
   }
 
-  pub fn users(&self, global: Operand) -> Vec<(Operand, usize)> {
+  pub fn users(&self, global: Operand) -> &[(Operand, usize)] {
     let Operand::Global(global_id) = global else {
-      return vec![];
+      return &[];
     };
 
-    self.0.get(global_id).cloned().unwrap_or_default()
+    self.0.get(global_id).map(Vec::as_slice).unwrap_or(&[])
+  }
+
+  pub fn users_mut(&mut self, global: Operand) -> &mut Vec<(Operand, usize)> {
+    let Operand::Global(_) = global else {
+      panic!(
+        "GlobalUses users_mut: expected Global operand, got {:?}",
+        global
+      );
+    };
+
+    self.ensure_global(global);
+    &mut self[global]
   }
 }
 
@@ -209,22 +222,40 @@ impl FuncsGlobalUses {
     self[func].remove_use(global, user_tuple);
   }
 
-  pub fn users(&self, func: Option<Operand>, global: Operand) -> Vec<(Operand, usize)> {
+  pub fn users(&self, func: Option<Operand>, global: Operand) -> &[(Operand, usize)] {
     match func {
       Some(Operand::Func(func_id)) => self
         .0
         .get(func_id)
         .map(|global_uses| global_uses.users(global))
-        .unwrap_or_default(),
+        .unwrap_or(&[]),
       Some(func) => panic!(
         "FuncsGlobalUses users: expected a function operand, got {:?}",
         func
       ),
+      None => panic!("FuncsGlobalUses users: cannot borrow users across all functions"),
+    }
+  }
+
+  pub fn users_mut(&mut self, func: Operand, global: Operand) -> &mut Vec<(Operand, usize)> {
+    let Operand::Func(_) = func else {
+      panic!(
+        "FuncsGlobalUses users_mut: expected a function operand, got {:?}",
+        func
+      );
+    };
+
+    self.ensure_func(func);
+    self[func].users_mut(global)
+  }
+
+  pub fn has_users(&self, func: Option<Operand>, global: Operand) -> bool {
+    match func {
+      Some(_) => !self.users(func, global).is_empty(),
       None => self
         .0
         .iter()
-        .flat_map(|global_uses| global_uses.users(global))
-        .collect(),
+        .any(|global_uses| !global_uses.users(global).is_empty()),
     }
   }
 
@@ -384,15 +415,11 @@ impl IR {
     self.add_use(current_function, new, op_tuple);
   }
 
-  pub fn users(
-    &self,
-    current_function: Option<Operand>,
-    operand: Operand,
-  ) -> Vec<(Operand, usize)> {
+  pub fn users(&self, current_function: Option<Operand>, operand: Operand) -> &[(Operand, usize)] {
     match operand {
       Operand::Value(_) => {
         let current_function = current_function.unwrap();
-        self.funcs[current_function].dfg[operand].users.clone()
+        self.funcs[current_function].dfg.users(operand)
       }
       Operand::Param(_) => {
         let current_function = current_function.unwrap();
@@ -404,7 +431,48 @@ impl IR {
       | Operand::Bool(_)
       | Operand::Undefined
       | Operand::Func(_)
-      | Operand::BB(_) => vec![],
+      | Operand::BB(_) => &[],
+    }
+  }
+
+  pub fn users_mut(
+    &mut self,
+    current_function: Option<Operand>,
+    operand: Operand,
+  ) -> &mut Vec<(Operand, usize)> {
+    match operand {
+      Operand::Value(_) => {
+        let current_function = current_function.unwrap();
+        self.funcs[current_function].dfg.users_mut(operand)
+      }
+      Operand::Param(_) => {
+        let current_function = current_function.unwrap();
+        self.funcs[current_function].params.users_mut(operand)
+      }
+      Operand::Global(_) => {
+        let current_function = current_function
+          .unwrap_or_else(|| panic!("IR users_mut: global users without current function"));
+        self.global_uses.users_mut(current_function, operand)
+      }
+      Operand::Int(_)
+      | Operand::Float(_)
+      | Operand::Bool(_)
+      | Operand::Undefined
+      | Operand::Func(_)
+      | Operand::BB(_) => panic!("IR users_mut: operand {:?} does not have users", operand),
+    }
+  }
+
+  pub fn has_users(&self, current_function: Option<Operand>, operand: Operand) -> bool {
+    match operand {
+      Operand::Global(_) => self.global_uses.has_users(current_function, operand),
+      Operand::Value(_) | Operand::Param(_) => !self.users(current_function, operand).is_empty(),
+      Operand::Int(_)
+      | Operand::Float(_)
+      | Operand::Bool(_)
+      | Operand::Undefined
+      | Operand::Func(_)
+      | Operand::BB(_) => false,
     }
   }
 
@@ -427,7 +495,7 @@ impl IR {
     new: Operand,
     user_list: Vec<(Operand, usize)>,
   ) {
-    let users = self.users(current_function, old);
+    let users = self.users(current_function, old).to_vec();
     for user in user_list {
       if !users.contains(&user) {
         panic!(
@@ -445,7 +513,7 @@ impl IR {
     old: Operand,
     new: Operand,
   ) {
-    let users = self.users(current_function, old);
+    let users = self.users(current_function, old).to_vec();
     for use_op in users {
       self.replace_use(current_function, use_op, old, new);
     }
@@ -674,7 +742,7 @@ impl IR {
     bb: Option<Operand>,
   ) -> Op {
     if matches!(op, Operand::Global(_)) {
-      assert!(self.users(None, op).is_empty());
+      assert!(!self.has_users(None, op));
       let removed_op = self.globals.remove(op.get_global_id());
       return removed_op;
     }
@@ -792,6 +860,236 @@ impl IR {
     }
 
     func.op_to_bb[op] = new_bb;
+  }
+
+  pub fn redirect_bb(
+    &mut self,
+    builder: &mut Builder,
+    current_function: Option<Operand>,
+    operand: Operand,
+    old_bb: Operand,
+    new_bb: Operand,
+  ) -> Operand {
+    let current_function = current_function.unwrap();
+    let (term_id, term_bb) = match operand {
+      Operand::BB(_) => {
+        let term_id = self.funcs[current_function].cfg[operand]
+          .cur
+          .iter()
+          .rev()
+          .copied()
+          .find(|op_id| {
+            self.funcs[current_function].dfg[*op_id]
+              .data
+              .is_terminator()
+          })
+          .unwrap_or_else(|| panic!("IR redirect_bb: block {:?} has no terminator", operand));
+        (term_id, operand)
+      }
+      Operand::Value(_) => {
+        let op_data = &self.funcs[current_function].dfg[operand].data;
+        if !matches!(op_data, OpData::Br { .. } | OpData::Jump { .. }) {
+          panic!("IR redirect_bb: expected Br or Jump, got {:?}", op_data);
+        }
+        (operand, self.funcs[current_function].op_to_bb[operand])
+      }
+      _ => panic!(
+        "IR redirect_bb: expected BB or Value operand, got {:?}",
+        operand
+      ),
+    };
+
+    let Op {
+      typ, attrs, data, ..
+    } = self.funcs[current_function].dfg[term_id].clone();
+    let new_data = match data {
+      OpData::Br {
+        cond,
+        mut then_bb,
+        mut else_bb,
+      } => {
+        let mut matched = false;
+        if then_bb == old_bb {
+          then_bb = new_bb;
+          matched = true;
+        }
+        if else_bb == old_bb {
+          else_bb = new_bb;
+          matched = true;
+        }
+        if !matched {
+          panic!(
+            "IR redirect_bb: branch {:?} does not target {:?}",
+            term_id, old_bb
+          );
+        }
+        OpData::Br {
+          cond,
+          then_bb,
+          else_bb,
+        }
+      }
+      OpData::Jump { target_bb } => {
+        if target_bb != old_bb {
+          panic!(
+            "IR redirect_bb: jump {:?} targets {:?}, not {:?}",
+            term_id, target_bb, old_bb
+          );
+        }
+        OpData::Jump { target_bb: new_bb }
+      }
+      _ => unreachable!("IR redirect_bb: checked terminator kind above"),
+    };
+
+    self.replace_op(
+      builder,
+      Some(current_function),
+      term_id,
+      term_bb,
+      Op::new(typ, attrs, new_data),
+    )
+  }
+
+  pub fn split_block_before(
+    &mut self,
+    builder: &mut Builder,
+    current_function: Option<Operand>,
+    current_block: Operand,
+    split_point: Option<Operand>,
+  ) -> Operand {
+    self.split_block(builder, current_function, current_block, split_point, false)
+  }
+
+  pub fn split_block_after(
+    &mut self,
+    builder: &mut Builder,
+    current_function: Option<Operand>,
+    current_block: Operand,
+    split_point: Option<Operand>,
+  ) -> Operand {
+    self.split_block(builder, current_function, current_block, split_point, true)
+  }
+
+  fn split_block(
+    &mut self,
+    builder: &mut Builder,
+    current_function: Option<Operand>,
+    current_block: Operand,
+    split_point: Option<Operand>,
+    after: bool,
+  ) -> Operand {
+    let current_function = current_function.unwrap();
+    let cur = self.funcs[current_function].cfg[current_block].cur.clone();
+    let term_id = *cur
+      .last()
+      .unwrap_or_else(|| panic!("IR split_block: block {:?} is empty", current_block));
+    if !self.funcs[current_function].dfg[term_id]
+      .data
+      .is_terminator()
+    {
+      panic!(
+        "IR split_block: final instruction {:?} in {:?} is not a terminator",
+        term_id, current_block
+      );
+    }
+
+    let split_pos = if let Some(split_point) = split_point {
+      cur
+        .iter()
+        .position(|op_id| *op_id == split_point)
+        .unwrap_or_else(|| {
+          panic!(
+            "IR split_block: split point {:?} not found in block {:?}",
+            split_point, current_block
+          )
+        })
+    } else {
+      cur.len()
+    };
+
+    let moved_ops = cur
+      .iter()
+      .enumerate()
+      .filter_map(|(idx, op_id)| {
+        if *op_id == term_id || self.funcs[current_function].dfg[*op_id].is(OpType::Phi) {
+          return None;
+        }
+
+        let should_move = if split_point.is_none() {
+          false
+        } else if after {
+          idx > split_pos
+        } else {
+          idx >= split_pos
+        };
+        should_move.then_some(*op_id)
+      })
+      .collect::<Vec<_>>();
+
+    let new_bb = self.create_new_block(Some(current_function));
+    {
+      let func = &mut self.funcs[current_function];
+      func.cfg[current_block]
+        .cur
+        .retain(|op_id| !moved_ops.contains(op_id));
+      func.cfg[new_bb].cur.extend(moved_ops.iter().copied());
+      for op_id in &moved_ops {
+        func.op_to_bb[*op_id] = new_bb;
+      }
+    }
+
+    let mut copied_term = self.funcs[current_function].dfg[term_id].clone();
+    copied_term.users.clear();
+    let old_succs = match &copied_term.data {
+      OpData::Br {
+        then_bb, else_bb, ..
+      } => {
+        let mut succs = vec![*then_bb];
+        if else_bb != then_bb {
+          succs.push(*else_bb);
+        }
+        succs
+      }
+      OpData::Jump { target_bb } => vec![*target_bb],
+      _ => unreachable!("IR split_block: checked terminator kind above"),
+    };
+
+    {
+      let mut guard = BuilderGuard::new(builder);
+      guard.set_current_block(new_bb);
+      guard.set_before_inst(self, Some(current_function), None);
+      guard.create(self, Some(current_function), copied_term);
+    }
+
+    self.replace_op(
+      builder,
+      Some(current_function),
+      term_id,
+      current_block,
+      Op::new(Type::Void, vec![], OpData::Jump { target_bb: new_bb }),
+    );
+
+    for succ in old_succs {
+      let phis = self.get_all_ops_in_block(Some(current_function), succ, OpType::Phi);
+      for phi in phis {
+        let value = match &self.funcs[current_function].dfg[phi].data {
+          OpData::Phi { incomings } => incomings.iter().find_map(|incoming| {
+            if let PhiIncoming::Data { value, bb } = incoming {
+              (*bb == current_block).then_some(*value)
+            } else {
+              None
+            }
+          }),
+          _ => unreachable!("IR split_block: expected phi"),
+        };
+        if let Some(value) = value {
+          self.slay_phi_incoming(Some(current_function), phi, current_block);
+          self.append_phi_incoming(Some(current_function), phi, value, new_bb);
+        }
+      }
+    }
+
+    new_bb
   }
 
   pub fn get_src_tuple(
@@ -921,25 +1219,40 @@ impl IR {
           false
         }
       }) {
-        for (idx, incoming) in incomings.iter().enumerate() {
-          if let PhiIncoming::Data { value, .. } = incoming {
-            self.remove_use(Some(current_function), *value, (phi, idx));
+        let PhiIncoming::Data { value, .. } = incomings[pos].clone() else {
+          unreachable!("IR slay_phi_incoming: matched incoming must be data");
+        };
+        self.remove_use(Some(current_function), value, (phi, pos));
+
+        for (idx, incoming) in incomings.iter().enumerate().skip(pos + 1) {
+          let PhiIncoming::Data { value, .. } = incoming else {
+            continue;
+          };
+          if !matches!(
+            value,
+            Operand::Value(_) | Operand::Param(_) | Operand::Global(_)
+          ) {
+            continue;
+          }
+          let users = self.users_mut(Some(current_function), *value);
+          if let Some((_, user_idx)) = users
+            .iter_mut()
+            .find(|(user, user_idx)| *user == phi && *user_idx == idx)
+          {
+            *user_idx -= 1;
+          } else {
+            panic!(
+              "IR slay_phi_incoming: user tuple ({:?}, {}) not found for {:?}",
+              phi, idx, value
+            );
           }
         }
 
-        let updated_incomings =
-          if let OpData::Phi { incomings } = &mut self.funcs[current_function].dfg[phi_id].data {
-            // DO NOT use swap_remove here.
-            incomings.remove(pos);
-            incomings.clone()
-          } else {
-            panic!("IR slay_phi_incoming: not a phi node");
-          };
-
-        for (idx, incoming) in updated_incomings.iter().enumerate() {
-          if let PhiIncoming::Data { value, .. } = incoming {
-            self.add_use(Some(current_function), *value, (phi, idx));
-          }
+        if let OpData::Phi { incomings } = &mut self.funcs[current_function].dfg[phi_id].data {
+          // DO NOT use swap_remove here.
+          incomings.remove(pos);
+        } else {
+          panic!("IR slay_phi_incoming: not a phi node");
         }
       } else {
         panic!(
