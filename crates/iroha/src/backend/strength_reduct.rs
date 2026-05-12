@@ -81,10 +81,10 @@ impl StrengthReduct<'_> {
     for &bb_id in bb_ids.iter().rev() {
       let bb_id = BOperand::BB(bb_id);
       self.cx.set_current_block(bb_id);
-      let inst_ids = self.cx.get_func(func_id).cfg[bb_id].cur.clone();
+      let inst_ids = self.cx.get_bb(bb_id).cur.clone();
       for inst_id in inst_ids {
         self.cx.set_before_inst(Some(inst_id));
-        let lop = &self.cx.get_func(func_id).dfg[inst_id];
+        let lop = self.cx.get_op(inst_id);
         let lop_data = lop.data.clone().into();
         let (typ, attrs) = (lop.typ.clone(), lop.attrs.clone());
 

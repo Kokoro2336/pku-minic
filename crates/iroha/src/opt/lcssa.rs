@@ -34,7 +34,7 @@ impl LCSSA<'_> {
 
       for bb_id in blocks_in_loop.iter() {
         let bb_id = Operand::BB(bb_id);
-        let cur = self.cx.get_func(func_id).cfg[bb_id].cur.clone();
+        let cur = self.cx.get_bb(bb_id).cur.clone();
         for inst_id in cur {
           let users = self
             .cx
@@ -45,7 +45,7 @@ impl LCSSA<'_> {
           let typ = self.cx.get_op_type(inst_id);
 
           if users.iter().any(|user_id| {
-            let user_bb = self.cx.get_func(func_id).op_to_bb[*user_id];
+            let user_bb = self.cx.op_bb(*user_id);
             // Escaped
             !loop_data.blocks.contains(user_bb.get_bb_id())
           }) {
@@ -60,7 +60,9 @@ impl LCSSA<'_> {
             for exit_bb in loop_data.exit_blocks.iter() {
               let exit_bb = Operand::BB(exit_bb);
 
-              let exit_bb_preds = self.cx.get_func(func_id).cfg[exit_bb]
+              let exit_bb_preds = self
+                .cx
+                .get_bb(exit_bb)
                 .preds
                 .iter()
                 .map(|(pred_id, _)| *pred_id)

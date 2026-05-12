@@ -80,10 +80,9 @@ impl<'a> InsertPhi<'a> {
     // Compute defsites, origins and phis
     let bb_ids = self.cx.get_func(func_id).cfg.collect();
     for bb_id in bb_ids {
-      let func = self.cx.get_func(func_id);
-      let block = &func.cfg[bb_id];
-      for op_id_operand in &block.cur {
-        let op = &func.dfg[*op_id_operand];
+      let cur = self.cx.get_bb(Operand::BB(bb_id)).cur.clone();
+      for op_id_operand in &cur {
+        let op = self.cx.get_op(*op_id_operand);
         if op.is(OpType::Store) {
           let addr = match &op.data {
             OpData::Store { addr, .. } => addr,
@@ -91,7 +90,7 @@ impl<'a> InsertPhi<'a> {
           };
 
           if let Operand::Value(addr_id) = addr {
-            let addr_op = &func.dfg[*addr];
+            let addr_op = self.cx.get_op(*addr);
             if !addr_op
               .attrs
               .iter()
@@ -124,8 +123,7 @@ impl<'a> InsertPhi<'a> {
           if !self.phis[idx].contains(&frontier) {
             // Get number of preds of the frontier block
             let preds_num = {
-              let func = self.cx.get_func(func_id);
-              let block = &func.cfg[frontier];
+              let block = self.cx.get_bb(Operand::BB(frontier));
               block.preds.len()
             };
             // Insert phi
@@ -133,7 +131,6 @@ impl<'a> InsertPhi<'a> {
             {
               // Get type of the variable from one of its original defs.
               let var_type = {
-                let func = self.cx.get_func(func_id);
                 let origin_op_id = match self.var_to_op.get(&idx) {
                   Some(id) => *id,
                   None => {
@@ -142,7 +139,7 @@ impl<'a> InsertPhi<'a> {
                 };
 
                 // This is an alloca
-                let origin_op = &func.dfg[origin_op_id];
+                let origin_op = self.cx.get_op(Operand::Value(origin_op_id));
                 match &origin_op.typ {
                   Type::Pointer { .. } => origin_op.typ.unwrap_ptr(),
                   _ => {
@@ -580,7 +577,7 @@ impl<'a> Pass<'a> for Mem2Reg<'a> {
 
     for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
-      let func = &self.cx.ir().funcs[func_id];
+      let func = self.cx.get_func(func_id);
       let (dom_tree, frontier) = analyze::<DomAnalysis>(func);
       dom_trees[func_id.get_func_id()] = dom_tree;
       frontiers[func_id.get_func_id()] = frontier;

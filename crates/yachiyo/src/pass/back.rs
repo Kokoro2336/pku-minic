@@ -1,10 +1,13 @@
 //! Pass management for BackIR.
 
-use crate::cli::Cli;
 #[cfg(feature = "debug")]
 use crate::debug::info;
+
+use crate::cli::Cli;
 use crate::debug::DumpASM;
-use crate::ir::back::{BBuilder, BFunction, BOp, BOperand, BType, BackIR, Reg, Slot};
+use crate::ir::back::{
+  BBasicBlock, BBuilder, BFunction, BOp, BOpData, BOperand, BType, BackIR, Reg, Slot,
+};
 
 use std::collections::VecDeque;
 use std::ops::{Deref, DerefMut};
@@ -123,6 +126,40 @@ impl<'a> BPassContext<'a> {
 
   pub fn get_func_mut(&mut self, func_id: BOperand) -> &mut BFunction {
     &mut self.ir_mut().funcs[func_id]
+  }
+
+  #[inline(always)]
+  pub fn get_op(&self, op_id: BOperand) -> &BOp {
+    let func_id = self.current_func();
+    &self.get_func(func_id).dfg[op_id]
+  }
+
+  #[inline(always)]
+  pub fn get_op_mut(&mut self, op_id: BOperand) -> &mut BOp {
+    let func_id = self.current_func();
+    &mut self.get_func_mut(func_id).dfg[op_id]
+  }
+
+  #[inline(always)]
+  pub fn get_bb(&self, bb_id: BOperand) -> &BBasicBlock {
+    let func_id = self.current_func();
+    &self.get_func(func_id).cfg[bb_id]
+  }
+
+  #[inline(always)]
+  pub fn get_bb_mut(&mut self, bb_id: BOperand) -> &mut BBasicBlock {
+    let func_id = self.current_func();
+    &mut self.get_func_mut(func_id).cfg[bb_id]
+  }
+
+  #[inline(always)]
+  pub fn get_op_data(&self, op_id: BOperand) -> &BOpData {
+    &self.get_op(op_id).data
+  }
+
+  #[inline(always)]
+  pub fn get_op_data_mut(&mut self, op_id: BOperand) -> &mut BOpData {
+    &mut self.get_op_mut(op_id).data
   }
 
   pub fn op_bb(&self, op_id: BOperand) -> BOperand {
@@ -254,7 +291,7 @@ impl<'a> BPassContext<'a> {
     let func_id = self.current_func();
 
     match operand {
-      BOperand::Inst(id) => self.get_func(func_id).dfg[id].typ.clone(),
+      BOperand::Inst(_) => self.get_op(operand).typ.clone(),
       BOperand::Reg(reg) => match reg {
         Reg::X(_) => BType::I32,
         Reg::F(_) => BType::F32,

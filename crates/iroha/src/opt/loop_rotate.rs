@@ -38,8 +38,7 @@ impl LoopRotate<'_> {
     pre_header_id: Operand,
     guard_bb_id: Operand,
   ) -> Operand {
-    let func_id = self.cx.current_function_option();
-    let op = &self.cx.get_func(func_id.unwrap()).dfg[op_id];
+    let op = self.cx.get_op(op_id);
     let (mut op_data, typ, attrs) = (op.data.clone(), op.typ.clone(), op.attrs.clone());
 
     // Update the operands.
@@ -52,9 +51,7 @@ impl LoopRotate<'_> {
       if let Some(mapped_op_id) = self.inst_map.get(src_op_id) {
         // If the src_op is defined in the header, we replace it with the new op mapped by inst_map.
         *src_op_id = *mapped_op_id;
-      } else if let OpData::Phi { incomings } =
-        &self.cx.get_func(func_id.unwrap()).dfg[*src_op_id].data
-      {
+      } else if let OpData::Phi { incomings } = self.cx.get_op_data(*src_op_id) {
         if !header_phis.contains(src_op_id) {
           // If the src_op is defined by a phi node but not in the header, it must be defined outside the loop. Keep it as is.
           continue;
@@ -88,14 +85,13 @@ impl LoopRotate<'_> {
   }
 
   fn process_header_op(&mut self, op_id: Operand, latch_id: Operand) {
-    let func_id = self.cx.current_func();
     let src_tuple_mut = self.cx.get_src_tuple_owned(op_id);
     for (src_op_id, idx) in src_tuple_mut {
       if !matches!(src_op_id, Operand::Value(_)) {
         continue;
       }
 
-      if let OpData::Phi { incomings } = self.cx.get_func(func_id).dfg[src_op_id].data.clone() {
+      if let OpData::Phi { incomings } = self.cx.get_op_data(src_op_id).clone() {
         for incoming in incomings {
           let PhiIncoming::Data { value, bb } = incoming else {
             unreachable!();
@@ -117,7 +113,7 @@ impl LoopRotate<'_> {
     for phi_id in std::mem::take(&mut self.moved_phis) {
       let body_bb_id = self.cx.op_bb(phi_id);
       let mut available_defs = vec![(body_bb_id, phi_id)];
-      let OpData::Phi { incomings } = self.cx.get_func(func_id).dfg[phi_id].data.clone() else {
+      let OpData::Phi { incomings } = self.cx.get_op_data(phi_id).clone() else {
         unreachable!()
       };
       for incoming in incomings {
@@ -154,7 +150,7 @@ impl LoopRotate<'_> {
     for &phi_id in &updated_phis {
       let bb_id = self.cx.op_bb(phi_id);
       let mut available_defs = vec![(bb_id, phi_id)];
-      let OpData::Phi { incomings } = self.cx.get_func(func_id).dfg[phi_id].data.clone() else {
+      let OpData::Phi { incomings } = self.cx.get_op_data(phi_id).clone() else {
         unreachable!()
       };
       for incoming in incomings {
@@ -182,7 +178,7 @@ impl LoopRotate<'_> {
 
     let inst_map = std::mem::take(&mut self.inst_map);
     for (orig_id, cloned_id) in inst_map {
-      if self.cx.get_func(func_id).dfg[orig_id].typ == Type::Void {
+      if self.cx.get_op(orig_id).typ == Type::Void {
         continue;
       }
 
@@ -192,7 +188,7 @@ impl LoopRotate<'_> {
       ];
 
       for &phi_id in &updated_phis {
-        let OpData::Phi { incomings } = self.cx.get_func(func_id).dfg[phi_id].data.clone() else {
+        let OpData::Phi { incomings } = self.cx.get_op_data(phi_id).clone() else {
           unreachable!()
         };
         if incomings.iter().any(|incoming| {
@@ -224,15 +220,14 @@ impl LoopRotate<'_> {
   }
 
   fn run(&mut self, dom_tree: &DomTree, loops: &mut [LoopData]) {
-    let func_id = self.cx.current_func();
-
     for lp_id in (0..loops.len()).rev() {
       let loop_data = &mut loops[lp_id];
       let header_id = loop_data.header;
 
-      let cfg = &self.cx.get_func(func_id).cfg;
-      let header = &cfg[header_id];
-      let (header_preds, header_succs) = (&header.preds, &header.succs);
+      let (header_preds, header_succs) = {
+        let header = self.cx.get_bb(header_id);
+        (header.preds.clone(), header.succs.clone())
+      };
       assert!(header_preds.len() == 2);
 
       let (mut pre_header_id, mut latch_id) = (None, None);
@@ -244,18 +239,17 @@ impl LoopRotate<'_> {
         }
       }
       let (pre_header_id, latch_id) = (pre_header_id.unwrap(), latch_id.unwrap());
-      let Some(&(exit_bb_id, _)) = header_succs
+      let Some((exit_bb_id, _)) = header_succs
         .iter()
+        .copied()
         .find(|(succ_id, _)| !loop_data.blocks.contains(succ_id.get_bb_id()))
       else {
         // If the header has no exit path, then the loop should not be rotated.
         continue;
       };
 
-      let pre_header_term_id = *cfg[pre_header_id].cur.last().unwrap();
-      let pre_header_term_data = self.cx.get_func(func_id).dfg[pre_header_term_id]
-        .data
-        .clone();
+      let pre_header_term_id = *self.cx.get_bb(pre_header_id).cur.last().unwrap();
+      let pre_header_term_data = self.cx.get_op_data(pre_header_term_id).clone();
 
       // Create a guard block.
       let guard_bb_id = self.cx.create_new_block();
@@ -312,8 +306,8 @@ impl LoopRotate<'_> {
 
       let phis = self.cx.get_all_ops_in_block(header_id, OpType::Phi);
 
-      for op_id in self.cx.get_func(func_id).cfg[header_id].cur.clone() {
-        let op_data = &self.cx.get_func(func_id).dfg[op_id].data;
+      for op_id in self.cx.get_bb(header_id).cur.clone() {
+        let op_data = self.cx.get_op_data(op_id);
         if op_data.is(OpType::Phi) {
           continue;
         }
@@ -326,7 +320,7 @@ impl LoopRotate<'_> {
       // Update the exit blocks' phi nodes.
       let exit_bb_phis = self.cx.get_all_ops_in_block(exit_bb_id, OpType::Phi);
       for phi_id in exit_bb_phis {
-        let OpData::Phi { incomings } = self.cx.get_func(func_id).dfg[phi_id].data.clone() else {
+        let OpData::Phi { incomings } = self.cx.get_op_data(phi_id).clone() else {
           unreachable!()
         };
 
@@ -338,7 +332,7 @@ impl LoopRotate<'_> {
               continue;
             }
 
-            let value_op = &self.cx.get_func(func_id).dfg[value].data;
+            let value_op = self.cx.get_op_data(value);
             let mapped_value = *self.inst_map.get(&value).unwrap();
 
             if value_op.is(OpType::Phi) {
@@ -361,14 +355,15 @@ impl LoopRotate<'_> {
       }
 
       // Move phi nodes in the header to the loop body.
-      let bb = &self.cx.get_func(func_id).cfg[header_id];
-      let (body_bb_id, _) = *bb
+      let (body_bb_id, _) = self
+        .cx
+        .get_bb(header_id)
         .succs
         .iter()
         .find(|(succ_id, _)| loop_data.blocks.contains(succ_id.get_bb_id()))
+        .copied()
         .unwrap();
-      let body_bb = &self.cx.get_func(func_id).cfg[body_bb_id];
-      let body_head_op_id = *body_bb.cur.first().unwrap();
+      let body_head_op_id = *self.cx.get_bb(body_bb_id).cur.first().unwrap();
 
       for phi_id in phis {
         self
@@ -376,7 +371,7 @@ impl LoopRotate<'_> {
           .move_op_to_bb_at(phi_id, header_id, body_bb_id, Some(body_head_op_id));
         self.moved_phis.push(phi_id);
         // Refine incoming block of the moved phi nodes.
-        let OpData::Phi { incomings } = self.cx.get_func(func_id).dfg[phi_id].data.clone() else {
+        let OpData::Phi { incomings } = self.cx.get_op_data(phi_id).clone() else {
           unreachable!();
         };
         for incoming in incomings {

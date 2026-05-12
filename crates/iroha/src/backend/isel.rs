@@ -24,10 +24,8 @@ impl ISel<'_> {
   }
 
   pub fn select(&mut self, lop_id: BOperand) {
-    let func_id = self.cx.current_func();
     let current_block = self.cx.current_block().unwrap();
-    let func = self.cx.get_func(func_id);
-    let bop = &func.dfg[lop_id];
+    let bop = self.cx.get_op(lop_id);
     let (lop_data, attrs, typ) = (bop.data.clone().into(), bop.attrs.clone(), bop.typ.clone());
 
     // Pointer arithmetic should be lowered in post-ra.
@@ -589,18 +587,12 @@ impl<'a> BPass<'a> for ISel<'a> {
   fn run(&mut self) {
     for func_id in self.cx.ir().funcs.collect_internal() {
       self.init(func_id);
+      let func_id = BOperand::Func(func_id);
 
-      let ids = {
-        let func = &self.cx.ir().funcs[func_id];
-        func.cfg.ids()
-      };
+      let ids = self.cx.get_func(func_id).cfg.ids();
       for bb_id in ids {
         self.cx.set_current_block(BOperand::BB(bb_id));
-        let cur = {
-          let func = &self.cx.ir().funcs[func_id];
-          let bb = &func.cfg[bb_id];
-          bb.cur.clone()
-        };
+        let cur = self.cx.get_bb(BOperand::BB(bb_id)).cur.clone();
         for op_id in cur {
           self.select(op_id);
         }

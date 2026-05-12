@@ -142,7 +142,7 @@ impl<'a> PassContext<'a> {
     let func_id = self.current_func();
 
     match operand {
-      Operand::Value(_) => self.get_func(func_id).dfg[operand].typ.clone(),
+      Operand::Value(_) => self.get_op(operand).typ.clone(),
       Operand::Param(_) => self.get_func(func_id).params[operand].typ.clone(),
       Operand::Global(_) => self.ir().globals[operand].typ.clone(),
       Operand::Func(_) => self.ir().funcs[operand].typ.clone(),
@@ -331,7 +331,7 @@ impl<'a> PassContext<'a> {
         }
       }
       Operand::Value(_) => {
-        let op = &self.get_func(self.current_func()).dfg[operand];
+        let op = self.get_op(operand);
         let op_data = &op.data;
         match op_data {
           OpData::GEP { base, indices } => {
@@ -363,14 +363,28 @@ impl<'a> PassContext<'a> {
     mem_loc
   }
 
+  #[inline(always)]
   pub fn get_op(&self, op_id: Operand) -> &Op {
     let func_id = self.current_func();
     &self.get_func(func_id).dfg[op_id]
   }
 
+  #[inline(always)]
+  pub fn get_op_mut(&mut self, op_id: Operand) -> &mut Op {
+    let func_id = self.current_func();
+    &mut self.get_func_mut(func_id).dfg[op_id]
+  }
+
+  #[inline(always)]
   pub fn get_bb(&self, bb_id: Operand) -> &BasicBlock {
     let func_id = self.current_func();
     &self.get_func(func_id).cfg[bb_id]
+  }
+
+  #[inline(always)]
+  pub fn get_bb_mut(&mut self, bb_id: Operand) -> &mut BasicBlock {
+    let func_id = self.current_func();
+    &mut self.get_func_mut(func_id).cfg[bb_id]
   }
 
   /// For cases where guard doesn't live long enough, e.g., in AliasAnalysis.
@@ -389,6 +403,11 @@ impl<'a> PassContext<'a> {
   #[inline(always)]
   pub fn get_op_data(&self, op_id: Operand) -> &OpData {
     &self.get_op(op_id).data
+  }
+
+  #[inline(always)]
+  pub fn get_op_data_mut(&mut self, op_id: Operand) -> &mut OpData {
+    &mut self.get_op_mut(op_id).data
   }
 }
 

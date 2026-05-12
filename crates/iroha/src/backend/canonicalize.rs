@@ -167,9 +167,9 @@ impl Canonicalize<'_> {
       let bb_id = BOperand::BB(bb_id);
       self.cx.set_current_block(bb_id);
 
-      let inst_ids = self.cx.get_func(func_id).cfg[bb_id].cur.clone();
+      let inst_ids = self.cx.get_bb(bb_id).cur.clone();
       for inst_id in inst_ids {
-        let op = &self.cx.get_func(func_id).dfg[inst_id];
+        let op = self.cx.get_op(inst_id);
         let (lop_data, typ, attrs) = match op.data.clone() {
           BOpData::L(lop_data) => (lop_data, op.typ.clone(), op.attrs.clone()),
           BOpData::M(mop_data) => {
