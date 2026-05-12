@@ -115,32 +115,31 @@ fn main() -> Result<()> {
   // Run optimizations.
   PassManager::new(&cli)
     // Global memory localization
-    .register(Box::new(Localize::default()))
+    .register::<Localize>()
     // Mem2Reg
-    .register(Box::new(Mem2Reg::default()))
-    .register(Box::new(RemoveTrivialPhi::default()))
+    .register::<Mem2Reg>()
+    .register::<RemoveTrivialPhi>()
     // Constant propagation and control flow simplification
-    .register(Box::new(SCCP::default()))
-    .register(Box::new(SimplifyCFG::default()))
-    .register(Box::new(RemoveTrivialPhi::default()))
-    .register(Box::new(DCE::default()))
-    // GVN
-    .register(Box::new(GVN::default()))
-    .register(Box::new(DCE::default()))
+    .register::<SCCP>()
+    .register::<SimplifyCFG>()
+    .register::<RemoveTrivialPhi>()
+    .register::<GVN>()
+    .register::<DCE>()
     // Loop Optimizations
-    .register(Box::new(LoopSimplify::default()))
-    .register(Box::new(LCSSA::default()))
-    .register(Box::new(LoopRotate::default()))
-    .register(Box::new(LICM::default()))
-    // Final clean up before going into the backend.
-    .register(Box::new(SimplifyCFG::default()))
-    .register(Box::new(SCCP::default()))
-    .register(Box::new(GVN::default()))
-    .register(Box::new(DCE::default()))
-    .register(Box::new(SimplifyCFG::default()))
-    .register(Box::new(RemoveTrivialPhi::default()))
-    .register(Box::new(DCE::default()))
-    .register(Box::new(Compaction::default()))
+    .register::<LoopSimplify>()
+    .register::<LCSSA>()
+    .register::<LoopRotate>()
+    .register::<LICM>()
+    // Post Loop Optimizations
+    .register::<SimplifyCFG>()
+    .register::<SCCP>()
+    .register::<GVN>()
+    .register::<DCE>()
+    // Final Clean Up
+    .register::<SimplifyCFG>()
+    .register::<RemoveTrivialPhi>()
+    .register::<DCE>()
+    .register::<Compaction>()
     .run(&mut ir);
 
   // Start Lowering
@@ -174,19 +173,19 @@ fn main() -> Result<()> {
   // Run Backend Passes.
   BPassManager::new(&cli)
     // Pre-ISel
-    .register(Box::new(Canonicalize::default()))
-    .register(Box::new(InstCombine::default()))
-    .register(Box::new(StrengthReduct::default()))
-    .register(Box::new(Legalize::default()))
+    .register::<Canonicalize>()
+    .register::<InstCombine>()
+    .register::<StrengthReduct>()
+    .register::<Legalize>()
     // ISel
-    .register(Box::new(ISel::default()))
+    .register::<ISel>()
     // Post-ISel Clean up
-    .register(Box::new(InstCombine::default()))
-    .register(Box::new(BDCE::default()))
-    .register(Box::new(BCompaction::default()))
+    .register::<InstCombine>()
+    .register::<BDCE>()
+    .register::<BCompaction>()
     // Register Allocation
-    .register(Box::new(RegAlloc::default()))
-    .register(Box::new(Peephole::default()))
+    .register::<RegAlloc>()
+    .register::<Peephole>()
     .run(&mut back_ir);
 
   Ok(())
