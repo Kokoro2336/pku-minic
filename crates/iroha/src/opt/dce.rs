@@ -16,16 +16,9 @@ pub struct DCE<'a> {
 
 impl DCE<'_> {
   pub fn is_dead(&self, operand: &Operand) -> bool {
-    let program = self.cx.ir();
-    let current_func = match self.cx.builder.current_function {
-      Some(idx) => self.cx.get_func(idx),
-      None => panic!("DCE: not in a function"),
-    };
-    let dfg = &current_func.dfg;
-    let globals = &program.globals;
     match operand {
-      Operand::Value(id) => dfg[*id].users.is_empty(),
-      Operand::Global(id) => globals[*id].users.is_empty(),
+      Operand::Value(id) => self.cx.users(Operand::Value(*id)).is_empty(),
+      Operand::Global(id) => self.cx.ir().users(None, Operand::Global(*id)).is_empty(),
       _ => panic!("DCE: operand is not a value"),
     }
   }
@@ -82,7 +75,7 @@ impl<'a> Pass<'a> for DCE<'a> {
         | Operand::Float(_)
         | Operand::Bool(_)
         | Operand::Undefined
-        | Operand::Param { .. } => { /* do nothing */ }
+        | Operand::Param(_) => { /* do nothing */ }
         Operand::BB(_) | Operand::Func(_) => unreachable!("Unexpected operand: {:?}", operand),
       }
     }

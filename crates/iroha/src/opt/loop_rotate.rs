@@ -101,8 +101,7 @@ impl LoopRotate<'_> {
             unreachable!();
           };
           if bb == latch_id {
-            let dfg = &mut self.cx.get_func_mut(func_id).dfg;
-            dfg.replace_use((op_id, idx), src_op_id, value);
+            self.cx.replace_use((op_id, idx), src_op_id, value);
           }
         }
       }

@@ -174,7 +174,7 @@ impl<'a> SSAUpdater<'a> {
 
   fn update_original_users(&mut self) {
     let inst_id = self.inst_id;
-    let users = self.func().dfg[inst_id].users.clone();
+    let users = self.ir.users(Some(self.func_id), inst_id);
     for (user, idx) in users {
       let trace_bb_id = self.get_trace_bb_id(user);
       if self.use_available_on_edge(user, inst_id, trace_bb_id) {
@@ -185,10 +185,11 @@ impl<'a> SSAUpdater<'a> {
 
       // Replace the operand in the user with the latest definition.
       let src_tuple = self.get_src_tuple(user);
-      let dfg = &mut self.func_mut().dfg;
       for (src_op_id, src_idx) in src_tuple {
         if src_op_id == inst_id && src_idx == idx {
-          dfg.replace_use((user, idx), src_op_id, latest_def);
+          self
+            .ir
+            .replace_use(Some(self.func_id), (user, idx), src_op_id, latest_def);
         }
       }
     }

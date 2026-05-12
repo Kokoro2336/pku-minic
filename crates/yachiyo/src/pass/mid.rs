@@ -143,7 +143,7 @@ impl<'a> PassContext<'a> {
 
     match operand {
       Operand::Value(_) => self.get_func(func_id).dfg[operand].typ.clone(),
-      Operand::Param(_) => self.get_func(func_id).params[operand].1.clone(),
+      Operand::Param(_) => self.get_func(func_id).params[operand].typ.clone(),
       Operand::Global(_) => self.ir().globals[operand].typ.clone(),
       Operand::Func(_) => self.ir().funcs[operand].typ.clone(),
 
@@ -216,6 +216,17 @@ impl<'a> PassContext<'a> {
       .replace_all_uses(current_function_option, old, new);
   }
 
+  pub fn replace_use(&mut self, op_tuple: (Operand, usize), old: Operand, new: Operand) {
+    let current_function_option = self.builder.current_function;
+    self
+      .ir_mut()
+      .replace_use(current_function_option, op_tuple, old, new);
+  }
+
+  pub fn users(&self, operand: Operand) -> Vec<(Operand, usize)> {
+    self.ir().users(self.builder.current_function, operand)
+  }
+
   pub fn get_all_ops(&self, op_typ: OpType) -> Vec<Operand> {
     self.ir().get_all_ops(self.builder.current_function, op_typ)
   }
@@ -267,6 +278,25 @@ impl<'a> PassContext<'a> {
     self.ir_mut().add_uses(current_function_option, op_id);
   }
 
+  pub fn add_use(&mut self, used: Operand, user_tuple: (Operand, usize)) {
+    let current_function_option = self.builder.current_function;
+    self
+      .ir_mut()
+      .add_use(current_function_option, used, user_tuple);
+  }
+
+  pub fn remove_use(&mut self, used: Operand, user_tuple: (Operand, usize)) {
+    let current_function_option = self.builder.current_function;
+    self
+      .ir_mut()
+      .remove_use(current_function_option, used, user_tuple);
+  }
+
+  pub fn clear_uses(&mut self) {
+    let current_function_option = self.builder.current_function;
+    self.ir_mut().clear_uses(current_function_option);
+  }
+
   pub fn append_phi_incoming(&mut self, phi_id: Operand, bb_id: Operand, value: Operand) {
     let current_function_option = self.builder.current_function;
     self
@@ -293,7 +323,7 @@ impl<'a> PassContext<'a> {
       Operand::Global(_) => mem_loc.base = operand,
       Operand::Param(_) => {
         let func_id = self.current_func();
-        let (_, param_typ) = &self.get_func(func_id).params[operand];
+        let param_typ = &self.get_func(func_id).params[operand].typ;
         if matches!(param_typ, Type::Pointer { .. }) {
           mem_loc.base = operand;
         } else {

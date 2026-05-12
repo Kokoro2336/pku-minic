@@ -352,7 +352,7 @@ impl<'a> Renaming<'a> {
               OpData::Store { addr, value } => {
                 match addr {
                   // Local variables, including parameter and local vars defined.
-                  Operand::Value(_) | Operand::Param { .. } => {}
+                  Operand::Value(_) | Operand::Param(_) => {}
                   // We won't promote global variables.
                   Operand::Global(_) => continue,
                   _ => panic!("Renaming: store address is not a value or global"),

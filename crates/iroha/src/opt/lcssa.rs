@@ -36,8 +36,9 @@ impl LCSSA<'_> {
         let bb_id = Operand::BB(bb_id);
         let cur = self.cx.get_func(func_id).cfg[bb_id].cur.clone();
         for inst_id in cur {
-          let users = self.cx.get_func(func_id).dfg[inst_id.get_op_id()]
-            .users
+          let users = self
+            .cx
+            .users(inst_id)
             .iter()
             .map(|(user_id, _)| *user_id)
             .collect::<Vec<_>>();

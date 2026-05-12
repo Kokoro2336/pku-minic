@@ -79,7 +79,7 @@ impl SCCP<'_> {
 
       Operand::Undefined => Lattice::Top,
 
-      Operand::Global(_) | Operand::Param { .. } => Lattice::Bottom,
+      Operand::Global(_) | Operand::Param(_) => Lattice::Bottom,
 
       Operand::BB(_) | Operand::Func(_) => panic!(
         "SCCP get_lattice: operand {:?} is not a value or constant",
@@ -235,10 +235,10 @@ impl SCCP<'_> {
             }
 
             // If the lattice has changed, we need to propagate the change to users.
-            for (user, _) in self.cx.get_func(func_id).dfg[op_id].users.iter() {
+            for (user, _) in self.cx.users(op_id) {
                 if !self.in_inst_list.contains(user.get_op_id()) {
                     self.in_inst_list.insert(user.get_op_id());
-                    self.inst_list.push(*user);
+                    self.inst_list.push(user);
                 }
             }
         },
@@ -251,10 +251,10 @@ impl SCCP<'_> {
                 return;
             }
             // If the lattice has changed, we need to propagate the change to users.
-            for (user, _) in self.cx.get_func(func_id).dfg[op_id].users.iter() {
+            for (user, _) in self.cx.users(op_id) {
                 if !self.in_inst_list.contains(user.get_op_id()) {
                     self.in_inst_list.insert(user.get_op_id());
-                    self.inst_list.push(*user);
+                    self.inst_list.push(user);
                 }
             }
         },
@@ -267,10 +267,10 @@ impl SCCP<'_> {
                     return;
                 }
                 // If the lattice has changed, we need to propagate the change to users.
-                for (user, _) in self.cx.get_func(func_id).dfg[op_id].users.iter() {
+                for (user, _) in self.cx.users(op_id) {
                     if !self.in_inst_list.contains(user.get_op_id()) {
                         self.in_inst_list.insert(user.get_op_id());
-                        self.inst_list.push(*user);
+                        self.inst_list.push(user);
                     }
                 }
             }
@@ -355,10 +355,10 @@ impl SCCP<'_> {
         return;
       }
       // If the lattice has changed, we need to propagate the change to users.
-      for (user, _) in self.cx.get_func(func_id).dfg[op_id].users.iter() {
+      for (user, _) in self.cx.users(op_id) {
         if !self.in_inst_list.contains(user.get_op_id()) {
           self.in_inst_list.insert(user.get_op_id());
-          self.inst_list.push(*user);
+          self.inst_list.push(user);
         }
       }
     } else {

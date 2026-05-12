@@ -3,7 +3,7 @@
 use yachiyo::analysis::analyze;
 use yachiyo::ir::mid::{OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
-use yachiyo::utils::arena::{Arena, ArenaItem};
+use yachiyo::utils::arena::Arena;
 use yachiyo::utils::r#match::match_some;
 use yachiyo::utils::set::BitSet;
 
@@ -27,14 +27,7 @@ impl SimplifyCFG<'_> {
     let func_id = self.cx.current_func();
     let cur = self.cx.get_func(func_id).cfg[bb_id].cur.clone();
     let succs = self.cx.get_func(func_id).cfg[bb_id].succs.clone();
-    {
-      let func = self.cx.get_func_mut(func_id);
-      for item in func.dfg.storage.iter_mut() {
-        if let ArenaItem::Data(op) = item {
-          op.users.clear();
-        }
-      }
-    }
+    self.cx.clear_uses();
     let blocks = self
       .cx
       .get_func(func_id)
@@ -56,13 +49,11 @@ impl SimplifyCFG<'_> {
         .iter()
         .map(|(src, idx)| (**src, *idx))
         .collect::<Vec<_>>();
-      let dfg = &mut self.cx.get_func_mut(func_id).dfg;
       for (src, idx) in src_tuple {
-        dfg.remove_use(src, (*inst, idx));
+        self.cx.remove_use(src, (*inst, idx));
       }
-      for (user, _) in dfg[*inst].users.clone() {
-        let dfg = &self.cx.get_func_mut(func_id).dfg;
-        let op_data = dfg[user].data.clone();
+      for (user, _) in self.cx.users(*inst) {
+        let op_data = self.cx.get_func(func_id).dfg[user].data.clone();
         if let OpData::Phi { incomings } = op_data {
           for incoming in incomings {
             if let PhiIncoming::Data {
@@ -117,7 +108,7 @@ impl SimplifyCFG<'_> {
     self.cx.move_op_to_bb_at(op_id, from_bb, to_bb, before_op);
     // If a user of the moved instruction is a phi node in the original block, we need to update the phi node to point to the new block.
     let func_id = self.cx.current_func();
-    let users = self.cx.get_func(func_id).dfg[op_id].users.clone();
+    let users = self.cx.users(op_id);
     for (user, _) in users {
       let user_op_data = self.cx.get_func(func_id).dfg[user].data.clone();
       if let OpData::Phi { incomings } = user_op_data {
@@ -202,7 +193,8 @@ impl SimplifyCFG<'_> {
         let dfg = &self.cx.get_func(func_id).dfg;
         let succs = &bb.succs;
         let op = &dfg[*inst_id];
-        let (op_data, users) = (&op.data, &op.users);
+        let op_data = &op.data;
+        let users = self.cx.users(*inst_id);
         if op_data.is_terminator() {
           true
         } else if let OpData::Phi { .. } = op_data {
@@ -357,14 +349,7 @@ impl SimplifyCFG<'_> {
       self.cx.get_func_mut(func_id).cfg.remove(bb_id.get_bb_id());
     }
 
-    {
-      let func = self.cx.get_func_mut(func_id);
-      for item in func.dfg.storage.iter_mut() {
-        if let ArenaItem::Data(op) = item {
-          op.users.clear();
-        }
-      }
-    }
+    self.cx.clear_uses();
     let blocks = self
       .cx
       .get_func(func_id)

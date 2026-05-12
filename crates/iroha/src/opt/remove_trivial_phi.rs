@@ -73,14 +73,14 @@ impl RemoveTrivialPhi<'_> {
   fn remove_phi(&mut self) {
     // Check whether the phi_ids are valid
     while let Some((phi_id, bb_id, check_result)) = self.worklist.pop() {
-      let uses = {
+      {
         let func_id = self.cx.current_func();
         let func = self.cx.get_func_mut(func_id);
         let phi_op = &mut func.dfg[phi_id];
         // Remove OldIdx Attr
         phi_op.attrs.retain(|attr| !matches!(attr, Attr::OldIdx(_)));
-        phi_op.users.clone()
-      };
+      }
+      let uses = self.cx.users(phi_id);
       let current_function = self.cx.current_func();
       match check_result {
         CheckType::Empty => {

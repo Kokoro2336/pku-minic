@@ -7,7 +7,6 @@ use crate::base::Type;
 use crate::ir::mid::{BasicBlock, Op, OpData, Operand, PhiIncoming, CFG, DFG};
 use crate::utils::arena::*;
 use crate::utils::map::IndexedMap;
-use crate::utils::r#match::match_some;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 
 #[allow(clippy::upper_case_acronyms)]
@@ -34,7 +33,39 @@ impl DerefMut for CG {
   }
 }
 
-pub type Params = IndexedArena<(String, Type)>;
+#[derive(Debug, Clone)]
+pub struct Param {
+  pub name: String,
+  pub typ: Type,
+  users: Vec<(Operand, usize)>,
+}
+
+impl Param {
+  pub fn new(name: String, typ: Type) -> Self {
+    Self {
+      name,
+      typ,
+      users: vec![],
+    }
+  }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Params(IndexedArena<Param>);
+
+impl Deref for Params {
+  type Target = IndexedArena<Param>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl DerefMut for Params {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
+  }
+}
 
 #[derive(Debug, Clone)]
 pub struct Function {
@@ -162,66 +193,62 @@ impl Arena<Function> for CG {
       };
     };
 
-    // No need to rewrite anything inside Function for now
-    self.storage.iter_mut().for_each(|func| {
-            if let ArenaItem::Data(func) = func {
-                if func.is_external {
-                    return;
-                }
-                let old_arena_dfg = func.dfg.gc();
-                let old_arena_cfg = func.cfg.gc();
+    for func in self.storage.iter_mut() {
+      let ArenaItem::Data(func) = func else {
+        continue;
+      };
+      if func.is_external {
+        continue;
+      }
 
-                // rewrite op refs in BasicBlocks
-                func.cfg.storage.iter_mut().for_each(|item| {
-                    if let ArenaItem::Data(bb) = item {
-                        for op_idx in bb.cur.iter_mut() {
-                            remap_with_dfg(op_idx, &old_arena_dfg);
-                        }
-                    }
-                });
+      let old_arena_dfg = func.dfg.gc();
+      let old_arena_cfg = func.cfg.gc();
 
-                // rewrite BBId in dfg ops
-                func.dfg.storage.iter_mut().for_each(|item| {
-                    if let ArenaItem::Data(op) = item {
-                        match_some! {
-                            target: &mut op.data,
-                            enu: OpData,
-                            minor_arms: {
-                                OpData::Jump { target_bb } => {
-                                    remap_with_cfg(target_bb, &old_arena_cfg);
-                                }
-                                OpData::Br {
-                                    then_bb, else_bb, ..
-                                } => {
-                                    remap_with_cfg(then_bb, &old_arena_cfg);
-                                    remap_with_cfg(else_bb, &old_arena_cfg);
-                                }
+      for item in func.params.storage.iter_mut() {
+        if let ArenaItem::Data(param) = item {
+          for (op_id, _) in param.users.iter_mut() {
+            remap_with_dfg(op_id, &old_arena_dfg);
+          }
+        }
+      }
 
-                                OpData::Phi { incomings } => {
-                                    for phi_incoming in incomings.iter_mut() {
-                                        if let PhiIncoming::Data { bb, .. } = phi_incoming {
-                                            remap_with_cfg(bb, &old_arena_cfg);
-                                        }
-                                        // If incoming == None, do nothing
-                                    }
-                                }
+      // rewrite op refs in BasicBlocks
+      for item in func.cfg.storage.iter_mut() {
+        if let ArenaItem::Data(bb) = item {
+          for op_idx in bb.cur.iter_mut() {
+            remap_with_dfg(op_idx, &old_arena_dfg);
+          }
+        }
+      }
 
-                                // Special: Call needs to rewrite the function operand.
-                                OpData::Call { func, .. } => {
-                                    if let Operand::Func(func_id) = func {
-                                        remap_idx(func_id, &old_arena);
-                                    }
-                                }
-                            },
-                            uni_ops: [AddF, SubF, MulF, DivF, AddI, SubI, MulI, DivI, ModI, Load, Store, Alloca, GlobalAlloca, Declare, GEP, Sitofp, Fptosi, Zext, Uitofp, Ret, Shl, Shr, Sar, SNe, SEq, Xor, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe],
-                            uni_arm: { /* no BBId to rewrite */ }
-                        }
-                    }
-                });
-
-                func.rebuild_op_to_bb();
+      // rewrite BBId in dfg ops
+      for item in func.dfg.storage.iter_mut() {
+        if let ArenaItem::Data(op) = item {
+          match &mut op.data {
+            OpData::Jump { target_bb } => remap_with_cfg(target_bb, &old_arena_cfg),
+            OpData::Br {
+              then_bb, else_bb, ..
+            } => {
+              remap_with_cfg(then_bb, &old_arena_cfg);
+              remap_with_cfg(else_bb, &old_arena_cfg);
             }
-        });
+            OpData::Phi { incomings } => {
+              for phi_incoming in incomings.iter_mut() {
+                if let PhiIncoming::Data { bb, .. } = phi_incoming {
+                  remap_with_cfg(bb, &old_arena_cfg);
+                }
+              }
+            }
+            OpData::Call { func: Operand::Func(func_id), .. } => {
+              remap_idx(func_id, &old_arena);
+            }
+            _ => {}
+          }
+        }
+      }
+
+      func.rebuild_op_to_bb();
+    }
 
     // replace old storage
     old_arena
@@ -290,12 +317,77 @@ impl IndexMut<usize> for CG {
 }
 
 impl Index<Operand> for Params {
-  type Output = (String, Type);
+  type Output = Param;
 
   fn index(&self, index: Operand) -> &Self::Output {
     match index {
       Operand::Param(id) => self.get(id).unwrap(),
       _ => panic!("Params index: expected Operand::Param, got {:?}", index),
+    }
+  }
+}
+
+impl IndexMut<Operand> for Params {
+  fn index_mut(&mut self, index: Operand) -> &mut Self::Output {
+    match index {
+      Operand::Param(id) => self.get_mut(id).unwrap(),
+      _ => panic!("Params index_mut: expected Operand::Param, got {:?}", index),
+    }
+  }
+}
+
+impl Index<usize> for Params {
+  type Output = Param;
+
+  fn index(&self, index: usize) -> &Self::Output {
+    &self.0[index]
+  }
+}
+
+impl IndexMut<usize> for Params {
+  fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+    &mut self.0[index]
+  }
+}
+
+impl Params {
+  pub fn add_use(&mut self, param_id: Operand, user_tuple: (Operand, usize)) {
+    let Operand::Param(param_id) = param_id else {
+      return;
+    };
+
+    self[param_id].users.push(user_tuple);
+  }
+
+  pub fn remove_use(&mut self, param_id: Operand, user_tuple: (Operand, usize)) {
+    let Operand::Param(param_id) = param_id else {
+      return;
+    };
+
+    let param = &mut self[param_id];
+    if let Some(pos) = param.users.iter().position(|x| *x == user_tuple) {
+      param.users.swap_remove(pos);
+    } else {
+      panic!(
+        "Use {:?}: not found in users of param {:?}: {:?}",
+        user_tuple, param_id, param
+      );
+    }
+  }
+
+  pub fn users(&self, param_id: Operand) -> Vec<(Operand, usize)> {
+    let Operand::Param(param_id) = param_id else {
+      return vec![];
+    };
+
+    self[param_id].users.clone()
+  }
+
+  pub fn clear_uses(&mut self) {
+    for item in self.storage.iter_mut() {
+      if let ArenaItem::Data(param) = item {
+        param.users.clear();
+      }
     }
   }
 }

@@ -61,11 +61,10 @@ impl Localize<'_> {
           .iter()
           .map(|(op_id, idx)| (**op_id, *idx))
           .collect::<Vec<_>>();
-        let dfg = &mut self.cx.get_func_mut(func_id).dfg;
 
         for (src_id, src_idx) in src_tuple {
           if src_id == global {
-            dfg.replace_use((mem_inst, src_idx), global, alloca_id);
+            self.cx.replace_use((mem_inst, src_idx), global, alloca_id);
           }
         }
       }
