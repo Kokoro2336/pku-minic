@@ -1011,7 +1011,8 @@ impl IR {
       .iter()
       .enumerate()
       .filter_map(|(idx, op_id)| {
-        if *op_id == term_id || self.funcs[current_function].dfg[*op_id].is(OpType::Phi) {
+        let op = &self.funcs[current_function].dfg[*op_id];
+        if *op_id == term_id || op.is(OpType::Phi) || op.is(OpType::Ret) {
           return None;
         }
 
@@ -1038,8 +1039,7 @@ impl IR {
       }
     }
 
-    let mut copied_term = self.funcs[current_function].dfg[term_id].clone();
-    copied_term.users.clear();
+    let copied_term = self.funcs[current_function].dfg[term_id].clone();
     let old_succs = match &copied_term.data {
       OpData::Br {
         then_bb, else_bb, ..
@@ -1051,7 +1051,8 @@ impl IR {
         succs
       }
       OpData::Jump { target_bb } => vec![*target_bb],
-      _ => unreachable!("IR split_block: checked terminator kind above"),
+      OpData::Ret { .. } => vec![],
+      _ => unreachable!("Unexpected terminator kind: {:?}", copied_term.data),
     };
 
     {

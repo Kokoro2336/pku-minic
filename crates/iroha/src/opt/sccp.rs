@@ -141,15 +141,19 @@ impl SCCP<'_> {
     };
     match (lhs, rhs) {
       (Operand::Int(i1), Operand::Int(i2)) => match &op_typ {
-        OpType::AddI => Lattice::Constant(Operand::Int(i1 + i2)),
-        OpType::SubI => Lattice::Constant(Operand::Int(i1 - i2)),
-        OpType::MulI => Lattice::Constant(Operand::Int(i1 * i2)),
-        OpType::DivI => Lattice::Constant(Operand::Int(i1 / i2)),
-        OpType::ModI => Lattice::Constant(Operand::Int(i1 % i2)),
+        OpType::AddI => Lattice::Constant(Operand::Int(i1.wrapping_add(i2))),
+        OpType::SubI => Lattice::Constant(Operand::Int(i1.wrapping_sub(i2))),
+        OpType::MulI => Lattice::Constant(Operand::Int(i1.wrapping_mul(i2))),
+        OpType::DivI if i2 == 0 => Lattice::Bottom,
+        OpType::DivI => Lattice::Constant(Operand::Int(i1.wrapping_div(i2))),
+        OpType::ModI if i2 == 0 => Lattice::Bottom,
+        OpType::ModI => Lattice::Constant(Operand::Int(i1.wrapping_rem(i2))),
         OpType::Xor => Lattice::Constant(Operand::Int(i1 ^ i2)),
-        OpType::Shl => Lattice::Constant(Operand::Int(i1 << i2)),
-        OpType::Shr => Lattice::Constant(Operand::Int(i1 >> i2)),
-        OpType::Sar => Lattice::Constant(Operand::Int(((i1 as i64) >> i2) as i32)),
+        OpType::Shl => Lattice::Constant(Operand::Int(i1.wrapping_shl(i2 as u32))),
+        OpType::Shr => {
+          Lattice::Constant(Operand::Int((i1 as u32).wrapping_shr(i2 as u32) as i32))
+        }
+        OpType::Sar => Lattice::Constant(Operand::Int(i1.wrapping_shr(i2 as u32))),
         OpType::SNe => Lattice::Constant(Operand::Bool(i1 != i2)),
         OpType::SEq => Lattice::Constant(Operand::Bool(i1 == i2)),
         OpType::SGt => Lattice::Constant(Operand::Bool(i1 > i2)),

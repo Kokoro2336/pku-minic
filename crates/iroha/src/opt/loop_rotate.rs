@@ -1,6 +1,6 @@
 //! Loop Rotation.
 
-use crate::analysis::{DomAnalysis, DomFrontier, DomTree, LoopAnalysis, LoopData};
+use crate::analysis::{DomAnalysis, DomFrontier, DomTree, LoopAnalysis};
 
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{
@@ -218,9 +218,18 @@ impl LoopRotate<'_> {
     }
   }
 
-  fn run(&mut self, dom_tree: &DomTree, loops: &mut [LoopData]) {
+  fn run(&mut self, dom_tree: &DomTree) {
+    let func_id = self.cx.current_func();
+    let (loops, _) = &mut *self
+      .cx
+      .analyze_mut::<LoopAnalysis>(self.cx.get_func(func_id));
+
     for lp_id in (0..loops.len()).rev() {
-      let loop_data = &mut loops[lp_id];
+      let (loops, _) = &mut *self
+        .cx
+        .analyze_mut::<LoopAnalysis>(self.cx.get_func(func_id));
+
+      let loop_data = &mut loops[lp_id.into()];
       let header_id = loop_data.header;
 
       let (header_preds, header_succs) = {
@@ -405,9 +414,8 @@ impl<'a> Pass<'a> for LoopRotate<'a> {
       self.init(func_id);
       let func = self.cx.get_func(func_id);
       {
-        let (loops, _) = &mut *self.cx.analyze_mut::<LoopAnalysis>(func);
         let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(func);
-        self.run(dom_tree, loops);
+        self.run(dom_tree);
       }
 
       let func = self.cx.get_func(func_id);

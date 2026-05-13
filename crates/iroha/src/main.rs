@@ -125,6 +125,13 @@ fn main() -> Result<()> {
     .register::<RemoveTrivialPhi>()
     .register::<GVN>()
     .register::<DCE>()
+    // Function Inlining
+    .register::<Inlining>()
+    .register::<SCCP>()
+    .register::<SimplifyCFG>()
+    .register::<RemoveTrivialPhi>()
+    .register::<GVN>()
+    .register::<DCE>()
     // Loop Optimizations
     .register::<LoopSimplify>()
     .register::<LCSSA>()
