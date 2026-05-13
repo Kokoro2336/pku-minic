@@ -3,15 +3,14 @@
 //! Reference: https://dl.acm.org/doi/10.1145/229542.229546
 
 use crate::analysis::{LiveAnalysis, LiveOuts};
-use yachiyo::analysis::analyze;
 use yachiyo::config::{
   CALLEE_SAVED_FREGS, CALLEE_SAVED_XREGS, CALLER_SAVED_FREGS, CALLER_SAVED_XREGS, COLOR_FREGS,
   COLOR_XREGS, RESERVED_REG,
 };
 use yachiyo::config::{INT_IMM_MAX, INT_IMM_MIN, REGS_NUM};
 use yachiyo::ir::back::{
-  get_clobbered, BAttr, BBuilder, BFunction, BOp, BOpData, BOperand, BType, BackIR, LOpData,
-  MOpData, MemInfo, Reg, Slot, XReg,
+  get_clobbered, BAttr, BFunction, BOp, BOpData, BOperand, BType, BackIR, LOpData, MOpData,
+  MemInfo, Reg, Slot, XReg,
 };
 use yachiyo::pass::{BPass, BPassContext};
 use yachiyo::utils::r#match::match_some;
@@ -41,8 +40,7 @@ enum RemapMode {
 
 #[derive(Default)]
 struct Allocator<'a> {
-  ir: Option<&'a mut BackIR>,
-  builder: BBuilder,
+  cx: BPassContext<'a>,
 
   // Allocator Type
   typ: AllocatorType,
@@ -100,8 +98,7 @@ struct Allocator<'a> {
 impl Allocator<'_> {
   pub fn new(typ: AllocatorType) -> Self {
     Self {
-      ir: None,
-      builder: BBuilder::default(),
+      cx: BPassContext::default(),
       typ,
       simplify_worklist: Worklist::new(),
       freeze_worklist: Worklist::new(),
@@ -124,11 +121,11 @@ impl Allocator<'_> {
   }
 
   fn init(&mut self, func_id: BOperand) {
-    self.builder.set_current_func(func_id);
+    self.cx.set_current_func(func_id);
   }
 
   fn reset(&mut self) {
-    let func_id = self.builder.current_function.unwrap();
+    let func_id = self.cx.current_func();
 
     // Clear the nodes worklist.
     self.simplify_worklist.clear();
@@ -175,7 +172,7 @@ impl Allocator<'_> {
 
   #[inline(always)]
   fn is_target(&self, vreg_id: BOperand) -> bool {
-    let func_id = self.builder.current_function.unwrap();
+    let func_id = self.cx.current_func();
     match_some! {
         target: vreg_id,
         enu: BOperand,
@@ -200,30 +197,22 @@ impl Allocator<'_> {
 
   #[inline(always)]
   fn get_src(&self, op_id: BOperand) -> Vec<&BOperand> {
-    let func_id = self.builder.current_function;
-    self.ir.as_ref().unwrap().get_src(func_id, op_id)
+    self.cx.get_src(op_id)
   }
 
   #[inline(always)]
   fn get_src_tuple(&self, op_id: BOperand) -> Vec<(&BOperand, usize)> {
-    let func_id = self.builder.current_function;
-    self.ir.as_ref().unwrap().get_src_tuple(func_id, op_id)
+    self.cx.get_src_tuple(op_id)
   }
 
   #[inline(always)]
   fn get_rd(&self, op_id: BOperand) -> Option<&BOperand> {
-    let func_id = self.builder.current_function;
-    self.ir.as_ref().unwrap().get_rd(func_id, op_id)
+    self.cx.get_rd(op_id)
   }
 
   #[inline(always)]
   fn get_func(&self, func_id: BOperand) -> &BFunction {
-    &self.ir.as_ref().unwrap().funcs[func_id]
-  }
-
-  #[inline(always)]
-  fn get_func_mut(&mut self, func_id: BOperand) -> &mut BFunction {
-    &mut self.ir.as_mut().unwrap().funcs[func_id]
+    self.cx.get_func(func_id)
   }
 
   #[inline(always)]
@@ -238,17 +227,12 @@ impl Allocator<'_> {
 
   #[inline(always)]
   fn alloc_slot(&mut self, slot: Slot) -> BOperand {
-    let func_id = self.builder.current_function.unwrap();
-    let func = self.get_func_mut(func_id);
-    let slot_id = func.frame_info.alloc(slot);
-    BOperand::Slot(slot_id)
+    self.cx.alloc_slot(slot)
   }
 
   #[inline(always)]
   fn create(&mut self, op: BOp) -> BOperand {
-    let func_id = self.builder.current_function;
-    let ir = self.ir.as_mut().unwrap();
-    ir.create(&self.builder, func_id, op)
+    self.cx.create(op)
   }
 
   #[inline(always)]
@@ -307,7 +291,7 @@ impl Allocator<'_> {
   }
 
   fn build(&mut self, live_outs: &LiveOuts) {
-    let func_id = self.builder.current_function.unwrap();
+    let func_id = self.cx.current_func();
     let cfg_ids = self.get_func(func_id).cfg.ids();
 
     for bb_id in cfg_ids {
@@ -526,7 +510,7 @@ impl Allocator<'_> {
   }
 
   fn make_worklist(&mut self) {
-    let func_id = self.builder.current_function.unwrap();
+    let func_id = self.cx.current_func();
     let vregs_ids = self.get_func(func_id).vregs.ids();
 
     for vreg_id in vregs_ids {
@@ -846,7 +830,7 @@ impl Allocator<'_> {
     for spilled in std::mem::take(&mut self.spilled_nodes).iter() {
       let vreg_id = BOperand::Reg(Reg::Virt(spilled));
       let (typ, defs, uses) = {
-        let func_id = self.builder.current_function.unwrap();
+        let func_id = self.cx.current_func();
         let vreg = &self.get_func(func_id).vregs[vreg_id];
         (vreg.typ.clone(), vreg.defs.clone(), vreg.uses.clone())
       };
@@ -859,15 +843,11 @@ impl Allocator<'_> {
       // Insert store after each definition of the spilled node.
       for def in defs {
         let bb_id = {
-          let func_id = self.builder.current_function.unwrap();
+          let func_id = self.cx.current_func();
           self.get_func(func_id).op_to_bb[def]
         };
-        self.builder.set_current_block(bb_id);
-        self.builder.set_after_inst(
-          self.ir.as_mut().unwrap(),
-          self.builder.current_function,
-          Some(def),
-        );
+        self.cx.set_current_block(bb_id);
+        self.cx.set_after_inst(Some(def));
 
         let store_op = BOp::new(
           BType::Void,
@@ -885,15 +865,11 @@ impl Allocator<'_> {
 
       for (r#use, idx) in uses {
         let bb_id = {
-          let func_id = self.builder.current_function.unwrap();
+          let func_id = self.cx.current_func();
           self.get_func(func_id).op_to_bb[r#use]
         };
-        self.builder.set_current_block(bb_id);
-        self.builder.set_before_inst(
-          self.ir.as_mut().unwrap(),
-          self.builder.current_function,
-          Some(r#use),
-        );
+        self.cx.set_current_block(bb_id);
+        self.cx.set_before_inst(Some(r#use));
 
         let load_op = BOp::new(
           typ.clone(),
@@ -925,12 +901,7 @@ impl Allocator<'_> {
 
   #[inline(always)]
   fn replace_rd(&mut self, inst_id: BOperand, new_operand: BOperand) {
-    let func_id = self.builder.current_function;
-    self
-      .ir
-      .as_mut()
-      .unwrap()
-      .replace_rd(func_id, inst_id, new_operand);
+    self.cx.replace_rd(inst_id, new_operand);
   }
 
   #[inline(always)]
@@ -940,16 +911,11 @@ impl Allocator<'_> {
     old_operand: BOperand,
     new_operand: BOperand,
   ) {
-    let func_id = self.builder.current_function;
-    self
-      .ir
-      .as_mut()
-      .unwrap()
-      .replace_src(func_id, use_tuple, old_operand, new_operand);
+    self.cx.replace_src(use_tuple, old_operand, new_operand);
   }
 
   fn rewrite(&mut self) {
-    let func_id = self.builder.current_function.unwrap();
+    let func_id = self.cx.current_func();
 
     for bb_id in self.get_func(func_id).cfg.collect() {
       let bb_id = BOperand::BB(bb_id);
@@ -1009,12 +975,12 @@ impl Allocator<'_> {
   /// Main function of register allocation.
   /// LiveOuts is the result of current function's liveness analysis, which is used for building the interference graph.
   fn run(&mut self) {
-    let func_id = self.builder.current_function.unwrap();
+    let func_id = self.cx.current_func();
     loop {
       // Reset the worklist.
       self.reset();
       // Run live analysis.
-      let (_, live_outs) = analyze::<LiveAnalysis>(self.get_func(func_id));
+      let (_, live_outs) = &*self.cx.analyze::<LiveAnalysis>(self.cx.get_func(func_id));
 
       #[cfg(feature = "debug")]
       yachiyo::debug::info!(
@@ -1022,7 +988,7 @@ impl Allocator<'_> {
         live_outs
       );
       // Build the interference graph.
-      self.build(&live_outs);
+      self.build(live_outs);
 
       #[cfg(feature = "debug")]
       yachiyo::debug::info!(
@@ -2066,7 +2032,7 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
     for allocator in self.allocators.iter_mut() {
       let ir_ptr = self.cx.ir_mut() as *mut BackIR;
       unsafe {
-        allocator.ir = Some(&mut *ir_ptr);
+        allocator.cx.mount(&mut *ir_ptr);
       }
     }
 

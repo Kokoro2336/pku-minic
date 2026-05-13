@@ -4,7 +4,7 @@ use crate::analysis::{
   alias, CallGraphAnalysis, DomAnalysis, DomTree, LoopAnalysis, LoopData, LoopId, Loops,
 };
 
-use yachiyo::analysis::{analyze, AliasResult, CallGraph, MemLoc};
+use yachiyo::analysis::{AliasResult, CallGraph, MemLoc};
 use yachiyo::ir::mid::{OpData, OpType, Operand, IR};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::set::BitSet;
@@ -15,15 +15,12 @@ pub struct LICM<'a> {
   cx: PassContext<'a>,
   /// LoopId -> OpId -> whether the value produced by the op is an invariant.
   invariants: Vec<BitSet>,
-  block_to_loop: Vec<Option<LoopId>>,
-  call_graph: CallGraph,
 }
 
 impl LICM<'_> {
   #[inline(always)]
-  fn init(&mut self, func_id: Operand, loop_num: usize, block_to_loop: Vec<Option<LoopId>>) {
+  fn init(&mut self, func_id: Operand, loop_num: usize) {
     self.cx.set_current_func(Some(func_id));
-    self.block_to_loop = block_to_loop;
 
     self.invariants.clear();
     self.invariants.resize(loop_num, BitSet::new());
@@ -46,7 +43,13 @@ impl LICM<'_> {
     )
   }
 
-  fn is_invariant(&self, lp_id: LoopId, lp_data: &LoopData, value: Operand) -> bool {
+  fn is_invariant(
+    &self,
+    block_to_loop: &[Option<LoopId>],
+    lp_id: LoopId,
+    lp_data: &LoopData,
+    value: Operand,
+  ) -> bool {
     match value {
       Operand::Int(_)
       | Operand::Float(_)
@@ -61,7 +64,7 @@ impl LICM<'_> {
 
     let value_bb_id = self.cx.op_bb(value).get_bb_id();
     self.invariants[usize::from(lp_id)].contains(value.get_op_id())
-      || self.block_to_loop[value_bb_id].is_none()
+      || block_to_loop[value_bb_id].is_none()
       || !lp_data.blocks.contains(value_bb_id)
   }
 
@@ -69,19 +72,27 @@ impl LICM<'_> {
   /// For Load:
   /// - The MemLoc's base and offset should also be invariant.
   /// - The MemLoc should not alias with any store in the loop.
-  fn is_mem_loc_invariant(&mut self, lp_id: LoopId, lp_data: &LoopData, addr: Operand) -> bool {
-    if !self.is_invariant(lp_id, lp_data, addr) {
+  fn is_mem_loc_invariant(
+    &mut self,
+    block_to_loop: &[Option<LoopId>],
+    call_graph: &CallGraph,
+    lp_id: LoopId,
+    lp_data: &LoopData,
+    addr: Operand,
+  ) -> bool {
+    if !self.is_invariant(block_to_loop, lp_id, lp_data, addr) {
       return false;
     }
 
     let mem_loc = self.cx.compute_mem_loc(addr);
 
-    self.mem_loc_operands_invariant(lp_id, lp_data, &mem_loc)
-      && !self.loop_may_clobber_mem_loc(lp_data, addr)
+    self.mem_loc_operands_invariant(block_to_loop, lp_id, lp_data, &mem_loc)
+      && !self.loop_may_clobber_mem_loc(call_graph, lp_data, addr)
   }
 
   fn mem_loc_operands_invariant(
     &self,
+    block_to_loop: &[Option<LoopId>],
     lp_id: LoopId,
     lp_data: &LoopData,
     mem_loc: &MemLoc,
@@ -92,16 +103,21 @@ impl LICM<'_> {
 
     std::iter::once(mem_loc.base)
       .chain(offset_keys.cloned())
-      .all(|operand| self.is_invariant(lp_id, lp_data, operand))
+      .all(|operand| self.is_invariant(block_to_loop, lp_id, lp_data, operand))
   }
 
-  fn loop_may_clobber_mem_loc(&mut self, lp_data: &LoopData, addr: Operand) -> bool {
+  fn loop_may_clobber_mem_loc(
+    &mut self,
+    call_graph: &CallGraph,
+    lp_data: &LoopData,
+    addr: Operand,
+  ) -> bool {
     for bb_id in lp_data.blocks.iter() {
       let bb_id = Operand::BB(bb_id);
       let cur = self.cx.get_bb(bb_id).cur.clone();
 
       for inst_id in cur {
-        if self.inst_may_clobber_mem_loc(inst_id, addr) {
+        if self.inst_may_clobber_mem_loc(call_graph, inst_id, addr) {
           return true;
         }
       }
@@ -110,26 +126,43 @@ impl LICM<'_> {
     false
   }
 
-  fn inst_may_clobber_mem_loc(&mut self, inst_id: Operand, addr: Operand) -> bool {
+  fn inst_may_clobber_mem_loc(
+    &mut self,
+    call_graph: &CallGraph,
+    inst_id: Operand,
+    addr: Operand,
+  ) -> bool {
     let op_data = self.cx.get_op(inst_id).data.clone();
 
     match op_data {
       OpData::Store {
         addr: store_addr, ..
-      } => alias(&mut self.cx, addr, store_addr, &self.call_graph) != AliasResult::NoAlias,
+      } => alias(&mut self.cx, addr, store_addr, call_graph) != AliasResult::NoAlias,
 
       _ => matches!(OpType::from(&op_data), OpType::Call),
     }
   }
 
   #[inline(always)]
-  fn meet(&self, lp_id: LoopId, lp_data: &LoopData, operands: &[Operand]) -> bool {
+  fn meet(
+    &self,
+    block_to_loop: &[Option<LoopId>],
+    lp_id: LoopId,
+    lp_data: &LoopData,
+    operands: &[Operand],
+  ) -> bool {
     operands
       .iter()
-      .all(|&operand| self.is_invariant(lp_id, lp_data, operand))
+      .all(|&operand| self.is_invariant(block_to_loop, lp_id, lp_data, operand))
   }
 
-  fn run(&mut self, loops: &Loops, dom_tree: &DomTree) {
+  fn run(
+    &mut self,
+    loops: &Loops,
+    block_to_loop: &[Option<LoopId>],
+    dom_tree: &DomTree,
+    call_graph: &CallGraph,
+  ) {
     let func_id = self.cx.current_func();
     // The loops are naturally in RPO order, so the traverse it in a reverse order.
     let dpo = self.cx.get_func(func_id).cfg.dpo();
@@ -137,7 +170,7 @@ impl LICM<'_> {
       let loop_data = &loops[lp_id.into()];
       // Traverse the blocks in the loop in RPO order.
       for bb_id in dpo.iter().rev() {
-        let bb_lp_id_option = self.block_to_loop[bb_id.get_bb_id()];
+        let bb_lp_id_option = block_to_loop[bb_id.get_bb_id()];
         // Filter out those blocks that are not in the loop.
         if bb_lp_id_option.is_none() || !loops.include(lp_id.into(), bb_lp_id_option.unwrap()) {
           continue;
@@ -154,10 +187,16 @@ impl LICM<'_> {
           let src = self.cx.get_src_owned(inst_id);
           let is_invariant = if let OpData::Load { addr, .. } = self.cx.get_op_data(inst_id) {
             // Check Load individually.
-            self.is_invariant(lp_id.into(), loop_data, *addr)
-              && self.is_mem_loc_invariant(lp_id.into(), loop_data, *addr)
+            self.is_invariant(block_to_loop, lp_id.into(), loop_data, *addr)
+              && self.is_mem_loc_invariant(
+                block_to_loop,
+                call_graph,
+                lp_id.into(),
+                loop_data,
+                *addr,
+              )
           } else {
-            self.meet(lp_id.into(), loop_data, &src)
+            self.meet(block_to_loop, lp_id.into(), loop_data, &src)
           };
 
           if is_invariant {
@@ -202,14 +241,15 @@ impl<'a> Pass<'a> for LICM<'a> {
   }
   fn run(&mut self) {
     // Run call graph analysis first.
-    self.call_graph = analyze::<CallGraphAnalysis>(self.cx.ir());
+    let call_graph = &*self.cx.analyze::<CallGraphAnalysis>(self.cx.ir());
 
     for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
-      let (loops_data, block_to_loop) = analyze::<LoopAnalysis>(self.cx.get_func(func_id));
-      let (dom_tree, _) = analyze::<DomAnalysis>(self.cx.get_func(func_id));
-      self.init(func_id, loops_data.len(), block_to_loop);
-      self.run(&loops_data, &dom_tree);
+      let (loops_data, block_to_loop) =
+        &*self.cx.analyze::<LoopAnalysis>(self.cx.get_func(func_id));
+      let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(self.cx.get_func(func_id));
+      self.init(func_id, loops_data.len());
+      self.run(loops_data, block_to_loop, dom_tree, call_graph);
     }
   }
 }

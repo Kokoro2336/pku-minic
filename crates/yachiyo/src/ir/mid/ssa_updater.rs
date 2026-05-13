@@ -174,7 +174,7 @@ impl<'a> SSAUpdater<'a> {
 
   fn update_original_users(&mut self) {
     let inst_id = self.inst_id;
-    let users = self.ir.users(Some(self.func_id), inst_id);
+    let users = self.ir.users(Some(self.func_id), inst_id).to_vec();
     for (user, idx) in users {
       let trace_bb_id = self.get_trace_bb_id(user);
       if self.use_available_on_edge(user, inst_id, trace_bb_id) {

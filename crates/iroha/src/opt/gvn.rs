@@ -1,6 +1,6 @@
 //! Global Value Numbering (GVN) .
 
-use yachiyo::analysis::{analyze, AliasResult, CallGraph};
+use yachiyo::analysis::{AliasResult, CallGraph};
 use yachiyo::ir::mid::{OpData, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::set::BitSet;
@@ -30,8 +30,9 @@ enum CanonicalExpr {
   Zext(Operand),
   /// Phi's operands are sorted by the block id.
   Phi(Vec<PhiIncoming>),
+  #[allow(clippy::upper_case_acronyms)]
+  GEP(Operand, Vec<Operand>),
 
-  // - GEP is not to be canonicalized too.
   // TODO: When we can determine whether a function has side effects, we can add Call here.
   /// For other operations that we don't consider, we represent then as None.
   None,
@@ -54,8 +55,6 @@ pub struct GVN<'a> {
   dfs_post_order: Vec<Operand>,
   /// BBId -> Reveresed Post-Order DFS number
   rdfn: Vec<usize>,
-
-  call_graph: CallGraph,
 }
 
 impl From<&OpData> for CanonicalExpr {
@@ -119,9 +118,9 @@ impl From<&OpData> for CanonicalExpr {
         CanonicalExpr::Phi(sorted_incomings)
       }
 
-      // In GVN, GEP is not to be canonicalized.
-      OpData::GEP { .. }
-      | OpData::Alloca(_)
+      OpData::GEP { base, indices } => CanonicalExpr::GEP(*base, indices.clone()),
+
+      OpData::Alloca(_)
       | OpData::Declare { .. }
       | OpData::Load { .. }
       | OpData::Store { .. }
@@ -170,7 +169,12 @@ impl GVN<'_> {
     self.symbols.enter_scope();
   }
 
-  fn forward(&mut self, mem_entries: &[Operand], load_id: Operand) -> Option<Operand> {
+  fn forward(
+    &mut self,
+    call_graph: &CallGraph,
+    mem_entries: &[Operand],
+    load_id: Operand,
+  ) -> Option<Operand> {
     let OpData::Load { addr: origin } = self.cx.get_op_data(load_id).clone() else {
       unreachable!()
     };
@@ -178,7 +182,7 @@ impl GVN<'_> {
     for &mem_entry in mem_entries.iter().rev() {
       match self.cx.get_op_data(mem_entry).clone() {
         OpData::Load { addr } => {
-          let res = alias(&mut self.cx, addr, origin, &self.call_graph);
+          let res = alias(&mut self.cx, addr, origin, call_graph);
           match res {
             AliasResult::MustAlias => return Some(mem_entry),
             AliasResult::NoAlias => continue,
@@ -186,7 +190,7 @@ impl GVN<'_> {
           }
         }
         OpData::Store { addr, value } => {
-          let res = alias(&mut self.cx, addr, origin, &self.call_graph);
+          let res = alias(&mut self.cx, addr, origin, call_graph);
           match res {
             AliasResult::MustAlias => return Some(value),
             AliasResult::NoAlias => continue,
@@ -201,7 +205,7 @@ impl GVN<'_> {
     None
   }
 
-  fn run(&mut self, dom_tree: &DomTree) {
+  fn run(&mut self, dom_tree: &DomTree, call_graph: &CallGraph) {
     while let Some(phase) = self.stack.pop() {
       match phase {
         GVNPhase::Start(bb_id) => {
@@ -216,8 +220,6 @@ impl GVN<'_> {
               OpData::GEP { base, indices } => {
                 if indices.len() == 1
                   && indices.iter().all(|index| matches!(index, Operand::Int(0)))
-                  // TODO: Global's use-def not supported yet.
-                  && !matches!(base, Operand::Global(_))
                 {
                   // We can canonicalize GEP with single zero indices to its base pointer.
                   // If indices.len() > 1, we can't eliminate it since replacement would iccur type mismatch.
@@ -230,7 +232,7 @@ impl GVN<'_> {
                 continue;
               }
               OpData::Load { .. } => {
-                let forwarded = self.forward(&mem_entries, inst);
+                let forwarded = self.forward(call_graph, &mem_entries, inst);
                 if let Some(value) = forwarded {
                   self.cx.replace_all_uses(inst, value);
                 } else {
@@ -292,13 +294,13 @@ impl<'a> Pass<'a> for GVN<'a> {
 
   fn run(&mut self) {
     // Run Call Graph analysis to get the call graph.
-    self.call_graph = analyze::<CallGraphAnalysis>(self.cx.ir());
+    let call_graph = &*self.cx.analyze::<CallGraphAnalysis>(self.cx.ir());
 
     // run dominance analysis to get the dominator tree
     for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
       let func = self.cx.get_func(func_id);
-      let (dom_tree, _) = analyze::<DomAnalysis>(func);
+      let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(func);
 
       self.init(func_id);
       let entry = Operand::BB(self.cx.get_func(func_id).cfg.entry.unwrap());
@@ -309,7 +311,7 @@ impl<'a> Pass<'a> for GVN<'a> {
 
       // Update stack and symbol table.
       self.enter_scope(entry);
-      self.run(&dom_tree);
+      self.run(dom_tree, call_graph);
     }
   }
 }

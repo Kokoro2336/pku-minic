@@ -239,7 +239,10 @@ impl Arena<Function> for CG {
                 }
               }
             }
-            OpData::Call { func: Operand::Func(func_id), .. } => {
+            OpData::Call {
+              func: Operand::Func(func_id),
+              ..
+            } => {
               remap_idx(func_id, &old_arena);
             }
             _ => {}
@@ -375,12 +378,23 @@ impl Params {
     }
   }
 
-  pub fn users(&self, param_id: Operand) -> Vec<(Operand, usize)> {
+  pub fn users(&self, param_id: Operand) -> &[(Operand, usize)] {
     let Operand::Param(param_id) = param_id else {
-      return vec![];
+      return &[];
     };
 
-    self[param_id].users.clone()
+    &self[param_id].users
+  }
+
+  pub fn users_mut(&mut self, param_id: Operand) -> &mut Vec<(Operand, usize)> {
+    let Operand::Param(param_id) = param_id else {
+      panic!(
+        "Params users_mut: expected Param operand, got {:?}",
+        param_id
+      );
+    };
+
+    &mut self[param_id].users
   }
 
   pub fn clear_uses(&mut self) {

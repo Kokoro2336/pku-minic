@@ -6,10 +6,12 @@ use crate::debug::info;
 mod alias;
 mod call_graph;
 mod dom;
+mod scc;
 
 pub use alias::*;
 pub use call_graph::*;
 pub use dom::*;
+pub use scc::*;
 
 pub trait Analysis {
   type Input;

@@ -1,8 +1,7 @@
 //! Loop Rotation.
 
-use crate::analysis::{DomAnalysis, DomFrontier, DomTree, LoopAnalysis, LoopData};
+use crate::analysis::{DomAnalysis, DomFrontier, DomTree, LoopAnalysis};
 
-use yachiyo::analysis::analyze;
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{
   ssa_updater_params, Op, OpData, OpType, Operand, PhiIncoming, SSAUpdater, DFG, IR,
@@ -219,9 +218,18 @@ impl LoopRotate<'_> {
     }
   }
 
-  fn run(&mut self, dom_tree: &DomTree, loops: &mut [LoopData]) {
+  fn run(&mut self, dom_tree: &DomTree) {
+    let func_id = self.cx.current_func();
+    let (loops, _) = &mut *self
+      .cx
+      .analyze_mut::<LoopAnalysis>(self.cx.get_func(func_id));
+
     for lp_id in (0..loops.len()).rev() {
-      let loop_data = &mut loops[lp_id];
+      let (loops, _) = &mut *self
+        .cx
+        .analyze_mut::<LoopAnalysis>(self.cx.get_func(func_id));
+
+      let loop_data = &mut loops[lp_id.into()];
       let header_id = loop_data.header;
 
       let (header_preds, header_succs) = {
@@ -405,14 +413,15 @@ impl<'a> Pass<'a> for LoopRotate<'a> {
       let func_id = Operand::Func(func_id);
       self.init(func_id);
       let func = self.cx.get_func(func_id);
-      let (mut loops, _) = analyze::<LoopAnalysis>(func);
-      let (dom_tree, _) = analyze::<DomAnalysis>(func);
-      self.run(&dom_tree, &mut loops);
+      {
+        let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(func);
+        self.run(dom_tree);
+      }
 
       let func = self.cx.get_func(func_id);
-      let (dom_tree, dom_frontier) = analyze::<DomAnalysis>(func);
-      self.update_moved_phis(func_id, &dom_tree, &dom_frontier);
-      self.update_normal_insts(func_id, &dom_tree, &dom_frontier);
+      let (dom_tree, dom_frontier) = &*self.cx.analyze::<DomAnalysis>(func);
+      self.update_moved_phis(func_id, dom_tree, dom_frontier);
+      self.update_normal_insts(func_id, dom_tree, dom_frontier);
     }
   }
 }

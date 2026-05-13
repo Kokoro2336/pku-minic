@@ -2,8 +2,9 @@
 //! Based on Wegman and Zadeck's paper Constant Propagation with Conditional Branches.
 //! Reference: https://dl.acm.org/doi/10.1145/103135.103136
 
+use yachiyo::ast::Literal;
 use yachiyo::base::Type;
-use yachiyo::ir::mid::{Op, OpData, OpType, Operand, PhiIncoming, IR};
+use yachiyo::ir::mid::{Attr, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::r#match::match_src;
 use yachiyo::utils::set::BitSet;
@@ -79,7 +80,52 @@ impl SCCP<'_> {
 
       Operand::Undefined => Lattice::Top,
 
-      Operand::Global(_) | Operand::Param(_) => Lattice::Bottom,
+      // TODO: Interprocedural SCCP is not supported yet, so we treat all parameters as Bottom for now.
+      Operand::Param(_) => Lattice::Bottom,
+
+      Operand::Global(_) => {
+        let (mutable, typ, values) = self
+          .cx
+          .get_op(*operand)
+          .attrs
+          .iter()
+          .find_map(|attr| {
+            if let Attr::GlobalArray {
+              mutable,
+              typ,
+              values,
+              ..
+            } = attr
+            {
+              Some((*mutable, typ.clone(), values.clone()))
+            } else {
+              None
+            }
+          })
+          .unwrap();
+
+        if !mutable && typ.is_scalar() {
+          // Fold constant scalar
+          let value = if let Some(values) = values {
+            assert!(values.len() == 1);
+            match values.first().unwrap() {
+              Literal::Int(i) => Operand::Int(*i),
+              Literal::Float(f) => Operand::Float(f.to_bits()),
+              _ => unreachable!(),
+            }
+          } else {
+            match typ {
+              Type::Int => Operand::Int(0),
+              Type::Float => Operand::Float(0.0f32.to_bits()),
+              _ => unreachable!(),
+            }
+          };
+          Lattice::Constant(value)
+        } else {
+          // Conservatively return Bottom
+          Lattice::Bottom
+        }
+      }
 
       Operand::BB(_) | Operand::Func(_) => panic!(
         "SCCP get_lattice: operand {:?} is not a value or constant",
@@ -95,15 +141,19 @@ impl SCCP<'_> {
     };
     match (lhs, rhs) {
       (Operand::Int(i1), Operand::Int(i2)) => match &op_typ {
-        OpType::AddI => Lattice::Constant(Operand::Int(i1 + i2)),
-        OpType::SubI => Lattice::Constant(Operand::Int(i1 - i2)),
-        OpType::MulI => Lattice::Constant(Operand::Int(i1 * i2)),
-        OpType::DivI => Lattice::Constant(Operand::Int(i1 / i2)),
-        OpType::ModI => Lattice::Constant(Operand::Int(i1 % i2)),
+        OpType::AddI => Lattice::Constant(Operand::Int(i1.wrapping_add(i2))),
+        OpType::SubI => Lattice::Constant(Operand::Int(i1.wrapping_sub(i2))),
+        OpType::MulI => Lattice::Constant(Operand::Int(i1.wrapping_mul(i2))),
+        OpType::DivI if i2 == 0 => Lattice::Bottom,
+        OpType::DivI => Lattice::Constant(Operand::Int(i1.wrapping_div(i2))),
+        OpType::ModI if i2 == 0 => Lattice::Bottom,
+        OpType::ModI => Lattice::Constant(Operand::Int(i1.wrapping_rem(i2))),
         OpType::Xor => Lattice::Constant(Operand::Int(i1 ^ i2)),
-        OpType::Shl => Lattice::Constant(Operand::Int(i1 << i2)),
-        OpType::Shr => Lattice::Constant(Operand::Int(i1 >> i2)),
-        OpType::Sar => Lattice::Constant(Operand::Int(((i1 as i64) >> i2) as i32)),
+        OpType::Shl => Lattice::Constant(Operand::Int(i1.wrapping_shl(i2 as u32))),
+        OpType::Shr => {
+          Lattice::Constant(Operand::Int((i1 as u32).wrapping_shr(i2 as u32) as i32))
+        }
+        OpType::Sar => Lattice::Constant(Operand::Int(i1.wrapping_shr(i2 as u32))),
         OpType::SNe => Lattice::Constant(Operand::Bool(i1 != i2)),
         OpType::SEq => Lattice::Constant(Operand::Bool(i1 == i2)),
         OpType::SGt => Lattice::Constant(Operand::Bool(i1 > i2)),
@@ -236,7 +286,7 @@ impl SCCP<'_> {
             }
 
             // If the lattice has changed, we need to propagate the change to users.
-            for (user, _) in self.cx.users(op_id) {
+            for (user, _) in self.cx.users(op_id).iter().copied() {
                 if !self.in_inst_list.contains(user.get_op_id()) {
                     self.in_inst_list.insert(user.get_op_id());
                     self.inst_list.push(user);
@@ -252,7 +302,7 @@ impl SCCP<'_> {
                 return;
             }
             // If the lattice has changed, we need to propagate the change to users.
-            for (user, _) in self.cx.users(op_id) {
+            for (user, _) in self.cx.users(op_id).iter().copied() {
                 if !self.in_inst_list.contains(user.get_op_id()) {
                     self.in_inst_list.insert(user.get_op_id());
                     self.inst_list.push(user);
@@ -268,7 +318,7 @@ impl SCCP<'_> {
                     return;
                 }
                 // If the lattice has changed, we need to propagate the change to users.
-                for (user, _) in self.cx.users(op_id) {
+                for (user, _) in self.cx.users(op_id).iter().copied() {
                     if !self.in_inst_list.contains(user.get_op_id()) {
                         self.in_inst_list.insert(user.get_op_id());
                         self.inst_list.push(user);
@@ -355,7 +405,7 @@ impl SCCP<'_> {
         return;
       }
       // If the lattice has changed, we need to propagate the change to users.
-      for (user, _) in self.cx.users(op_id) {
+      for (user, _) in self.cx.users(op_id).iter().copied() {
         if !self.in_inst_list.contains(user.get_op_id()) {
           self.in_inst_list.insert(user.get_op_id());
           self.inst_list.push(user);

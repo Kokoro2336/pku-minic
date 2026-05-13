@@ -2,7 +2,6 @@
 
 use crate::analysis::{DomAnalysis, DomFrontier, DomTree, LoopAnalysis, Loops};
 
-use yachiyo::analysis::analyze;
 use yachiyo::ir::mid::{Op, OpData, Operand, SSAUpdater, IR};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::set::BitSet;
@@ -116,9 +115,9 @@ impl<'a> Pass<'a> for LCSSA<'a> {
       let func_id = Operand::Func(func_id);
       self.init(func_id);
       let func = self.cx.get_func(func_id);
-      let (dom_tree, dom_frontier) = analyze::<DomAnalysis>(func);
-      let (loops, _) = analyze::<LoopAnalysis>(func);
-      self.run(&dom_tree, &dom_frontier, &loops);
+      let (dom_tree, dom_frontier) = &*self.cx.analyze::<DomAnalysis>(func);
+      let (loops, _) = &*self.cx.analyze::<LoopAnalysis>(func);
+      self.run(dom_tree, dom_frontier, loops);
     }
   }
 }

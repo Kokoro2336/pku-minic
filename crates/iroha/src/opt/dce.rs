@@ -18,7 +18,7 @@ impl DCE<'_> {
   pub fn is_dead(&self, operand: &Operand) -> bool {
     match operand {
       Operand::Value(id) => self.cx.users(Operand::Value(*id)).is_empty(),
-      Operand::Global(id) => self.cx.ir().users(None, Operand::Global(*id)).is_empty(),
+      Operand::Global(id) => !self.cx.ir().has_users(None, Operand::Global(*id)),
       _ => panic!("DCE: operand is not a value"),
     }
   }

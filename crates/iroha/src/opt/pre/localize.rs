@@ -2,7 +2,7 @@
 
 use crate::analysis::CallGraphAnalysis;
 
-use yachiyo::analysis::{analyze, CallGraph};
+use yachiyo::analysis::CallGraph;
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{Attr, Op, OpData, Operand, IR};
 use yachiyo::pass::{Pass, PassContext};
@@ -199,9 +199,10 @@ impl<'a> Pass<'a> for Localize<'a> {
     let func_ids = self.cx.ir().funcs.collect_internal();
 
     // Reversely propagate might-used globals through call graph
+    let call_graph = &*self.cx.analyze::<CallGraphAnalysis>(self.cx.ir());
     let CallGraph {
       callers, callees, ..
-    } = analyze::<CallGraphAnalysis>(self.cx.ir());
+    } = call_graph;
     let mut worklist: Worklist<Operand, BitSet> = Worklist::new();
     for &func_id in &func_ids {
       worklist.push_back(Operand::Func(func_id));
