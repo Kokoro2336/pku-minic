@@ -76,6 +76,12 @@ impl<'a> PassContext<'a> {
     PassContextGuard::new(self)
   }
 
+  /// # Safety
+  /// This function is unsafe because it allows creating multiple mutable references to the same `PassContext`.
+  pub unsafe fn guard_unsafe(cx_ptr: *mut PassContext<'_>) -> PassContextGuard<'_, '_> {
+    PassContextGuard::new(&mut *cx_ptr)
+  }
+
   pub fn mount(&mut self, ir: &'a mut IR) {
     self.ir = Some(ir);
     self.analysis_cache.borrow_mut().clear();
