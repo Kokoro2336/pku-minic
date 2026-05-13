@@ -1,12 +1,14 @@
 //! Global Value Numbering (GVN) .
 
-use yachiyo::analysis::{AliasResult, CallGraph};
+use yachiyo::analysis::{analyze, AliasResult, CallGraph, Pureness, PurenessResult};
 use yachiyo::ir::mid::{OpData, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::set::BitSet;
 use yachiyo::utils::table::SymbolTable;
 
-use crate::analysis::{alias, CallGraphAnalysis, DomAnalysis, DomTree};
+use crate::analysis::{
+  alias, CallGraphAnalysis, DomAnalysis, DomTree, PurenessAnalysis, SCCAnalysis,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum CanonicalExpr {
@@ -32,6 +34,7 @@ enum CanonicalExpr {
   Phi(Vec<PhiIncoming>),
   #[allow(clippy::upper_case_acronyms)]
   GEP(Operand, Vec<Operand>),
+  Call(Operand, Vec<Operand>),
 
   // TODO: When we can determine whether a function has side effects, we can add Call here.
   /// For other operations that we don't consider, we represent then as None.
@@ -119,12 +122,12 @@ impl From<&OpData> for CanonicalExpr {
       }
 
       OpData::GEP { base, indices } => CanonicalExpr::GEP(*base, indices.clone()),
+      OpData::Call { func, args } => CanonicalExpr::Call(*func, args.clone()),
 
       OpData::Alloca(_)
       | OpData::Declare { .. }
       | OpData::Load { .. }
       | OpData::Store { .. }
-      | OpData::Call { .. }
       | OpData::Ret { .. }
       | OpData::Br { .. }
       | OpData::Jump { .. }
@@ -174,6 +177,7 @@ impl GVN<'_> {
     call_graph: &CallGraph,
     mem_entries: &[Operand],
     load_id: Operand,
+    pureness: &PurenessResult,
   ) -> Option<Operand> {
     let OpData::Load { addr: origin } = self.cx.get_op_data(load_id).clone() else {
       unreachable!()
@@ -197,7 +201,13 @@ impl GVN<'_> {
             AliasResult::MayAlias => return None,
           }
         }
-        OpData::Call { .. } => return None,
+        OpData::Call { func, .. } => {
+          if pureness[func] == Pureness::Impure {
+            return None;
+          } else {
+            continue;
+          }
+        }
         _ => unreachable!(),
       }
     }
@@ -205,7 +215,7 @@ impl GVN<'_> {
     None
   }
 
-  fn run(&mut self, dom_tree: &DomTree, call_graph: &CallGraph) {
+  fn run(&mut self, dom_tree: &DomTree, call_graph: &CallGraph, pureness: &PurenessResult) {
     while let Some(phase) = self.stack.pop() {
       match phase {
         GVNPhase::Start(bb_id) => {
@@ -232,7 +242,7 @@ impl GVN<'_> {
                 continue;
               }
               OpData::Load { .. } => {
-                let forwarded = self.forward(call_graph, &mem_entries, inst);
+                let forwarded = self.forward(call_graph, &mem_entries, inst, pureness);
                 if let Some(value) = forwarded {
                   self.cx.replace_all_uses(inst, value);
                 } else {
@@ -240,8 +250,13 @@ impl GVN<'_> {
                 }
                 continue;
               }
-              // TODO: If we can determine whether a function can be folded, we shouldn't push Call to mem_entries for now.
-              OpData::Call { .. } => mem_entries.push(inst),
+              // Only push memory barriers.
+              OpData::Call { func, .. } => {
+                if pureness[*func] == Pureness::Impure {
+                  mem_entries.push(inst);
+                  continue;
+                }
+              }
               _ => {}
             }
 
@@ -294,7 +309,13 @@ impl<'a> Pass<'a> for GVN<'a> {
 
   fn run(&mut self) {
     // Run Call Graph analysis to get the call graph.
-    let call_graph = &*self.cx.analyze::<CallGraphAnalysis>(self.cx.ir());
+    let call_graph = analyze::<CallGraphAnalysis>(self.cx.ir());
+    let sccs = analyze::<SCCAnalysis>(&call_graph);
+    // Run Pureness analysis to get the pureness information.
+    let cx_ptr = &mut self.cx as *mut PassContext<'a>;
+    let pureness = analyze::<PurenessAnalysis>((unsafe { &mut *cx_ptr }, &call_graph, &sccs));
+
+    // Run dominance analysis to get the dominator tree.
 
     // run dominance analysis to get the dominator tree
     for func_id in self.cx.ir().funcs.collect_internal() {
@@ -311,7 +332,7 @@ impl<'a> Pass<'a> for GVN<'a> {
 
       // Update stack and symbol table.
       self.enter_scope(entry);
-      self.run(dom_tree, call_graph);
+      self.run(dom_tree, &call_graph, &pureness);
     }
   }
 }

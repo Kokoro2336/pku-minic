@@ -2,9 +2,10 @@
 
 use crate::analysis::{
   alias, CallGraphAnalysis, DomAnalysis, DomTree, LoopAnalysis, LoopData, LoopId, Loops,
+  PurenessAnalysis, SCCAnalysis,
 };
 
-use yachiyo::analysis::{AliasResult, CallGraph, MemLoc};
+use yachiyo::analysis::{analyze, AliasResult, CallGraph, MemLoc, Pureness, PurenessResult};
 use yachiyo::ir::mid::{OpData, OpType, Operand, IR};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::set::BitSet;
@@ -27,12 +28,16 @@ impl LICM<'_> {
   }
 
   #[inline(always)]
-  fn unhoistable(op_typ: OpType) -> bool {
+  fn unhoistable(&self, inst_id: Operand, pureness: &PurenessResult) -> bool {
+    if let OpData::Call { func, .. } = self.cx.get_op_data(inst_id) {
+      // TODO: We can analyze ReadOnly function in the future.
+      return pureness[*func] != Pureness::Pure;
+    }
+
+    let op_typ = OpType::from(self.cx.get_op_data(inst_id));
     matches!(
       op_typ,
-      // TODO: Pureness analysis. Call is potential to be hoisted.
-      OpType::Call
-        | OpType::GlobalAlloca
+      OpType::GlobalAlloca
         | OpType::Declare
         | OpType::Phi
         | OpType::Br
@@ -162,6 +167,7 @@ impl LICM<'_> {
     block_to_loop: &[Option<LoopId>],
     dom_tree: &DomTree,
     call_graph: &CallGraph,
+    pureness: &PurenessResult,
   ) {
     let func_id = self.cx.current_func();
     // The loops are naturally in RPO order, so the traverse it in a reverse order.
@@ -179,8 +185,7 @@ impl LICM<'_> {
         let cur = self.cx.get_bb(*bb_id).cur.clone();
         // An invariant can be hoisted multiple times through different loops.
         for inst_id in cur {
-          let op_typ = OpType::from(self.cx.get_op_data(inst_id));
-          if Self::unhoistable(op_typ) {
+          if self.unhoistable(inst_id, pureness) {
             continue;
           }
 
@@ -240,8 +245,10 @@ impl<'a> Pass<'a> for LICM<'a> {
     self.cx.mount(ir);
   }
   fn run(&mut self) {
-    // Run call graph analysis first.
     let call_graph = &*self.cx.analyze::<CallGraphAnalysis>(self.cx.ir());
+    let sccs = &*self.cx.analyze::<SCCAnalysis>(call_graph);
+    let cx_ptr = &mut self.cx as *mut PassContext<'_>;
+    let pureness = analyze::<PurenessAnalysis>((unsafe { &mut *cx_ptr }, call_graph, sccs));
 
     for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
@@ -249,7 +256,7 @@ impl<'a> Pass<'a> for LICM<'a> {
         &*self.cx.analyze::<LoopAnalysis>(self.cx.get_func(func_id));
       let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(self.cx.get_func(func_id));
       self.init(func_id, loops_data.len());
-      self.run(loops_data, block_to_loop, dom_tree, call_graph);
+      self.run(loops_data, block_to_loop, dom_tree, call_graph, &pureness);
     }
   }
 }
