@@ -7,11 +7,13 @@ mod alias;
 mod call_graph;
 mod dom;
 mod scc;
+mod pureness;
 
 pub use alias::*;
 pub use call_graph::*;
 pub use dom::*;
 pub use scc::*;
+pub use pureness::*;
 
 pub trait Analysis {
   type Input;
