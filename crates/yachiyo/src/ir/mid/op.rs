@@ -238,8 +238,7 @@ impl OpData {
     matches!(
       self,
       // In DCE, Load is pure.
-      OpData::Call { .. }
-        | OpData::Store { .. }
+      OpData::Store { .. }
         | OpData::Br { .. }
         | OpData::Jump { .. }
         | OpData::Ret { .. }
