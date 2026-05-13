@@ -1,10 +1,13 @@
 //! Dead Code Elimination (DCE).
 
-use yachiyo::ir::mid::{OpData, Operand, PhiIncoming};
+use yachiyo::analysis::{analyze, Pureness, PurenessResult};
+use yachiyo::ir::mid::{OpData, OpType, Operand, PhiIncoming};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::r#match::match_src;
 use yachiyo::utils::set::BitSet;
 use yachiyo::utils::worklist::Worklist;
+
+use crate::analysis::{CallGraphAnalysis, PurenessAnalysis, SCCAnalysis};
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Default)]
@@ -12,6 +15,7 @@ pub struct DCE<'a> {
   pub cx: PassContext<'a>,
   // Worklist of inst
   worklist: Worklist<Operand, BitSet>,
+  pureness: PurenessResult,
 }
 
 impl DCE<'_> {
@@ -32,12 +36,33 @@ impl DCE<'_> {
     for block_id in block_ids {
       let block = self.cx.get_bb(Operand::BB(block_id));
       for inst_id in block.cur.iter() {
-        let is_impure = self.cx.get_op(*inst_id).is_impure();
+        let is_impure = self.is_impure(*inst_id);
         if self.is_dead(inst_id) && !is_impure {
           self.worklist.push_back(*inst_id);
         }
       }
     }
+  }
+}
+
+impl DCE<'_> {
+  fn is_impure(&self, operand: Operand) -> bool {
+    let op_data = self.cx.get_op(operand).data.clone();
+    if let OpData::Call { func, .. } = op_data {
+      return self.pureness[func] == Pureness::Impure;
+    }
+    let op_typ = OpType::from(&op_data);
+    matches!(
+      op_typ,
+      // In DCE, Load is pure.
+      OpType::Store
+        | OpType::Br
+        | OpType::Jump
+        | OpType::Ret
+        | OpType::Alloca
+        | OpType::GlobalAlloca
+        | OpType::Declare
+    )
   }
 }
 
@@ -48,13 +73,14 @@ impl<'a> Pass<'a> for DCE<'a> {
   fn mount(&mut self, program: &'a mut yachiyo::ir::mid::IR) {
     self.cx.mount(program);
   }
+
   fn run(&mut self) {
     fn check(this: &mut DCE, operand: &Operand) {
       let program = this.cx.ir();
       match operand {
         Operand::Value(id) => {
           let op_id = *id;
-          if this.is_dead(operand) && !this.cx.get_op(Operand::Value(op_id)).is_impure() {
+          if this.is_dead(operand) && !this.is_impure(Operand::Value(op_id)) {
             this.worklist.push_back(*operand);
           }
         }
@@ -72,9 +98,17 @@ impl<'a> Pass<'a> for DCE<'a> {
         Operand::BB(_) | Operand::Func(_) => unreachable!("Unexpected operand: {:?}", operand),
       }
     }
+
+    let call_graph = analyze::<CallGraphAnalysis>(self.cx.ir());
+    let sccs = analyze::<SCCAnalysis>(&call_graph);
+    let cx_ptr = &mut self.cx as *mut PassContext;
+    self.pureness = analyze::<PurenessAnalysis>((unsafe { &mut *cx_ptr }, &call_graph, &sccs));
+
     let func_ids = self.cx.ir().funcs.collect_internal();
     for func_id in func_ids {
-      self.init(Operand::Func(func_id));
+      let func_id = Operand::Func(func_id);
+      self.init(func_id);
+
       while let Some(op_id) = self.worklist.pop_front() {
         let bb_id = match op_id {
           Operand::Value(_) => self.cx.op_bb(op_id),
@@ -125,15 +159,20 @@ impl<'a> Pass<'a> for DCE<'a> {
                 }
 
                 OpData::Phi { incomings } => {
-                    for phi_incoming in incomings.iter() {
-                        if let PhiIncoming::Data { value, bb: _ } = phi_incoming {
-                            check(self, value);
-                        }
+                  for phi_incoming in incomings.iter() {
+                    if let PhiIncoming::Data { value, bb: _ } = phi_incoming {
+                      check(self, value);
                     }
+                  }
                 }
 
-                OpData::Call { .. }
-                | OpData::Store { .. }
+                OpData::Call { args, .. } => {
+                  for arg in args.iter() {
+                    check(self, arg);
+                  }
+                }
+
+                OpData::Store { .. }
                 | OpData::Br { .. }
                 | OpData::Jump { .. }
                 | OpData::Ret { .. }
