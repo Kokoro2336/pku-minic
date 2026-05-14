@@ -173,6 +173,13 @@ where
     self.storage[idx] = ArenaItem::Data(new_item);
   }
 
+  pub fn next_valid(&self, idx: usize) -> Option<usize> {
+    if idx >= self.storage.len() {
+      return None;
+    }
+    (idx + 1..self.storage.len()).find(|&i| matches!(self.storage[i], ArenaItem::Data(_)))
+  }
+
   pub fn ids(&self) -> Range<usize> {
     0..self.storage.len()
   }

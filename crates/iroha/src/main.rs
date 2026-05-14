@@ -192,7 +192,9 @@ fn main() -> Result<()> {
     .register::<BCompaction>()
     // Register Allocation
     .register::<RegAlloc>()
+    // Post RA Clean up
     .register::<Peephole>()
+    .register::<BranchFolding>()
     .run(&mut back_ir);
 
   Ok(())

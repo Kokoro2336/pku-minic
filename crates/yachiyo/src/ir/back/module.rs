@@ -801,6 +801,210 @@ impl BackIR {
     func.op_to_bb[op] = new_bb;
   }
 
+  fn op_data_targets_bb(data: &BOpData, bb: BOperand) -> bool {
+    match data {
+      BOpData::L(LOpData::Br {
+        then_bb, else_bb, ..
+      }) => *then_bb == bb || *else_bb == bb,
+      BOpData::L(LOpData::Jump { target_bb }) => *target_bb == bb,
+      BOpData::M(MOpData::J { target }) => *target == bb,
+      BOpData::M(MOpData::Bnez { target, .. }) => *target == bb,
+      BOpData::M(
+        MOpData::Beq { offset, .. }
+        | MOpData::Bne { offset, .. }
+        | MOpData::Blt { offset, .. }
+        | MOpData::Bge { offset, .. }
+        | MOpData::Bltu { offset, .. }
+        | MOpData::Bgeu { offset, .. },
+      ) => *offset == bb,
+      _ => false,
+    }
+  }
+
+  pub fn redirect_bb(
+    &mut self,
+    builder: &mut BBuilder,
+    current_function: Option<BOperand>,
+    operand: BOperand,
+    old_bb: BOperand,
+    new_bb: BOperand,
+  ) -> BOperand {
+    let current_function = current_function.unwrap();
+    let (term_id, term_bb) = match operand {
+      BOperand::BB(_) => {
+        let term_id = self.funcs[current_function].cfg[operand]
+          .cur
+          .iter()
+          .rev()
+          .copied()
+          .find(|inst_id| {
+            Self::op_data_targets_bb(&self.funcs[current_function].dfg[*inst_id].data, old_bb)
+          })
+          .unwrap_or_else(|| {
+            panic!(
+              "BackIR redirect_bb: block {:?} has no terminator targeting {:?}",
+              operand, old_bb
+            )
+          });
+        (term_id, operand)
+      }
+      BOperand::Inst(_) => (operand, self.funcs[current_function].op_to_bb[operand]),
+      _ => panic!(
+        "BackIR redirect_bb: expected BB or Inst operand, got {:?}",
+        operand
+      ),
+    };
+
+    let BOp {
+      typ, attrs, data, ..
+    } = self.funcs[current_function].dfg[term_id].clone();
+    let new_data = match data {
+      BOpData::L(LOpData::Br {
+        cond,
+        mut then_bb,
+        mut else_bb,
+      }) => {
+        let mut matched = false;
+        if then_bb == old_bb {
+          then_bb = new_bb;
+          matched = true;
+        }
+        if else_bb == old_bb {
+          else_bb = new_bb;
+          matched = true;
+        }
+        if !matched {
+          panic!(
+            "BackIR redirect_bb: branch {:?} does not target {:?}",
+            term_id, old_bb
+          );
+        }
+        BOpData::L(LOpData::Br {
+          cond,
+          then_bb,
+          else_bb,
+        })
+      }
+      BOpData::L(LOpData::Jump { target_bb }) => {
+        if target_bb != old_bb {
+          panic!(
+            "BackIR redirect_bb: jump {:?} targets {:?}, not {:?}",
+            term_id, target_bb, old_bb
+          );
+        }
+        BOpData::L(LOpData::Jump { target_bb: new_bb })
+      }
+      BOpData::M(MOpData::J { target }) => {
+        if target != old_bb {
+          panic!(
+            "BackIR redirect_bb: jump {:?} targets {:?}, not {:?}",
+            term_id, target, old_bb
+          );
+        }
+        BOpData::M(MOpData::J { target: new_bb })
+      }
+      BOpData::M(MOpData::Bnez { rs, target }) => {
+        if target != old_bb {
+          panic!(
+            "BackIR redirect_bb: branch {:?} targets {:?}, not {:?}",
+            term_id, target, old_bb
+          );
+        }
+        BOpData::M(MOpData::Bnez { rs, target: new_bb })
+      }
+      BOpData::M(MOpData::Beq { rs1, rs2, offset }) => {
+        if offset != old_bb {
+          panic!(
+            "BackIR redirect_bb: branch {:?} targets {:?}, not {:?}",
+            term_id, offset, old_bb
+          );
+        }
+        BOpData::M(MOpData::Beq {
+          rs1,
+          rs2,
+          offset: new_bb,
+        })
+      }
+      BOpData::M(MOpData::Bne { rs1, rs2, offset }) => {
+        if offset != old_bb {
+          panic!(
+            "BackIR redirect_bb: branch {:?} targets {:?}, not {:?}",
+            term_id, offset, old_bb
+          );
+        }
+        BOpData::M(MOpData::Bne {
+          rs1,
+          rs2,
+          offset: new_bb,
+        })
+      }
+      BOpData::M(MOpData::Blt { rs1, rs2, offset }) => {
+        if offset != old_bb {
+          panic!(
+            "BackIR redirect_bb: branch {:?} targets {:?}, not {:?}",
+            term_id, offset, old_bb
+          );
+        }
+        BOpData::M(MOpData::Blt {
+          rs1,
+          rs2,
+          offset: new_bb,
+        })
+      }
+      BOpData::M(MOpData::Bge { rs1, rs2, offset }) => {
+        if offset != old_bb {
+          panic!(
+            "BackIR redirect_bb: branch {:?} targets {:?}, not {:?}",
+            term_id, offset, old_bb
+          );
+        }
+        BOpData::M(MOpData::Bge {
+          rs1,
+          rs2,
+          offset: new_bb,
+        })
+      }
+      BOpData::M(MOpData::Bltu { rs1, rs2, offset }) => {
+        if offset != old_bb {
+          panic!(
+            "BackIR redirect_bb: branch {:?} targets {:?}, not {:?}",
+            term_id, offset, old_bb
+          );
+        }
+        BOpData::M(MOpData::Bltu {
+          rs1,
+          rs2,
+          offset: new_bb,
+        })
+      }
+      BOpData::M(MOpData::Bgeu { rs1, rs2, offset }) => {
+        if offset != old_bb {
+          panic!(
+            "BackIR redirect_bb: branch {:?} targets {:?}, not {:?}",
+            term_id, offset, old_bb
+          );
+        }
+        BOpData::M(MOpData::Bgeu {
+          rs1,
+          rs2,
+          offset: new_bb,
+        })
+      }
+      _ => panic!(
+        "BackIR redirect_bb: expected branch or jump, got {:?}",
+        data
+      ),
+    };
+
+    self.replace_op_no_rauw(
+      builder,
+      Some(current_function),
+      term_id,
+      term_bb,
+      BOp::new(typ, attrs, new_data),
+    )
+  }
+
   pub fn get_rd_tuple(
     &self,
     current_function: Option<BOperand>,

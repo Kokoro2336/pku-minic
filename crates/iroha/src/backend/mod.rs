@@ -1,5 +1,6 @@
 //! Backend.
 
+mod branch_folding;
 mod canonicalize;
 mod compaction;
 mod dce;
@@ -11,6 +12,7 @@ mod peephole;
 mod regalloc;
 mod strength_reduct;
 
+pub use branch_folding::*;
 pub use canonicalize::*;
 pub use compaction::*;
 pub use dce::*;
