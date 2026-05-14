@@ -228,6 +228,28 @@ impl BOpData {
       BOpData::L(lop_data) => lop_data.is_impure(),
     }
   }
+
+  #[inline(always)]
+  pub fn is_terminator(&self) -> bool {
+    match self {
+      BOpData::L(lop_data) => matches!(
+        lop_data,
+        LOpData::Br { .. } | LOpData::Jump { .. } | LOpData::Ret
+      ),
+      BOpData::M(mop_data) => matches!(
+        mop_data,
+        MOpData::J { .. }
+          | MOpData::Bnez { .. }
+          | MOpData::Beq { .. }
+          | MOpData::Bne { .. }
+          | MOpData::Blt { .. }
+          | MOpData::Bge { .. }
+          | MOpData::Bltu { .. }
+          | MOpData::Bgeu { .. }
+          | MOpData::Ret
+      ),
+    }
+  }
 }
 
 #[allow(clippy::upper_case_acronyms)]

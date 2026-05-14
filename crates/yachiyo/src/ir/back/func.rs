@@ -395,6 +395,12 @@ impl Arena<BFunction> for BCG {
                     for op_idx in bb.cur.iter_mut() {
                         remap_with_dfg(op_idx, &old_arena_dfg);
                     }
+                    for (_, op_idx) in bb.preds.iter_mut() {
+                        remap_with_dfg(op_idx, &old_arena_dfg);
+                    }
+                    for (_, op_idx) in bb.succs.iter_mut() {
+                        remap_with_dfg(op_idx, &old_arena_dfg);
+                    }
                 }
             });
 

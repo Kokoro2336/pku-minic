@@ -213,6 +213,22 @@ impl<'a> BPassContext<'a> {
   }
 
   #[inline(always)]
+  pub fn bbs(&self, func_id: BOperand) -> Vec<BOperand> {
+    self.get_func(func_id).cfg.collect().into_iter().map(BOperand::BB).collect()
+  }
+
+  #[inline(always)]
+  pub fn funcs(&self) -> Vec<BOperand> {
+    self
+      .ir()
+      .funcs
+      .collect()
+      .into_iter()
+      .map(BOperand::Func)
+      .collect()
+  }
+
+  #[inline(always)]
   pub fn get_bb(&self, bb_id: BOperand) -> &BBasicBlock {
     let func_id = self.current_func();
     &self.get_func(func_id).cfg[bb_id]
@@ -236,6 +252,23 @@ impl<'a> BPassContext<'a> {
 
   pub fn op_bb(&self, op_id: BOperand) -> BOperand {
     self.get_func(self.current_func()).op_to_bb[op_id]
+  }
+
+  pub fn next_valid(&self, operand: BOperand) -> Option<BOperand> {
+    let func_id = self.current_func();
+    match operand {
+      BOperand::Inst(_) => self
+        .get_func(func_id)
+        .dfg
+        .next_valid(operand.get_inst_id())
+        .map(BOperand::Inst),
+      BOperand::BB(_) => self
+        .get_func(func_id)
+        .cfg
+        .next_valid(operand.get_bb_id())
+        .map(BOperand::BB),
+      _ => unreachable!(),
+    }
   }
 
   pub fn create(&mut self, op: BOp) -> BOperand {
@@ -296,6 +329,18 @@ impl<'a> BPassContext<'a> {
     self
       .ir_mut()
       .move_op_to_bb_at(current_function_option, op_id, old_bb, new_bb, pos);
+  }
+
+  pub fn redirect_bb(&mut self, operand: BOperand, old_bb: BOperand, new_bb: BOperand) -> BOperand {
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    ir.redirect_bb(
+      &mut self.builder,
+      current_function_option,
+      operand,
+      old_bb,
+      new_bb,
+    )
   }
 
   pub fn get_rd(&self, op_id: BOperand) -> Option<&BOperand> {
