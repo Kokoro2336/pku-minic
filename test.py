@@ -6,6 +6,19 @@ import sys
 import shutil
 import shlex
 import uuid
+import re
+import time
+import math
+
+ANSI_RESET = "\033[0m"
+ANSI_BOLD = "\033[1m"
+ANSI_RED = "\033[31m"
+ANSI_GREEN = "\033[32m"
+ANSI_YELLOW = "\033[33m"
+ANSI_CYAN = "\033[36m"
+
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+SYSY_TOTAL_RE = re.compile(r"TOTAL:\s*(\d+)H-(\d+)M-(\d+)S-(\d+)us")
 
 def run_command(command, capture_output=True):
     """Runs a shell command."""
@@ -149,6 +162,322 @@ def normalize_output_bytes(data: bytes) -> bytes:
     while lines and lines[-1].strip() == b"":
         lines.pop()
     return b"\n".join(lines)
+
+def runtime_output_with_return(stdout: bytes, returncode: int) -> bytes:
+    output = stdout
+    if not output.endswith(b"\n"):
+        output += b"\n"
+    output += f"{returncode}\n".encode()
+    return output
+
+def run_program(command, input_file: str):
+    start = time.perf_counter()
+    if input_file and os.path.exists(input_file):
+        with open(input_file, "rb") as f_in:
+            result = subprocess.run(
+                command,
+                stdin=f_in,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+    else:
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    elapsed = time.perf_counter() - start
+    return result, elapsed
+
+def parse_sysy_total_seconds(data: bytes):
+    text = data.decode("utf-8", errors="replace")
+    matches = SYSY_TOTAL_RE.findall(text)
+    if not matches:
+        return None
+
+    hours, minutes, seconds, microseconds = [int(value) for value in matches[-1]]
+    return hours * 3600.0 + minutes * 60.0 + seconds + microseconds / 1_000_000.0
+
+def select_runtime_seconds(stderr: bytes, wall_seconds):
+    sysy_seconds = parse_sysy_total_seconds(stderr)
+    if sysy_seconds is not None and sysy_seconds > 0:
+        return sysy_seconds, "sysy"
+    if wall_seconds is not None:
+        return wall_seconds, "wall"
+    if sysy_seconds is not None:
+        return sysy_seconds, "sysy"
+    return None, "n/a"
+
+def format_seconds(seconds):
+    if seconds is None:
+        return "n/a"
+    return f"{seconds:.6f}s"
+
+def colorize_delta(text: str, diff_seconds: float) -> str:
+    if diff_seconds > 0:
+        return f"{ANSI_RED}{text}{ANSI_RESET}"
+    if diff_seconds < 0:
+        return f"{ANSI_GREEN}{text}{ANSI_RESET}"
+    return f"{ANSI_CYAN}{text}{ANSI_RESET}"
+
+def visible_len(text: str) -> int:
+    return len(ANSI_RE.sub("", text))
+
+def pad_ansi(text: str, width: int) -> str:
+    return text + " " * max(width - visible_len(text), 0)
+
+def print_ansi_table(headers, rows):
+    widths = [visible_len(header) for header in headers]
+    for row in rows:
+        for index, value in enumerate(row):
+            widths[index] = max(widths[index], visible_len(value))
+
+    border = "+" + "+".join("-" * (width + 2) for width in widths) + "+"
+    print(border)
+    print("| " + " | ".join(pad_ansi(headers[index], widths[index]) for index in range(len(headers))) + " |")
+    print(border)
+    for row in rows:
+        print("| " + " | ".join(pad_ansi(row[index], widths[index]) for index in range(len(row))) + " |")
+    print(border)
+
+def print_performance_summary(records):
+    if not records:
+        return
+
+    rows = []
+    comparable = 0
+    geo_log_iroha = 0.0
+    geo_log_clang = 0.0
+    geo_count = 0
+
+    for record in records:
+        name = record["name"]
+        iroha_seconds = record.get("iroha_seconds")
+        clang_seconds = record.get("clang_seconds")
+        iroha_ok = record.get("iroha_status", False)
+        clang_ok = record.get("clang_status", False)
+
+        if iroha_ok and clang_ok and iroha_seconds is not None and clang_seconds is not None:
+            diff = iroha_seconds - clang_seconds
+            speed_percent = None if iroha_seconds == 0 else clang_seconds / iroha_seconds * 100.0
+            speed_percent_text = "n/a" if speed_percent is None else f"{speed_percent:.2f}%"
+            relation = "same"
+            if diff > 0:
+                relation = "iroha slower"
+            elif diff < 0:
+                relation = "iroha faster"
+
+            rows.append([
+                name,
+                format_seconds(iroha_seconds),
+                format_seconds(clang_seconds),
+                colorize_delta(f"{diff:+.6f}s", diff),
+                colorize_delta(speed_percent_text, diff),
+                colorize_delta(relation, diff),
+            ])
+            comparable += 1
+            if iroha_seconds > 0 and clang_seconds > 0:
+                geo_log_iroha += math.log(iroha_seconds)
+                geo_log_clang += math.log(clang_seconds)
+                geo_count += 1
+        else:
+            reason = []
+            if not iroha_ok:
+                reason.append("iroha failed")
+            if not clang_ok:
+                reason.append("clang failed")
+            if iroha_seconds is None:
+                reason.append("iroha time n/a")
+            if clang_seconds is None:
+                reason.append("clang time n/a")
+            rows.append([
+                name,
+                format_seconds(iroha_seconds),
+                format_seconds(clang_seconds),
+                "n/a",
+                "n/a",
+                f"{ANSI_YELLOW}{', '.join(reason)}{ANSI_RESET}",
+            ])
+
+    if comparable:
+        total_iroha = math.exp(geo_log_iroha / geo_count) if geo_count else None
+        total_clang = math.exp(geo_log_clang / geo_count) if geo_count else None
+        total_diff = None
+        total_speed_percent = None
+        relation = "n/a"
+        if total_iroha is not None and total_clang is not None:
+            total_diff = total_iroha - total_clang
+            total_speed_percent = None if total_iroha == 0 else total_clang / total_iroha * 100.0
+            relation = "same"
+            if total_diff > 0:
+                relation = "iroha slower"
+            elif total_diff < 0:
+                relation = "iroha faster"
+        total_speed_percent_text = "n/a" if total_speed_percent is None else f"{total_speed_percent:.2f}%"
+        total_diff_text = "n/a" if total_diff is None else f"{total_diff:+.6f}s"
+        rows.append([
+            f"{ANSI_BOLD}TOTAL{ANSI_RESET}",
+            f"{ANSI_BOLD}{format_seconds(total_iroha)}{ANSI_RESET}",
+            f"{ANSI_BOLD}{format_seconds(total_clang)}{ANSI_RESET}",
+            colorize_delta(total_diff_text, total_diff) if total_diff is not None else total_diff_text,
+            colorize_delta(total_speed_percent_text, total_diff) if total_diff is not None else total_speed_percent_text,
+            colorize_delta(relation, total_diff) if total_diff is not None else relation,
+        ])
+
+    print()
+    print(f"{ANSI_BOLD}{ANSI_CYAN}Clang -O3 vs Iroha Performance{ANSI_RESET}")
+    print_ansi_table(["testcase", "iroha", "clang", "delta", "speed%", "result"], rows)
+    skipped = len(records) - comparable
+    if skipped:
+        print(f"{ANSI_YELLOW}{skipped} testcase(s) did not have comparable timings.{ANSI_RESET}")
+
+def copy_test_context(test_file: str, expected_output_file: str, output_dir: str):
+    shutil.copy2(test_file, output_dir)
+    if os.path.exists(expected_output_file):
+        shutil.copy2(
+            expected_output_file,
+            os.path.join(output_dir, "expected.out"),
+        )
+
+def start_clang_case(clang_binary: str, repo_root: str, test_file: str, work_dir: str, name_no_ext: str):
+    target_dir = os.path.join(work_dir, "target")
+    os.makedirs(target_dir, exist_ok=True)
+    exe_path = os.path.join(target_dir, f"{name_no_ext}.out")
+    ll_path = os.path.join(target_dir, f"{name_no_ext}.ll")
+    asm_path = os.path.join(target_dir, f"{name_no_ext}.s")
+    sylib_h = os.path.join(repo_root, "sylib", "sylib.h")
+    sylib_c = os.path.join(repo_root, "sylib", "sylib.c")
+    common_cmd = [
+        clang_binary,
+        "-O3",
+        "-w",
+        "-Wno-incompatible-pointer-types",
+        "-fwrapv",
+        "-x",
+        "c",
+        "-include",
+        sylib_h,
+        "-fcommon",
+    ]
+    cmd = [
+        *common_cmd,
+        test_file,
+        sylib_c,
+        "-o",
+        exe_path,
+        "-lm",
+    ]
+    ll_cmd = [
+        *common_cmd,
+        "-S",
+        "-emit-llvm",
+        test_file,
+        "-o",
+        ll_path,
+    ]
+    asm_cmd = [
+        *common_cmd,
+        "-S",
+        test_file,
+        "-o",
+        asm_path,
+    ]
+
+    with open(os.path.join(work_dir, "command.txt"), "w", encoding="utf-8") as f_cmd:
+        for label, command in [
+            ("executable", cmd),
+            ("llvm", ll_cmd),
+            ("asm", asm_cmd),
+        ]:
+            f_cmd.write(f"# {label}\n")
+            f_cmd.write(" ".join(shlex.quote(part) for part in command))
+            f_cmd.write("\n")
+
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    ll_proc = subprocess.Popen(ll_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    asm_proc = subprocess.Popen(asm_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return {
+        "proc": proc,
+        "ll_proc": ll_proc,
+        "asm_proc": asm_proc,
+        "work_dir": work_dir,
+        "target_dir": target_dir,
+        "exe_path": exe_path,
+        "ll_path": ll_path,
+        "asm_path": asm_path,
+    }
+
+def finish_clang_case(clang_case, test_file: str, expected_output_file: str):
+    work_dir = clang_case["work_dir"]
+    final_stdout, final_stderr = clang_case["proc"].communicate()
+    final_returncode = clang_case["proc"].returncode
+    ll_stdout, ll_stderr = clang_case["ll_proc"].communicate()
+    ll_returncode = clang_case["ll_proc"].returncode
+    asm_stdout, asm_stderr = clang_case["asm_proc"].communicate()
+    asm_returncode = clang_case["asm_proc"].returncode
+    final_stdout += ll_stdout + asm_stdout
+    final_stderr += ll_stderr + asm_stderr
+    runtime_wall_seconds = None
+    runtime_raw = None
+    runtime_with_ret = None
+
+    copy_test_context(test_file, expected_output_file, work_dir)
+
+    if ll_returncode != 0:
+        final_returncode = ll_returncode
+        final_stderr += b"\n[ERROR] clang LLVM IR dump failed.\n"
+    elif not os.path.exists(clang_case["ll_path"]):
+        final_returncode = 1
+        final_stderr += (
+            f"\n[ERROR] clang LLVM IR dump not found: {clang_case['ll_path']}\n"
+        ).encode()
+
+    if asm_returncode != 0:
+        final_returncode = asm_returncode
+        final_stderr += b"\n[ERROR] clang assembly dump failed.\n"
+    elif not os.path.exists(clang_case["asm_path"]):
+        final_returncode = 1
+        final_stderr += (
+            f"\n[ERROR] clang assembly dump not found: {clang_case['asm_path']}\n"
+        ).encode()
+
+    if final_returncode == 0:
+        input_file = os.path.splitext(test_file)[0] + ".in"
+        exec_result, runtime_wall_seconds = run_program([clang_case["exe_path"]], input_file)
+        runtime_raw = exec_result.stdout
+        runtime_with_ret = runtime_output_with_return(runtime_raw, exec_result.returncode)
+        final_stdout += runtime_with_ret
+        final_stderr += exec_result.stderr
+
+        if not os.path.exists(expected_output_file):
+            final_returncode = 1
+            final_stderr += (
+                f"\n[ERROR] Expected output not found: {expected_output_file}\n"
+            ).encode()
+        else:
+            with open(expected_output_file, "rb") as f_exp:
+                expected_bytes = f_exp.read()
+            expected_norm = normalize_output_bytes(expected_bytes)
+            actual_with_ret_norm = normalize_output_bytes(runtime_with_ret)
+            actual_raw_norm = normalize_output_bytes(runtime_raw or b"")
+            if expected_norm != actual_with_ret_norm and expected_norm != actual_raw_norm:
+                final_returncode = 1
+                final_stderr += b"\n[ERROR] Output mismatch with expected .out\n"
+
+            with open(os.path.join(work_dir, "actual.out"), "wb") as f_actual:
+                f_actual.write(runtime_with_ret)
+
+    with open(os.path.join(work_dir, "stdout.txt"), "wb") as f_out:
+        f_out.write(final_stdout)
+    with open(os.path.join(work_dir, "stderr.txt"), "wb") as f_err:
+        f_err.write(final_stderr)
+
+    runtime_seconds, runtime_source = select_runtime_seconds(final_stderr, runtime_wall_seconds)
+    return {
+        "returncode": final_returncode,
+        "runtime_seconds": runtime_seconds,
+        "runtime_source": runtime_source,
+    }
 
 def regenerate_sylib_ll(repo_root: str):
     """Regenerates sylib/sylib.ll from sylib/sylib.c using clang."""
@@ -296,10 +625,7 @@ def run_qemu_runtime(
         )
 
     runtime_raw = run_result.stdout
-    runtime_with_ret = runtime_raw
-    if not runtime_with_ret.endswith(b"\n"):
-        runtime_with_ret += b"\n"
-    runtime_with_ret += f"{run_result.returncode}\n".encode()
+    runtime_with_ret = runtime_output_with_return(runtime_raw, run_result.returncode)
 
     merged_stdout = gcc_result.stdout + runtime_with_ret
     merged_stderr = gcc_result.stderr + run_result.stderr
@@ -410,7 +736,13 @@ def finalize_qemu_cases(qemu_cases, test_output_base: str):
 
         name_no_ext = case["name"]
         work_test_output_dir = case["work_dir"]
-        status = "passed" if case["returncode"] == 0 else "failed"
+        move_source_dir = case.get("case_work_dir", work_test_output_dir)
+        combined_returncode = case["returncode"]
+        clang_returncode = case.get("clang_returncode", 0)
+        if combined_returncode == 0 and clang_returncode != 0:
+            combined_returncode = clang_returncode or 1
+
+        status = "passed" if combined_returncode == 0 else "failed"
         test_output_dir = os.path.join(test_output_base, status, name_no_ext)
         other_status = "failed" if status == "passed" else "passed"
         other_output_dir = os.path.join(test_output_base, other_status, name_no_ext)
@@ -421,13 +753,13 @@ def finalize_qemu_cases(qemu_cases, test_output_base: str):
             shutil.rmtree(test_output_dir)
         os.makedirs(os.path.dirname(test_output_dir), exist_ok=True)
 
-        if os.path.exists(work_test_output_dir):
-            shutil.move(work_test_output_dir, test_output_dir)
+        if os.path.exists(move_source_dir):
+            shutil.move(move_source_dir, test_output_dir)
 
         case["finalized"] = True
 
-        if case["returncode"] != 0:
-            print(f"  [FAILED] {name_no_ext} (Exit Code: {case['returncode']})")
+        if combined_returncode != 0:
+            print(f"  [FAILED] {name_no_ext} (Exit Code: {combined_returncode})")
             moved_failed += 1
         else:
             print(f"  [PASSED] {name_no_ext}")
@@ -466,6 +798,7 @@ def main():
     parser.add_argument('--graph', action='store_true', help='Generate CFG graphs (.dot/.svg) from linked LLVM IR using opt + graphviz')
     parser.add_argument('--trace', action='store_true', help='Enable trace logging')
     parser.add_argument('--no-debug', action='store_true', help='Disable cargo debug feature (enabled by default)')
+    parser.add_argument('--clang', action='store_true', help='Also build/run each testcase with clang -O3 and compare runtime against Iroha')
     debug_group = parser.add_mutually_exclusive_group()
     debug_group.add_argument('--gdb', action='store_true', help='Run compiler under rust-gdb for interactive debugging (single test only)')
     debug_group.add_argument('--lldb', action='store_true', help='Run compiler under rust-lldb for interactive debugging (single test only)')
@@ -503,17 +836,35 @@ def main():
     else:
         exec_mode = 'compiler'
 
-    # LLVM dump is required for IR-level workflows and is auto-enabled for --lli.
-    need_emit_llvm = args.emit_llvm or args.lli or args.llc or args.graph or bool(args.dump_llvm_after)
-    need_runtime_exec = args.lli or args.llc
+    if args.clang and args.lli:
+        parser.error("--clang compares executable binaries; use --llc, --qemu, or omit the backend flag")
+    if args.clang and args.qemu_debug:
+        parser.error("--clang cannot be combined with --qemu-debug")
+    if args.clang and (args.gdb or args.lldb):
+        parser.error("--clang cannot be combined with --gdb/--lldb")
+    if args.clang and exec_mode == 'compiler':
+        exec_mode = 'llc'
+
+    # LLVM dump is required for IR-level workflows and host executable runs.
+    need_runtime_exec = exec_mode in ('lli', 'llc')
+    need_emit_llvm = args.emit_llvm or need_runtime_exec or args.graph or bool(args.dump_llvm_after)
 
     if args.clean and not (args.test or args.basic is not None or args.perf is not None or args.test_all):
         clean_directory("./test")
         print("Cleaned test directory.")
         sys.exit(0)
 
+    clang_binary = None
+    if args.clang:
+        clang_binary = shutil.which("clang")
+        if clang_binary is None:
+            print("--clang requested but clang was not found in PATH.")
+            sys.exit(1)
+        if exec_mode == 'llc' and not args.llc:
+            print("--clang requested; using llc mode for the Iroha executable comparison.", flush=True)
+
     # Ensure cargo build is run
-    print("Running cargo build...")
+    print("Running cargo build...", flush=True)
     build_cmd = "RUSTFLAG='-A warnings' cargo build --features debug"
     if args.no_debug:
         build_cmd = "RUSTFLAG='-A warnings' cargo build"
@@ -533,8 +884,8 @@ def main():
     qemu_container_name = f"iroha-qemu-{uuid.uuid4().hex[:8]}"
     qemu_cases = []
 
-    if args.lli:
-        print("Regenerating sylib/sylib.ll via clang...")
+    if args.lli or (args.clang and exec_mode == 'llc'):
+        print("Regenerating sylib/sylib.ll via clang...", flush=True)
         regen_code, regen_stdout, regen_stderr = regenerate_sylib_ll(repo_root)
         if regen_stdout:
             sys.stdout.buffer.write(regen_stdout)
@@ -703,6 +1054,7 @@ def main():
     failed = 0
     selected_tests_count = len(test_files)
     interrupted = False
+    performance_records = []
 
     try:
         for test_file in test_files:
@@ -710,10 +1062,20 @@ def main():
             name_no_ext = os.path.splitext(filename)[0]
             print(f"Testing {name_no_ext}...")
 
-            work_test_output_dir = os.path.join(test_output_base, "_work", name_no_ext)
-            if os.path.exists(work_test_output_dir):
-                shutil.rmtree(work_test_output_dir)
+            work_case_output_dir = os.path.join(test_output_base, "_work", name_no_ext)
+            if os.path.exists(work_case_output_dir):
+                shutil.rmtree(work_case_output_dir)
+
+            if args.clang:
+                work_test_output_dir = os.path.join(work_case_output_dir, "iroha")
+                clang_work_dir = os.path.join(work_case_output_dir, "clang")
+            else:
+                work_test_output_dir = work_case_output_dir
+                clang_work_dir = None
+
             os.makedirs(work_test_output_dir, exist_ok=True)
+            if clang_work_dir is not None:
+                os.makedirs(clang_work_dir, exist_ok=True)
 
             # Prepare directories
             clean_directory(logs_dir)
@@ -731,6 +1093,25 @@ def main():
             linked_ll_path = os.path.join(target_dir, linked_ll_name)
             if os.path.exists(linked_ll_path):
                 os.unlink(linked_ll_path)
+
+            clang_case = None
+            performance_record = None
+            if args.clang:
+                clang_case = start_clang_case(
+                    clang_binary,
+                    repo_root,
+                    test_file,
+                    clang_work_dir,
+                    name_no_ext,
+                )
+                performance_record = {
+                    "name": name_no_ext,
+                    "iroha_status": False,
+                    "clang_status": False,
+                    "iroha_seconds": None,
+                    "clang_seconds": None,
+                }
+                performance_records.append(performance_record)
             
             # Run compiler
             # Functional: compiler testcase.sysy -S -o testcase.s
@@ -772,6 +1153,7 @@ def main():
                     final_stderr = result.stderr
                 runtime_with_ret = None
                 runtime_raw = None
+                runtime_wall_seconds = None
 
                 if final_returncode == 0 and need_emit_llvm:
                     generated_ll = os.path.join(dump_llvm_dir, f"{name_no_ext}.ll")
@@ -810,20 +1192,7 @@ def main():
                             input_file = os.path.splitext(test_file)[0] + ".in"
                             if exec_mode == 'lli':
                                 lli_cmd = ["lli", linked_ll_path]
-                                if os.path.exists(input_file):
-                                    with open(input_file, "rb") as f_in:
-                                        exec_result = subprocess.run(
-                                            lli_cmd,
-                                            stdin=f_in,
-                                            stdout=subprocess.PIPE,
-                                            stderr=subprocess.PIPE,
-                                        )
-                                else:
-                                    exec_result = subprocess.run(
-                                        lli_cmd,
-                                        stdout=subprocess.PIPE,
-                                        stderr=subprocess.PIPE,
-                                    )
+                                exec_result, runtime_wall_seconds = run_program(lli_cmd, input_file)
                             else:
                                 obj_path = os.path.join(target_dir, f"{name_no_ext}.o")
                                 asm_path = os.path.join(target_dir, f"{name_no_ext}.s")
@@ -846,50 +1215,34 @@ def main():
                                     if llc_obj_result.returncode != 0:
                                         final_returncode = llc_obj_result.returncode
                                         exec_result = None
-
-                                    linker = shutil.which("clang") or shutil.which("cc") or shutil.which("gcc")
-                                    if linker is None:
-                                        final_returncode = 1
-                                        final_stderr += b"\n[ERROR] No system linker found (clang/cc/gcc).\n"
-                                        exec_result = None
                                     else:
-                                        link_exe_cmd = [linker, obj_path, "-o", exe_path, "-no-pie"]
-                                        link_exe_result = subprocess.run(
-                                            link_exe_cmd,
-                                            stdout=subprocess.PIPE,
-                                            stderr=subprocess.PIPE,
-                                        )
-                                        final_stdout += link_exe_result.stdout
-                                        final_stderr += link_exe_result.stderr
-
-                                        if link_exe_result.returncode != 0:
-                                            final_returncode = link_exe_result.returncode
+                                        linker = shutil.which("clang") or shutil.which("cc") or shutil.which("gcc")
+                                        if linker is None:
+                                            final_returncode = 1
+                                            final_stderr += b"\n[ERROR] No system linker found (clang/cc/gcc).\n"
                                             exec_result = None
                                         else:
-                                            if os.path.exists(input_file):
-                                                with open(input_file, "rb") as f_in:
-                                                    exec_result = subprocess.run(
-                                                        [exe_path],
-                                                        stdin=f_in,
-                                                        stdout=subprocess.PIPE,
-                                                        stderr=subprocess.PIPE,
-                                                    )
+                                            link_exe_cmd = [linker, obj_path, "-o", exe_path, "-no-pie"]
+                                            link_exe_result = subprocess.run(
+                                                link_exe_cmd,
+                                                stdout=subprocess.PIPE,
+                                                stderr=subprocess.PIPE,
+                                            )
+                                            final_stdout += link_exe_result.stdout
+                                            final_stderr += link_exe_result.stderr
+
+                                            if link_exe_result.returncode != 0:
+                                                final_returncode = link_exe_result.returncode
+                                                exec_result = None
                                             else:
-                                                exec_result = subprocess.run(
-                                                    [exe_path],
-                                                    stdout=subprocess.PIPE,
-                                                    stderr=subprocess.PIPE,
-                                                )
+                                                exec_result, runtime_wall_seconds = run_program([exe_path], input_file)
 
                             if exec_result is None:
                                 runtime_raw = b""
                                 runtime_with_ret = None
                             else:
                                 runtime_raw = exec_result.stdout
-                                runtime_with_ret = runtime_raw
-                                if not runtime_with_ret.endswith(b"\n"):
-                                    runtime_with_ret += b"\n"
-                                runtime_with_ret += f"{exec_result.returncode}\n".encode()
+                                runtime_with_ret = runtime_output_with_return(runtime_raw, exec_result.returncode)
 
                                 final_stdout += runtime_with_ret
                                 final_stderr += exec_result.stderr
@@ -921,21 +1274,7 @@ def main():
                         with open(os.path.join(work_test_output_dir, "actual.out"), "wb") as f_actual:
                             f_actual.write(runtime_with_ret)
                 
-                test_output_dir = work_test_output_dir
-                if not args.qemu:
-                    # Determine output directory based on result
-                    status = "passed" if final_returncode == 0 else "failed"
-                    test_output_dir = os.path.join(test_output_base, status, name_no_ext)
-                    
-                    # Clean up the other possible location to avoid confusion
-                    other_status = "failed" if final_returncode == 0 else "passed"
-                    other_output_dir = os.path.join(test_output_base, other_status, name_no_ext)
-                    if os.path.exists(other_output_dir):
-                        shutil.rmtree(other_output_dir)
-
-                    if os.path.exists(test_output_dir):
-                        shutil.rmtree(test_output_dir)
-                    os.makedirs(os.path.dirname(test_output_dir), exist_ok=True)
+                test_output_dir = work_case_output_dir if args.clang else work_test_output_dir
 
                 # Copy original source file
                 shutil.copy2(test_file, work_test_output_dir)
@@ -986,6 +1325,38 @@ def main():
                 if os.path.exists(output_file_name):
                     shutil.move(output_file_name, os.path.join(work_test_output_dir, output_file_name))
 
+                clang_returncode = 0
+                if performance_record is not None and not args.qemu:
+                    iroha_seconds, iroha_source = select_runtime_seconds(final_stderr, runtime_wall_seconds)
+                    performance_record["iroha_status"] = final_returncode == 0
+                    performance_record["iroha_seconds"] = iroha_seconds
+                    performance_record["iroha_source"] = iroha_source
+
+                if clang_case is not None:
+                    clang_result = finish_clang_case(clang_case, test_file, expected_output_file)
+                    clang_returncode = clang_result["returncode"]
+                    performance_record["clang_status"] = clang_returncode == 0
+                    performance_record["clang_seconds"] = clang_result["runtime_seconds"]
+                    performance_record["clang_source"] = clang_result["runtime_source"]
+
+                    if not args.qemu and final_returncode == 0 and clang_returncode != 0:
+                        final_returncode = clang_returncode or 1
+
+                if not args.qemu:
+                    # Determine output directory based on the combined result.
+                    status = "passed" if final_returncode == 0 else "failed"
+                    test_output_dir = os.path.join(test_output_base, status, name_no_ext)
+
+                    # Clean up the other possible location to avoid confusion.
+                    other_status = "failed" if final_returncode == 0 else "passed"
+                    other_output_dir = os.path.join(test_output_base, other_status, name_no_ext)
+                    if os.path.exists(other_output_dir):
+                        shutil.rmtree(other_output_dir)
+
+                    if os.path.exists(test_output_dir):
+                        shutil.rmtree(test_output_dir)
+                    os.makedirs(os.path.dirname(test_output_dir), exist_ok=True)
+
                 if args.qemu:
                     asm_host_path = resolve_asm_artifact(work_test_output_dir, target_dir, name_no_ext)
                     if asm_host_path is None:
@@ -1007,10 +1378,13 @@ def main():
                         "name": name_no_ext,
                         "test_file": test_file,
                         "work_dir": work_test_output_dir,
+                        "case_work_dir": work_case_output_dir,
                         "target_dir": target_dir,
                         "asm_path": asm_host_path,
                         "elf_path": elf_host_path,
                         "expected_output_file": expected_output_file,
+                        "clang_returncode": clang_returncode,
+                        "perf_record": performance_record,
                         "returncode": final_returncode,
                         "host_passed": final_returncode == 0,
                         "runtime_done": False,
@@ -1055,7 +1429,8 @@ def main():
                             finally:
                                 stop_qemu_container(qemu_container_name)
 
-                shutil.move(work_test_output_dir, test_output_dir)
+                move_source_dir = work_case_output_dir if args.clang else work_test_output_dir
+                shutil.move(move_source_dir, test_output_dir)
 
                 if final_returncode != 0:
                     print(f"  [FAILED] {name_no_ext} (Exit Code: {final_returncode})")
@@ -1065,6 +1440,12 @@ def main():
                     passed += 1
 
             except Exception as e:
+                if 'clang_case' in locals() and clang_case is not None:
+                    for proc_key in ["proc", "ll_proc", "asm_proc"]:
+                        proc = clang_case.get(proc_key)
+                        if proc is not None and proc.poll() is None:
+                            proc.kill()
+                            proc.communicate()
                 print(f"  [ERROR] Exception during test {name_no_ext}: {e}")
 
         if args.qemu:
@@ -1083,6 +1464,9 @@ def main():
                     for case in runnable_cases:
                         case["returncode"] = 1
                         case["runtime_done"] = True
+                        perf_record = case.get("perf_record")
+                        if perf_record is not None:
+                            perf_record["iroha_status"] = False
                         with open(os.path.join(case["work_dir"], "stderr.txt"), "ab") as f_err:
                             f_err.write(error_msg)
                 else:
@@ -1099,6 +1483,11 @@ def main():
                                 case["elf_path"],
                                 input_file,
                             )
+                            perf_record = case.get("perf_record")
+                            if perf_record is not None:
+                                iroha_seconds, iroha_source = select_runtime_seconds(qemu_stderr, None)
+                                perf_record["iroha_seconds"] = iroha_seconds
+                                perf_record["iroha_source"] = iroha_source
 
                             with open(os.path.join(case["work_dir"], "stdout.txt"), "ab") as f_out:
                                 f_out.write(qemu_stdout)
@@ -1108,6 +1497,8 @@ def main():
                             if runtime_with_ret is None:
                                 case["returncode"] = 1
                                 case["runtime_done"] = True
+                                if perf_record is not None:
+                                    perf_record["iroha_status"] = False
                                 with open(os.path.join(case["work_dir"], "stderr.txt"), "ab") as f_err:
                                     f_err.write(b"\n[ERROR] qemu runtime execution did not produce output.\n")
                                 continue
@@ -1116,6 +1507,8 @@ def main():
                             if not os.path.exists(expected_output_file):
                                 case["returncode"] = 1
                                 case["runtime_done"] = True
+                                if perf_record is not None:
+                                    perf_record["iroha_status"] = False
                                 with open(os.path.join(case["work_dir"], "stderr.txt"), "ab") as f_err:
                                     f_err.write(
                                         f"\n[ERROR] Expected output not found: {expected_output_file}\n".encode()
@@ -1136,6 +1529,8 @@ def main():
                                 case["returncode"] = 0
 
                             case["runtime_done"] = True
+                            if perf_record is not None:
+                                perf_record["iroha_status"] = case["returncode"] == 0
 
                             with open(os.path.join(case["work_dir"], "actual.out"), "wb") as f_actual:
                                 f_actual.write(runtime_with_ret)
@@ -1161,6 +1556,8 @@ def main():
 
     skipped_count = excluded_count + max(selected_tests_count - (passed + failed), 0)
     print(f"Testing complete. Passed: {passed}, Failed: {failed}, Skipped: {skipped_count}")
+    if args.clang:
+        print_performance_summary(performance_records)
 
     if interrupted:
         sys.exit(1)
