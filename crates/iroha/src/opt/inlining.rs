@@ -8,8 +8,9 @@ use yachiyo::utils::r#match::match_src;
 
 use crate::analysis::{CallGraphAnalysis, LoopAnalysis, LoopId, Loops, SCCAnalysis};
 
-const MAX_INLINE_INSTS: usize = 30;
-const MIN_INLINE_DEPTH: usize = 3;
+// More aggressive inlining!!!
+const MAX_INLINE_INSTS: usize = 200;
+const MIN_INLINE_DEPTH: usize = 1;
 
 #[derive(Default)]
 pub struct Inlining<'a> {
