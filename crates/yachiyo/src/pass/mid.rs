@@ -142,6 +142,12 @@ impl<'a> PassContext<'a> {
       .set_after_inst(ir, current_function_option, inst_id);
   }
 
+  pub fn set_before_term(&mut self) {
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    self.builder.set_before_term(ir, current_function_option);
+  }
+
   pub fn get_func(&self, func_id: Operand) -> &Function {
     &self.ir().funcs[func_id]
   }
@@ -247,6 +253,14 @@ impl<'a> PassContext<'a> {
     let current_function_option = self.builder.current_function;
     let ir = self.ir.as_deref_mut().unwrap();
     self.builder.create_at_head(ir, current_function_option, op)
+  }
+
+  pub fn create_before_term(&mut self, op: Op) -> Operand {
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    self
+      .builder
+      .create_before_term(ir, current_function_option, op)
   }
 
   pub fn create_new_block(&mut self) -> Operand {

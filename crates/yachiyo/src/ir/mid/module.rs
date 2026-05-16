@@ -661,6 +661,40 @@ impl IR {
     self.create(builder, current_function, op)
   }
 
+  pub fn set_before_term(&mut self, builder: &mut Builder, current_function: Option<Operand>) {
+    let current_function = current_function.unwrap();
+    let current_block = builder
+      .current_block
+      .unwrap_or_else(|| panic!("IR set_before_term: current_block is None"));
+
+    let term_id = {
+      let func = &self.funcs[current_function];
+      let bb = &func.cfg[current_block];
+      bb.cur
+        .iter()
+        .copied()
+        .find(|op_id| func.dfg[*op_id].data.is_terminator())
+        .unwrap_or_else(|| {
+          panic!(
+            "IR set_before_term: block {:?} has no terminator",
+            current_block
+          )
+        })
+    };
+
+    builder.set_before_inst(self, Some(current_function), Some(term_id));
+  }
+
+  pub fn create_before_term(
+    &mut self,
+    builder: &mut Builder,
+    current_function: Option<Operand>,
+    op: Op,
+  ) -> Operand {
+    self.set_before_term(builder, current_function);
+    self.create(builder, current_function, op)
+  }
+
   pub fn create_new_block(&mut self, current_function: Option<Operand>) -> Operand {
     let current_function = current_function.unwrap();
     let cfg = &mut self.funcs[current_function].cfg;

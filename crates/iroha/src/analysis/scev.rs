@@ -2,7 +2,7 @@
 //! SCEV never produces a result, it receives an Arena and then update it.
 
 use yachiyo::analysis::{
-  AffineExpr, Analysis, DomTree, LoopId, Loops, MemLoc, SCEVArena, SCEVExpr, SCEVId,
+  AddRecInfo, AffineExpr, Analysis, DomTree, LoopId, Loops, MemLoc, SCEVArena, SCEVExpr, SCEVId,
 };
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{OpData, Operand};
@@ -107,6 +107,107 @@ impl SCEV<'_> {
 
     visiting.remove(&scev_id);
     result
+  }
+
+  /// Return a view of AddRecInfo for current loop. Non-AddRec SCEVExpr in this SCEVId should be invariant in the loop.
+  pub fn get_add_rec_for_loop(&mut self, scev_id: SCEVId, loop_id: LoopId) -> Option<AddRecInfo> {
+    match self.arena[scev_id].clone() {
+      SCEVExpr::AddRec {
+        loop_id: scev_loop_id,
+        start,
+        step,
+      } => {
+        if scev_loop_id == loop_id {
+          Some(AddRecInfo { start, step })
+        } else {
+          None
+        }
+      }
+      SCEVExpr::Add(terms) => self.add_add_rec(terms, loop_id),
+      SCEVExpr::Mul(factors) => self.mul_add_rec(factors, loop_id),
+      // These two variants couldn't be transformed to AddRecInfo
+      SCEVExpr::Const(_) | SCEVExpr::Unknown(_) => None,
+    }
+  }
+
+  fn add_add_rec(
+    &mut self,
+    terms: impl IntoIterator<Item = SCEVId>,
+    loop_id: LoopId,
+  ) -> Option<AddRecInfo> {
+    let mut start = vec![];
+    let mut step = vec![];
+    let mut saw_add_rec = false;
+
+    for term in terms {
+      if let Some(add_rec) = self.get_add_rec_for_loop(term, loop_id) {
+        saw_add_rec = true;
+        start.push(add_rec.start);
+        step.push(add_rec.step);
+      } else if self.is_scev_loop_invariant(term, loop_id) {
+        start.push(term);
+      } else {
+        return None;
+      }
+    }
+
+    if !saw_add_rec {
+      return None;
+    }
+
+    let start_scev = self.arena.add(start.into_iter());
+    let step_scev = self.arena.add(step.into_iter());
+
+    if !self.is_scev_loop_invariant(start_scev, loop_id)
+      || !self.is_scev_loop_invariant(step_scev, loop_id)
+    {
+      return None;
+    }
+
+    Some(AddRecInfo {
+      start: start_scev,
+      step: step_scev,
+    })
+  }
+
+  fn mul_add_rec(
+    &mut self,
+    factors: impl IntoIterator<Item = SCEVId>,
+    loop_id: LoopId,
+  ) -> Option<AddRecInfo> {
+    let mut invariants = vec![];
+    let mut add_rec = None;
+
+    for factor in factors {
+      if let Some(add_rec_info) = self.get_add_rec_for_loop(factor, loop_id) {
+        // AddRec * AddRec is not AffineExpr
+        if add_rec.is_some() {
+          return None;
+        }
+        add_rec = Some(add_rec_info);
+      } else if self.is_scev_loop_invariant(factor, loop_id) {
+        invariants.push(factor);
+      } else {
+        return None;
+      }
+    }
+
+    let ar = add_rec?;
+    let start_mul = self
+      .arena
+      .mul(invariants.clone().into_iter().chain([ar.start]));
+    let step_mul = self.arena.mul(invariants.into_iter().chain([ar.step]));
+
+    if !self.is_scev_loop_invariant(start_mul, loop_id)
+      || !self.is_scev_loop_invariant(step_mul, loop_id)
+    {
+      return None;
+    }
+
+    Some(AddRecInfo {
+      start: start_mul,
+      step: step_mul,
+    })
   }
 
   fn match_add_rec(
@@ -268,9 +369,13 @@ impl SCEV<'_> {
     self.affine_to_scev_expr(affine_expr)
   }
 
-  pub fn get_op_scev(&mut self, operand: Operand) -> SCEVId {
+  pub fn get_addr_offset_scev(&mut self, operand: Operand) -> SCEVId {
     let MemLoc { offset, .. } = self.cx.compute_mem_loc(operand);
     self.affine_to_scev_expr(&offset)
+  }
+
+  pub fn get_op_scev(&mut self, op: Operand) -> SCEVId {
+    self.trace_op(op)
   }
 }
 
@@ -297,6 +402,5 @@ impl<'a> Analysis for SCEV<'a> {
     }
   }
 
-  fn run(&mut self) -> Self::Output { /*SCEV is based on query*/
-  }
+  fn run(&mut self) -> Self::Output { /*SCEV is based on query*/ }
 }

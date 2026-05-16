@@ -22,6 +22,12 @@ impl From<SCEVId> for usize {
   }
 }
 
+#[derive(Debug, Clone)]
+pub struct AddRecInfo {
+  pub start: SCEVId,
+  pub step: SCEVId,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SCEVExpr {
   Const(i64),

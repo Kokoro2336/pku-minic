@@ -121,6 +121,12 @@ impl<'a> BPassContext<'a> {
       .set_after_inst(ir, current_function_option, inst_id);
   }
 
+  pub fn set_before_term(&mut self) {
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    self.builder.set_before_term(ir, current_function_option);
+  }
+
   pub fn set_at_head(&mut self) {
     let current_function_option = self.builder.current_function;
     let ir = self.ir.as_deref_mut().unwrap();
@@ -287,6 +293,14 @@ impl<'a> BPassContext<'a> {
     let current_function_option = self.builder.current_function;
     let ir = self.ir.as_deref_mut().unwrap();
     self.builder.create_at_head(ir, current_function_option, op)
+  }
+
+  pub fn create_before_term(&mut self, op: BOp) -> BOperand {
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    self
+      .builder
+      .create_before_term(ir, current_function_option, op)
   }
 
   pub fn remove_op(&mut self, op_id: BOperand, bb_id: Option<BOperand>) -> BOp {
