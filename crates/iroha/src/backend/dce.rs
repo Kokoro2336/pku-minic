@@ -3,9 +3,9 @@
 
 use yachiyo::ir::back::{BOpData, BOperand, BackIR, LOpData, MOpData, Reg};
 use yachiyo::pass::{BPass, BPassContext};
-use yachiyo::utils::r#match::{match_some, match_src};
-use yachiyo::utils::set::BitSet;
-use yachiyo::utils::worklist::Worklist;
+use yachiyo::utils::{match_some, match_src};
+use yachiyo::utils::BitSet;
+use yachiyo::utils::Worklist;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Default)]

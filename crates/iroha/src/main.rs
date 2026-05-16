@@ -16,7 +16,7 @@ use yachiyo::debug::log::setup;
 use yachiyo::cli::Cli;
 use yachiyo::debug::DumpASM;
 use yachiyo::pass::*;
-use yachiyo::utils::arena::Arena;
+use yachiyo::utils::Arena;
 
 lalrpop_mod!(sysy);
 

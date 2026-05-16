@@ -4,8 +4,7 @@ use crate::base::Type;
 use crate::ir::mid::{
   BasicBlock, Builder, BuilderGuard, Function, Op, OpData, OpType, Operand, PhiIncoming, CG, DFG,
 };
-use crate::utils::arena::{Arena, ArenaItem};
-use crate::utils::r#match::match_some;
+use crate::utils::{match_some, Arena, ArenaItem};
 
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 
@@ -659,6 +658,40 @@ impl IR {
     };
 
     builder.set_before_inst(self, current_function, inst_id);
+    self.create(builder, current_function, op)
+  }
+
+  pub fn set_before_term(&mut self, builder: &mut Builder, current_function: Option<Operand>) {
+    let current_function = current_function.unwrap();
+    let current_block = builder
+      .current_block
+      .unwrap_or_else(|| panic!("IR set_before_term: current_block is None"));
+
+    let term_id = {
+      let func = &self.funcs[current_function];
+      let bb = &func.cfg[current_block];
+      bb.cur
+        .iter()
+        .copied()
+        .find(|op_id| func.dfg[*op_id].data.is_terminator())
+        .unwrap_or_else(|| {
+          panic!(
+            "IR set_before_term: block {:?} has no terminator",
+            current_block
+          )
+        })
+    };
+
+    builder.set_before_inst(self, Some(current_function), Some(term_id));
+  }
+
+  pub fn create_before_term(
+    &mut self,
+    builder: &mut Builder,
+    current_function: Option<Operand>,
+    op: Op,
+  ) -> Operand {
+    self.set_before_term(builder, current_function);
     self.create(builder, current_function, op)
   }
 

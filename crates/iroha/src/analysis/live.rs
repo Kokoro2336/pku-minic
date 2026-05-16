@@ -3,9 +3,9 @@
 
 use yachiyo::analysis::Analysis;
 use yachiyo::ir::back::{get_clobbered, BAttr, BFunction, BOperand, Reg};
-use yachiyo::utils::set::ArraySet;
-use yachiyo::utils::set::BitSet;
-use yachiyo::utils::worklist::Worklist;
+use yachiyo::utils::ArraySet;
+use yachiyo::utils::BitSet;
+use yachiyo::utils::Worklist;
 
 pub type LiveSet = ArraySet<BOperand>;
 pub type LiveIns = Vec<LiveSet>;

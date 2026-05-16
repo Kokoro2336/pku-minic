@@ -5,8 +5,7 @@ use crate::debug::info;
 
 use crate::base::Type;
 use crate::ir::mid::{BasicBlock, Op, OpData, Operand, PhiIncoming, CFG, DFG};
-use crate::utils::arena::*;
-use crate::utils::map::IndexedMap;
+use crate::utils::{Arena, ArenaItem, IndexedArena, IndexedMap};
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 
 #[allow(clippy::upper_case_acronyms)]

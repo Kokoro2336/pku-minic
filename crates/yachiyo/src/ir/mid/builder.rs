@@ -180,6 +180,19 @@ impl Builder {
     program.create_at_head(self, current_function, op)
   }
 
+  pub fn set_before_term(&mut self, program: &mut IR, current_function: Option<Operand>) {
+    program.set_before_term(self, current_function);
+  }
+
+  pub fn create_before_term(
+    &mut self,
+    program: &mut IR,
+    current_function: Option<Operand>,
+    op: Op,
+  ) -> Operand {
+    program.create_before_term(self, current_function, op)
+  }
+
   pub fn create_new_block(
     &mut self,
     program: &mut IR,

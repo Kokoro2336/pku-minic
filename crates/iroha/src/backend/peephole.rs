@@ -2,7 +2,7 @@
 
 use yachiyo::ir::back::{BOpData, BOperand, BackIR, LOpData, MOpData};
 use yachiyo::pass::{BPass, BPassContext};
-use yachiyo::utils::r#match::match_some;
+use yachiyo::utils::match_some;
 
 #[derive(Default)]
 pub struct Peephole<'a> {

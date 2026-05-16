@@ -2,7 +2,7 @@
 
 use yachiyo::base::Type;
 use yachiyo::ast::*;
-use yachiyo::utils::arena::Arena;
+use yachiyo::utils::Arena;
 use iroha::frontend::Parser;
 use std::ffi::CString;
 

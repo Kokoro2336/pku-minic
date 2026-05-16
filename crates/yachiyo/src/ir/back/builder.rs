@@ -189,6 +189,19 @@ impl BBuilder {
     program.create_at_head(self, current_function, op)
   }
 
+  pub fn set_before_term(&mut self, program: &mut BackIR, current_function: Option<BOperand>) {
+    program.set_before_term(self, current_function);
+  }
+
+  pub fn create_before_term(
+    &mut self,
+    program: &mut BackIR,
+    current_function: Option<BOperand>,
+    op: BOp,
+  ) -> BOperand {
+    program.create_before_term(self, current_function, op)
+  }
+
   pub fn create_new_block(
     &mut self,
     program: &mut BackIR,

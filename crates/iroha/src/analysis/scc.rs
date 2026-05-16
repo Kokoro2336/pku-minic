@@ -2,7 +2,7 @@
 
 use yachiyo::analysis::{Analysis, CallGraph, SCCS};
 use yachiyo::ir::mid::Operand;
-use yachiyo::utils::set::BitSet;
+use yachiyo::utils::BitSet;
 
 const INVALID: usize = usize::MAX;
 

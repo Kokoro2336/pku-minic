@@ -4,7 +4,7 @@
 use crate::debug::info;
 
 use crate::base::Type;
-use crate::utils::arena::*;
+use crate::utils::{Arena, ArenaItem, IndexedArena};
 
 use strum_macros::EnumDiscriminants;
 

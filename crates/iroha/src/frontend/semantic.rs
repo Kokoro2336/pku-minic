@@ -5,8 +5,8 @@
 
 use yachiyo::ast::*;
 use yachiyo::base::{Type, SYSY_LIB};
-use yachiyo::utils::arena::Arena;
-use yachiyo::utils::table::SymbolTable;
+use yachiyo::utils::Arena;
+use yachiyo::utils::SymbolTable;
 
 use regex::Regex;
 use std::collections::HashMap;

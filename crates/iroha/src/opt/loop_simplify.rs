@@ -1,12 +1,13 @@
 //! Loop Simplification (Canonicalization).
 //! Ensuring that every loop in the IR only has a single pre-header and a single latch, with dedicated exits.
 
-use crate::analysis::{DomAnalysis, DomTree, LoopAnalysis, LoopData};
+use crate::analysis::{DomAnalysis, DomTree, LoopAnalysis};
+use yachiyo::analysis::LoopData;
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
-use yachiyo::utils::r#match::match_some;
-use yachiyo::utils::set::BitSet;
+use yachiyo::utils::match_some;
+use yachiyo::utils::BitSet;
 
 #[derive(Default)]
 pub struct LoopSimplify<'a> {

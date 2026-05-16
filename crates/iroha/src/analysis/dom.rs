@@ -7,7 +7,7 @@ use yachiyo::debug::info;
 use yachiyo::analysis::Analysis;
 pub use yachiyo::analysis::{DomFrontier, DomTree};
 use yachiyo::ir::mid::{Function, Operand};
-use yachiyo::utils::set::BitSet;
+use yachiyo::utils::BitSet;
 
 struct BuildDomTree<'a> {
   func: &'a Function,

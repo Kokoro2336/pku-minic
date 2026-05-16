@@ -6,9 +6,7 @@ use crate::debug::info;
 use crate::ir::back::{
   BBasicBlock, BOp, BOpData, BOperand, FrameInfo, LOpData, MOpData, Reg, VirtReg, BCFG, BDFG,
 };
-use crate::utils::arena::*;
-use crate::utils::map::IndexedMap;
-use crate::utils::r#match::{match_full_ops, match_some};
+use crate::utils::{match_full_ops, match_some, Arena, ArenaItem, IndexedArena, IndexedMap};
 
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 

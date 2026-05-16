@@ -5,7 +5,7 @@ use yachiyo::base::Type;
 use yachiyo::config::{INT_IMM_MAX, INT_IMM_MIN};
 use yachiyo::ir::back::{BAttr, BOp, BOperand, BType, BackIR, LOpData};
 use yachiyo::pass::{BPass, BPassContext};
-use yachiyo::utils::r#match::{match_some, match_src};
+use yachiyo::utils::{match_some, match_src};
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 enum LegalizeOption {

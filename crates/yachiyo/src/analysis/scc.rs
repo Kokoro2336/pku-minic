@@ -1,8 +1,7 @@
 //! Strong Connected Components (SCC) Analysis.
 
 use crate::ir::mid::Operand;
-use crate::utils::set::BitSet;
-use crate::utils::worklist::Worklist;
+use crate::utils::{BitSet, Worklist};
 
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 

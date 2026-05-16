@@ -2,9 +2,9 @@
 
 use yachiyo::ir::mid::{OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
-use yachiyo::utils::arena::Arena;
-use yachiyo::utils::r#match::match_some;
-use yachiyo::utils::set::BitSet;
+use yachiyo::utils::Arena;
+use yachiyo::utils::match_some;
+use yachiyo::utils::BitSet;
 
 use crate::analysis::Reachability;
 

@@ -1,7 +1,7 @@
 //! Call Graph Analysis.
 
 use crate::ir::mid::Operand;
-use crate::utils::arena::IndexedArena;
+use crate::utils::IndexedArena;
 
 use rustc_hash::FxHashMap;
 use std::ops::{Deref, DerefMut, Index, IndexMut};

@@ -1,91 +1,10 @@
 //! Loop Analysis, constructing loop forest and finding natural loops.
 //! Referencing Cranelift's implementation: https://github.com/bytecodealliance/wasmtime/blob/9c0346ac6df9d4487565a5a7d24045cdc3754f5d/cranelift/codegen/src/loop_analysis.rs
 
-use std::ops::{Deref, DerefMut, Index, IndexMut};
+use crate::analysis::DomAnalysis;
 
-use crate::analysis::{DomAnalysis, DomTree};
-
-use yachiyo::analysis::{analyze, Analysis};
+use yachiyo::analysis::{analyze, Analysis, DomTree, LoopData, LoopId, Loops};
 use yachiyo::ir::mid::{Function, Operand};
-use yachiyo::utils::set::BitSet;
-
-const INVALID_LOOP_LEVEL: LoopLevel = LoopLevel(usize::MAX);
-const ROOT_LEVEL: LoopLevel = LoopLevel(0);
-
-#[derive(Eq, PartialEq, Clone, Copy)]
-/// Loop level, 0 for non-loop blocks, 1 for innermost loops, etc.
-pub struct LoopLevel(usize);
-
-impl From<usize> for LoopLevel {
-  fn from(value: usize) -> Self {
-    Self(value)
-  }
-}
-
-impl From<LoopLevel> for usize {
-  fn from(value: LoopLevel) -> Self {
-    value.0
-  }
-}
-
-#[derive(Eq, PartialEq, Clone, Copy)]
-/// LoopId
-pub struct LoopId(usize);
-
-impl From<usize> for LoopId {
-  fn from(value: usize) -> Self {
-    Self(value)
-  }
-}
-
-impl From<LoopId> for usize {
-  fn from(value: LoopId) -> Self {
-    value.0
-  }
-}
-
-pub struct LoopData {
-  pub header: Operand,
-  pub parent: Option<LoopId>,
-  pub level: LoopLevel,
-  /// All the blocks in the loop, including the header and the blocks in its inner loops.
-  pub blocks: BitSet,
-  /// The exit blocks of the loop.
-  pub exit_blocks: BitSet,
-}
-
-impl LoopData {
-  fn new(header: Operand) -> Self {
-    Self {
-      header,
-      parent: None,
-      level: INVALID_LOOP_LEVEL,
-      blocks: BitSet::new(),
-      exit_blocks: BitSet::new(),
-    }
-  }
-  #[inline(always)]
-  fn has_invalid_level(&self) -> bool {
-    self.level == INVALID_LOOP_LEVEL
-  }
-}
-
-#[derive(Default)]
-pub struct Loops(Vec<LoopData>);
-
-impl Index<LoopId> for Loops {
-  type Output = LoopData;
-
-  fn index(&self, index: LoopId) -> &Self::Output {
-    &self.0[usize::from(index)]
-  }
-}
-
-impl IndexMut<LoopId> for Loops {
-  fn index_mut(&mut self, index: LoopId) -> &mut Self::Output {
-    &mut self.0[usize::from(index)]
-  }
-}
 
 pub struct LoopAnalysis<'a> {
   func: &'a Function,
@@ -209,7 +128,7 @@ impl LoopAnalysis<'_> {
               stack.pop();
             }
           } else {
-            self.loops[*node_id].level = ROOT_LEVEL;
+            self.loops[*node_id].level = 0usize.into();
             stack.pop();
           }
         }
@@ -270,33 +189,5 @@ impl<'a> Analysis for LoopAnalysis<'a> {
       std::mem::take(&mut self.loops),
       std::mem::take(&mut self.block_to_loop),
     )
-  }
-}
-
-impl Loops {
-  pub fn include(&self, outer: LoopId, inner: LoopId) -> bool {
-    let mut parent_option = Some(inner);
-    while let Some(parent) = parent_option {
-      if parent == outer {
-        return true;
-      } else {
-        parent_option = self[parent].parent;
-      }
-    }
-    false
-  }
-}
-
-impl Deref for Loops {
-  type Target = Vec<LoopData>;
-
-  fn deref(&self) -> &Self::Target {
-    &self.0
-  }
-}
-
-impl DerefMut for Loops {
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    &mut self.0
   }
 }

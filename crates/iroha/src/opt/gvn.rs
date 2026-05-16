@@ -3,15 +3,15 @@
 use yachiyo::analysis::{analyze, AliasResult, CallGraph, Pureness, PurenessResult};
 use yachiyo::ir::mid::{OpData, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
-use yachiyo::utils::set::BitSet;
-use yachiyo::utils::table::SymbolTable;
+use yachiyo::utils::BitSet;
+use yachiyo::utils::SymbolTable;
 
 use crate::analysis::{
   alias, CallGraphAnalysis, DomAnalysis, DomTree, PurenessAnalysis, SCCAnalysis,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum CanonicalExpr {
+pub enum CanonicalExpr {
   // We don't consider defining separate operations for int and float.
   Add(Operand, Operand),
   Mul(Operand, Operand),

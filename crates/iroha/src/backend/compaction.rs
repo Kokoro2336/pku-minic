@@ -2,7 +2,7 @@
 
 use yachiyo::ir::back::BackIR;
 use yachiyo::pass::{BPass, BPassContext};
-use yachiyo::utils::arena::Arena;
+use yachiyo::utils::Arena;
 
 #[derive(Default)]
 pub struct BCompaction<'a> {

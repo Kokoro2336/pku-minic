@@ -9,8 +9,7 @@ use crate::debug::info;
 
 use crate::ast::Literal;
 use crate::base::Type;
-use crate::utils::arena::*;
-use crate::utils::r#match::{match_some, match_src};
+use crate::utils::{match_some, match_src, Arena, ArenaItem, IndexedArena};
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Default)]

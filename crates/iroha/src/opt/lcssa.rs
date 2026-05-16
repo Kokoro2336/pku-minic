@@ -1,11 +1,12 @@
 //! Loop-closed SSA (LCSSA) Transformation.
 
-use crate::analysis::{DomAnalysis, DomFrontier, DomTree, LoopAnalysis, Loops};
+use crate::analysis::{DomAnalysis, DomFrontier, DomTree, LoopAnalysis};
 
+use yachiyo::analysis::Loops;
 use yachiyo::ir::mid::{Op, OpData, Operand, SSAUpdater, IR};
 use yachiyo::pass::{Pass, PassContext};
-use yachiyo::utils::set::BitSet;
-use yachiyo::utils::worklist::Worklist;
+use yachiyo::utils::BitSet;
+use yachiyo::utils::Worklist;
 
 use rustc_hash::FxHashMap;
 use std::ops::BitAnd;

@@ -246,10 +246,10 @@ impl<T: PartialEq + Clone> BitXor for &ArraySet<T> {
 #[macro_export]
 macro_rules! array_set {
 	() => {
-		$crate::utils::set::ArraySet::new()
+		$crate::utils::ArraySet::new()
 	};
 	($($x:expr),+ $(,)?) => {{
-		let mut out = $crate::utils::set::ArraySet::new();
+		let mut out = $crate::utils::ArraySet::new();
 		$(
 			out.insert($x);
 		)+
@@ -541,11 +541,11 @@ impl BitSet {
 #[macro_export]
 macro_rules! bitset {
     () => {
-        $crate::utils::set::BitSet::new()
+        $crate::utils::BitSet::new()
     };
     ($($x:expr),+ $(,)?) => {
         {
-            let mut bs = $crate::utils::set::BitSet::new();
+            let mut bs = $crate::utils::BitSet::new();
             $(
                 bs.insert($x);
             )+
