@@ -137,6 +137,8 @@ fn main() -> Result<()> {
     .register::<LCSSA>()
     .register::<LoopRotate>()
     .register::<LICM>()
+    .register::<LSR>()
+    .register::<DCE>()
     // Post Loop Optimizations
     .register::<SimplifyCFG>()
     .register::<SCCP>()

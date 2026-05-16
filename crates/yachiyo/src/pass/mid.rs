@@ -364,6 +364,17 @@ impl<'a> PassContext<'a> {
     )
   }
 
+  #[inline(always)]
+  pub fn funcs_internal(&self) -> Vec<Operand> {
+    self
+      .ir()
+      .funcs
+      .collect_internal()
+      .into_iter()
+      .map(Operand::Func)
+      .collect()
+  }
+
   pub fn replace_all_uses(&mut self, old: Operand, new: Operand) {
     let current_function_option = self.builder.current_function;
     self

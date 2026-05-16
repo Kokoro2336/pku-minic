@@ -9,7 +9,9 @@ use yachiyo::ir::mid::{OpData, Operand};
 use yachiyo::pass::PassContext;
 
 use crate::opt::CanonicalExpr;
+
 use rustc_hash::FxHashSet;
+use std::ops::{Index, IndexMut};
 
 #[allow(clippy::upper_case_acronyms)]
 pub struct SCEV<'a> {
@@ -71,8 +73,7 @@ impl SCEV<'_> {
     }
   }
 
-  #[allow(unused)]
-  fn is_scev_loop_invariant(&self, scev_id: SCEVId, loop_id: LoopId) -> bool {
+  pub fn is_scev_loop_invariant(&self, scev_id: SCEVId, loop_id: LoopId) -> bool {
     let mut visiting = FxHashSet::default();
     self.is_scev_loop_invariant_rec(scev_id, loop_id, &mut visiting)
   }
@@ -392,5 +393,19 @@ impl<'a> Analysis for SCEV<'a> {
   }
 
   fn run(&mut self) -> Self::Output { /*SCEV is based on query*/
+  }
+}
+
+impl Index<SCEVId> for SCEV<'_> {
+  type Output = SCEVExpr;
+
+  fn index(&self, index: SCEVId) -> &Self::Output {
+    &self.arena[index]
+  }
+}
+
+impl IndexMut<SCEVId> for SCEV<'_> {
+  fn index_mut(&mut self, index: SCEVId) -> &mut Self::Output {
+    &mut self.arena[index]
   }
 }
