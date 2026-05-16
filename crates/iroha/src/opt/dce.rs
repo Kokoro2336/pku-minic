@@ -3,9 +3,9 @@
 use yachiyo::analysis::{analyze, Pureness, PurenessResult};
 use yachiyo::ir::mid::{OpData, OpType, Operand, PhiIncoming};
 use yachiyo::pass::{Pass, PassContext};
-use yachiyo::utils::r#match::match_src;
-use yachiyo::utils::set::BitSet;
-use yachiyo::utils::worklist::Worklist;
+use yachiyo::utils::match_src;
+use yachiyo::utils::BitSet;
+use yachiyo::utils::Worklist;
 
 use crate::analysis::{CallGraphAnalysis, PurenessAnalysis, SCCAnalysis};
 

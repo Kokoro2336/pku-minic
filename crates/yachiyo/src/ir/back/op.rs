@@ -5,8 +5,7 @@ use crate::config::RESERVED_REG;
 #[cfg(feature = "debug")]
 use crate::debug::info;
 use crate::ir::back::{LOpData, MOpData, XReg};
-use crate::utils::arena::*;
-use crate::utils::r#match::{match_rd, match_src};
+use crate::utils::{match_rd, match_src, Arena, ArenaItem, IndexedArena};
 
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 

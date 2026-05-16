@@ -13,9 +13,9 @@ use yachiyo::ir::back::{
   MemInfo, Reg, Slot, XReg,
 };
 use yachiyo::pass::{BPass, BPassContext};
-use yachiyo::utils::r#match::match_some;
-use yachiyo::utils::set::{array_set, ArraySet, BitSet};
-use yachiyo::utils::worklist::Worklist;
+use yachiyo::utils::match_some;
+use yachiyo::utils::{array_set, ArraySet, BitSet};
+use yachiyo::utils::Worklist;
 
 use rustc_hash::FxHashSet;
 use std::ops::BitAndAssign;

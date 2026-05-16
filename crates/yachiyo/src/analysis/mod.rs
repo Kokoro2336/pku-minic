@@ -6,14 +6,18 @@ use crate::debug::info;
 mod alias;
 mod call_graph;
 mod dom;
-mod scc;
 mod pureness;
+mod scc;
+mod scev;
+mod r#loop;
 
 pub use alias::*;
 pub use call_graph::*;
 pub use dom::*;
-pub use scc::*;
 pub use pureness::*;
+pub use scc::*;
+pub use scev::*;
+pub use r#loop::*;
 
 pub trait Analysis {
   type Input;

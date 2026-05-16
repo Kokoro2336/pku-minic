@@ -4,8 +4,7 @@ use crate::base::Type;
 use crate::ir::mid::{
   BasicBlock, Builder, BuilderGuard, Function, Op, OpData, OpType, Operand, PhiIncoming, CG, DFG,
 };
-use crate::utils::arena::{Arena, ArenaItem};
-use crate::utils::r#match::match_some;
+use crate::utils::{match_some, Arena, ArenaItem};
 
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 

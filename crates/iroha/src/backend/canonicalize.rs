@@ -6,7 +6,7 @@
 
 use yachiyo::ir::back::{BAttr, BOp, BOpData, BOperand, BackIR, LOpData};
 use yachiyo::pass::{BPass, BPassContext};
-use yachiyo::utils::r#match::match_some;
+use yachiyo::utils::match_some;
 
 #[derive(Default)]
 pub struct Canonicalize<'a> {

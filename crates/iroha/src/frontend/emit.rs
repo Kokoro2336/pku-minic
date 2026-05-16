@@ -7,7 +7,7 @@ use yachiyo::base::Type;
 use yachiyo::base::SYSY_LIB;
 use yachiyo::ir::mid;
 use yachiyo::ir::mid::*;
-use yachiyo::utils::table::SymbolTable;
+use yachiyo::utils::SymbolTable;
 
 use std::collections::HashMap;
 

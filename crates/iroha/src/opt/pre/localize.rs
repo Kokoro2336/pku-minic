@@ -6,8 +6,8 @@ use yachiyo::analysis::CallGraph;
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{Attr, Op, OpData, Operand, IR};
 use yachiyo::pass::{Pass, PassContext};
-use yachiyo::utils::set::BitSet;
-use yachiyo::utils::worklist::Worklist;
+use yachiyo::utils::BitSet;
+use yachiyo::utils::Worklist;
 
 use rustc_hash::FxHashMap;
 

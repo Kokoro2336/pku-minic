@@ -8,7 +8,7 @@ use crate::base::Type;
 use crate::cli::Cli;
 use crate::debug::DumpLLVM;
 use crate::ir::mid::{
-  BasicBlock, Builder, Function, Globals, LoopInfo, Op, OpData, OpType, Operand, IR,
+  BasicBlock, Builder, Function, Globals, LoopInfo, Op, OpData, OpType, Operand, PhiIncoming, IR,
 };
 use crate::pass::{AnalysisRef, AnalysisRefMut};
 
@@ -455,7 +455,7 @@ impl<'a> PassContext<'a> {
         if matches!(param_typ, Type::Pointer { .. }) {
           mem_loc.base = operand;
         } else {
-          mem_loc.set_unknown();
+          mem_loc.set_unknown(operand);
         }
       }
       Operand::Value(_) => {
@@ -468,8 +468,8 @@ impl<'a> PassContext<'a> {
             self.trace_ptr(*base, mem_loc);
           }
           OpData::Alloca(_) => mem_loc.base = operand,
-          OpData::Load { .. } => mem_loc.set_unknown(),
-          _ => mem_loc.set_unknown(),
+          OpData::Load { .. } => mem_loc.set_unknown(operand),
+          _ => mem_loc.set_unknown(operand),
         }
       }
       Operand::Func(_)
@@ -478,9 +478,25 @@ impl<'a> PassContext<'a> {
       | Operand::Float(_)
       | Operand::Undefined
       | Operand::BB(_) => {
-        mem_loc.set_unknown();
+        mem_loc.set_unknown(operand);
       }
     }
+  }
+
+  pub fn get_phi_incoming_value(&self, phi_id: Operand, bb_id: Operand) -> Option<Operand> {
+    let phi = self.get_op(phi_id);
+    let OpData::Phi { incomings } = &phi.data else {
+      unreachable!("Expected a phi node, got {:?}", phi.data);
+    };
+    for incoming in incomings {
+      let PhiIncoming::Data { value, bb } = incoming else {
+        continue;
+      };
+      if *bb == bb_id {
+        return Some(*value);
+      }
+    }
+    None
   }
 
   /// This API should receive the addr in Load/Store/GEP.

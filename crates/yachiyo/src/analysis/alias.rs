@@ -23,9 +23,9 @@ impl MemLoc {
     }
   }
 
-  pub fn set_unknown(&mut self) {
+  pub fn set_unknown(&mut self, op: Operand) {
     self.base = Operand::Undefined;
-    self.offset = AffineExpr::Unknown;
+    self.offset = AffineExpr::Unknown(op);
   }
 }
 
@@ -46,7 +46,8 @@ pub enum AliasResult {
 #[derive(Clone, PartialEq, Eq)]
 pub enum AffineExpr {
   L(LinearExpr),
-  Unknown,
+  /// Operand: The source of unknown offset
+  Unknown(Operand),
 }
 
 impl Default for AffineExpr {
@@ -73,7 +74,8 @@ impl AffineExpr {
   pub fn add_assign(&mut self, other: &AffineExpr) {
     match (self, other) {
       (AffineExpr::L(e1), AffineExpr::L(e2)) => e1.add_assign(e2),
-      (this, _) => *this = AffineExpr::Unknown,
+      (this, AffineExpr::Unknown(op)) => *this = AffineExpr::Unknown(*op),
+      _ => {}
     }
   }
 
@@ -86,7 +88,8 @@ impl AffineExpr {
   pub fn sub_assign(&mut self, other: &AffineExpr) {
     match (self, other) {
       (AffineExpr::L(e1), AffineExpr::L(e2)) => e1.sub_assign(e2),
-      (this, _) => *this = AffineExpr::Unknown,
+      (this, AffineExpr::Unknown(op)) => *this = AffineExpr::Unknown(*op),
+      _ => {}
     }
   }
 
@@ -99,7 +102,7 @@ impl AffineExpr {
   pub fn mul_const(&self, coeff: i64) -> Self {
     match self {
       AffineExpr::L(e) => AffineExpr::L(e.mul_const(coeff)),
-      _ => AffineExpr::Unknown,
+      AffineExpr::Unknown(op) => AffineExpr::Unknown(*op),
     }
   }
 
@@ -113,7 +116,7 @@ impl AffineExpr {
   pub fn get_keys(&self) -> Option<impl Iterator<Item = &Operand>> {
     match self {
       AffineExpr::L(e) => Some(e.get_keys()),
-      AffineExpr::Unknown => None,
+      AffineExpr::Unknown(_) => None,
     }
   }
 }

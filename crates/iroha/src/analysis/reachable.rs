@@ -2,7 +2,7 @@
 
 use yachiyo::analysis::Analysis;
 use yachiyo::ir::mid::{Function, Operand};
-use yachiyo::utils::set::BitSet;
+use yachiyo::utils::BitSet;
 
 pub struct Reachability<'a> {
   func: &'a Function,

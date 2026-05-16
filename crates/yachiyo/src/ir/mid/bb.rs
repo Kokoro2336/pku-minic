@@ -4,8 +4,7 @@
 use crate::debug::info;
 
 use crate::ir::mid::Operand;
-use crate::utils::arena::*;
-use crate::utils::set::BitSet;
+use crate::utils::{Arena, ArenaItem, BitSet, IndexedArena};
 
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 

@@ -1,8 +1,15 @@
 //! Utilities definitions.
 
-pub mod arena;
-pub mod map;
-pub mod r#match;
-pub mod set;
-pub mod table;
-pub mod worklist;
+mod arena;
+mod map;
+mod r#match;
+mod set;
+mod table;
+mod worklist;
+
+pub use arena::*;
+pub use map::*;
+pub use r#match::*;
+pub use set::*;
+pub use table::*;
+pub use worklist::*;

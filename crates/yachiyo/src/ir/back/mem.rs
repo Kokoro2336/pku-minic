@@ -3,7 +3,7 @@
 use crate::base::Type;
 use crate::config::{PARAM_REG_MAX_NUM, STK_FRM_ALIGN};
 use crate::ir::back::{BOperand, BType};
-use crate::utils::arena::*;
+use crate::utils::IndexedArena;
 
 use rustc_hash::FxHashMap;
 use std::ops::{Index, IndexMut};

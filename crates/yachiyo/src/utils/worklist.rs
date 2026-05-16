@@ -1,6 +1,6 @@
 //! Worklist implementation.
 
-use crate::utils::set::BitSet;
+use crate::utils::BitSet;
 
 use rustc_hash::FxHashSet;
 use std::collections::VecDeque;

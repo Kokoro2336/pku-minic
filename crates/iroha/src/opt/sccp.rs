@@ -6,8 +6,8 @@ use yachiyo::ast::Literal;
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{Attr, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
-use yachiyo::utils::r#match::match_src;
-use yachiyo::utils::set::BitSet;
+use yachiyo::utils::match_src;
+use yachiyo::utils::BitSet;
 
 use rustc_hash::FxHashSet;
 
@@ -150,9 +150,7 @@ impl SCCP<'_> {
         OpType::ModI => Lattice::Constant(Operand::Int(i1.wrapping_rem(i2))),
         OpType::Xor => Lattice::Constant(Operand::Int(i1 ^ i2)),
         OpType::Shl => Lattice::Constant(Operand::Int(i1.wrapping_shl(i2 as u32))),
-        OpType::Shr => {
-          Lattice::Constant(Operand::Int((i1 as u32).wrapping_shr(i2 as u32) as i32))
-        }
+        OpType::Shr => Lattice::Constant(Operand::Int((i1 as u32).wrapping_shr(i2 as u32) as i32)),
         OpType::Sar => Lattice::Constant(Operand::Int(i1.wrapping_shr(i2 as u32))),
         OpType::SNe => Lattice::Constant(Operand::Bool(i1 != i2)),
         OpType::SEq => Lattice::Constant(Operand::Bool(i1 == i2)),

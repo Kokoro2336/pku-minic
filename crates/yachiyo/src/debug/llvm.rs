@@ -3,7 +3,7 @@
 use crate::ast;
 use crate::base::Type;
 use crate::ir::mid::*;
-use crate::utils::arena::{ArenaItem, IndexedArena};
+use crate::utils::{ArenaItem, IndexedArena};
 use std::fmt::Write;
 
 pub trait Dump {

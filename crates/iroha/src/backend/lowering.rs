@@ -5,8 +5,7 @@ use yachiyo::base::Type;
 use yachiyo::config::PARAM_REG_MAX_NUM;
 use yachiyo::ir::back::*;
 use yachiyo::ir::mid::*;
-use yachiyo::utils::set::BitSet;
-use yachiyo::utils::worklist::*;
+use yachiyo::utils::{BitSet, Worklist};
 
 use rustc_hash::FxHashMap;
 

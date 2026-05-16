@@ -5,8 +5,8 @@ use yachiyo::debug::{error, info};
 
 use yachiyo::ast::*;
 use yachiyo::base::Type;
-use yachiyo::utils::arena::Arena;
-use yachiyo::utils::table::SymbolTable;
+use yachiyo::utils::Arena;
+use yachiyo::utils::SymbolTable;
 
 #[derive(Default)]
 pub struct Parser {

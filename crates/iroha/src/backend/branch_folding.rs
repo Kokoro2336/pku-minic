@@ -4,8 +4,8 @@
 
 use yachiyo::ir::back::{BOperand, BackIR, MOpData};
 use yachiyo::pass::{BPass, BPassContext};
-use yachiyo::utils::arena::Arena;
-use yachiyo::utils::set::BitSet;
+use yachiyo::utils::Arena;
+use yachiyo::utils::BitSet;
 
 #[derive(Default)]
 pub struct BranchFolding<'a> {

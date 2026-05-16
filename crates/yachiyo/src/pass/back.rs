@@ -214,7 +214,13 @@ impl<'a> BPassContext<'a> {
 
   #[inline(always)]
   pub fn bbs(&self, func_id: BOperand) -> Vec<BOperand> {
-    self.get_func(func_id).cfg.collect().into_iter().map(BOperand::BB).collect()
+    self
+      .get_func(func_id)
+      .cfg
+      .collect()
+      .into_iter()
+      .map(BOperand::BB)
+      .collect()
   }
 
   #[inline(always)]

@@ -4,8 +4,7 @@ use super::{
   BBuilder, BBuilderGuard, BOp, BOpData, BOperand, BssInfo, DataInfo, LOpData, MOpData, Reg,
   RoDataInfo, VirtReg, BCFG, BCG,
 };
-use crate::utils::arena::ArenaItem;
-use crate::utils::r#match::{match_rd, match_some};
+use crate::utils::{match_rd, match_some, ArenaItem};
 
 #[derive(Debug, Clone)]
 pub struct BackIR {

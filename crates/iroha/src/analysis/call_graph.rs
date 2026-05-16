@@ -2,7 +2,7 @@
 
 use yachiyo::analysis::{Analysis, CallGraph, CallSiteInfo, CallSiteInfoId};
 use yachiyo::ir::mid::{OpData, OpType, Operand, IR};
-use yachiyo::utils::arena::IndexedArena;
+use yachiyo::utils::IndexedArena;
 
 use rustc_hash::FxHashMap;
 

@@ -1,14 +1,15 @@
 //! Loop Invariant Code Motion (LICM).
 
 use crate::analysis::{
-  alias, CallGraphAnalysis, DomAnalysis, DomTree, LoopAnalysis, LoopData, LoopId, Loops,
-  PurenessAnalysis, SCCAnalysis,
+  alias, CallGraphAnalysis, DomAnalysis, DomTree, LoopAnalysis, PurenessAnalysis, SCCAnalysis,
 };
 
-use yachiyo::analysis::{analyze, AliasResult, CallGraph, MemLoc, Pureness, PurenessResult};
+use yachiyo::analysis::{
+  analyze, AliasResult, CallGraph, LoopData, LoopId, Loops, MemLoc, Pureness, PurenessResult,
+};
 use yachiyo::ir::mid::{OpData, OpType, Operand, IR};
 use yachiyo::pass::{Pass, PassContext};
-use yachiyo::utils::set::BitSet;
+use yachiyo::utils::BitSet;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Default)]

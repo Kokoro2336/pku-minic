@@ -7,7 +7,7 @@ use yachiyo::ir::mid::{
   ssa_updater_params, Op, OpData, OpType, Operand, PhiIncoming, SSAUpdater, DFG, IR,
 };
 use yachiyo::pass::{Pass, PassContext};
-use yachiyo::utils::r#match::match_some;
+use yachiyo::utils::match_some;
 
 use rustc_hash::FxHashMap;
 

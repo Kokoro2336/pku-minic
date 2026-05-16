@@ -1,12 +1,12 @@
 //! Function Inlining.
 
-use yachiyo::analysis::{CallSiteInfo, SCCS};
+use yachiyo::analysis::{CallSiteInfo, LoopId, Loops, SCCS};
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{Op, OpData, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
-use yachiyo::utils::r#match::match_src;
+use yachiyo::utils::match_src;
 
-use crate::analysis::{CallGraphAnalysis, LoopAnalysis, LoopId, Loops, SCCAnalysis};
+use crate::analysis::{CallGraphAnalysis, LoopAnalysis, SCCAnalysis};
 
 // More aggressive inlining!!!
 const MAX_INLINE_INSTS: usize = 200;

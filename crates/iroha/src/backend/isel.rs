@@ -4,7 +4,7 @@
 use yachiyo::base::Type;
 use yachiyo::ir::back::*;
 use yachiyo::pass::{BPass, BPassContext};
-use yachiyo::utils::r#match::{match_full_ops, match_some};
+use yachiyo::utils::{match_full_ops, match_some};
 
 #[derive(Default)]
 pub struct ISel<'a> {
