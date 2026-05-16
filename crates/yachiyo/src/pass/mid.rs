@@ -3,7 +3,7 @@
 #[cfg(feature = "debug")]
 use crate::debug::info;
 
-use crate::analysis::{self, AffineExpr, Analysis, MemLoc};
+use crate::analysis::{self, AffineExpr, Analysis, DomTree, MemLoc};
 use crate::base::Type;
 use crate::cli::Cli;
 use crate::debug::DumpLLVM;
@@ -154,6 +154,28 @@ impl<'a> PassContext<'a> {
 
   pub fn get_func_mut(&mut self, func_id: Operand) -> &mut Function {
     &mut self.ir_mut().funcs[func_id]
+  }
+
+  pub fn get_pre_header_id(&self, header_id: Operand, dom_tree: &DomTree) -> Option<Operand> {
+    self
+      .get_bb(header_id)
+      .preds
+      .iter()
+      .find_map(|(pred_id, _)| {
+        (!dom_tree.is_dom(header_id.get_bb_id(), pred_id.get_bb_id())).then_some(*pred_id)
+      })
+  }
+
+  pub fn get_latch_id(&self, header_id: Operand, dom_tree: &DomTree) -> Option<Operand> {
+    self
+      .get_bb(header_id)
+      .preds
+      .iter()
+      .find_map(|(pred_id, _)| {
+        dom_tree
+          .is_dom(header_id.get_bb_id(), pred_id.get_bb_id())
+          .then_some(*pred_id)
+      })
   }
 
   pub fn analyze<A>(&self, input: A::Input) -> AnalysisRef<A::Output>

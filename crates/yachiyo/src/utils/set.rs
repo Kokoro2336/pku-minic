@@ -4,8 +4,8 @@
 
 use std::fmt;
 use std::ops::{
-  BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, IndexMut, Not, Sub,
-  SubAssign,
+  Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, IndexMut,
+  Not, Sub, SubAssign,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -414,6 +414,52 @@ impl_bitop!(BitAnd, bitand, BitAndAssign, bitand_assign, &);
 impl_bitop!(BitOr, bitor, BitOrAssign, bitor_assign, |);
 impl_bitop!(BitXor, bitxor, BitXorAssign, bitxor_assign, ^);
 
+impl Add for &BitSet {
+  type Output = BitSet;
+
+  fn add(self, rhs: Self) -> Self::Output {
+    self | rhs
+  }
+}
+
+impl Add<BitSet> for &BitSet {
+  type Output = BitSet;
+
+  fn add(self, rhs: BitSet) -> Self::Output {
+    self + &rhs
+  }
+}
+
+impl Add<&BitSet> for BitSet {
+  type Output = BitSet;
+
+  fn add(mut self, rhs: &BitSet) -> Self::Output {
+    self += rhs;
+    self
+  }
+}
+
+impl Add for BitSet {
+  type Output = BitSet;
+
+  fn add(mut self, rhs: Self) -> Self::Output {
+    self += rhs;
+    self
+  }
+}
+
+impl AddAssign for BitSet {
+  fn add_assign(&mut self, rhs: Self) {
+    *self |= rhs;
+  }
+}
+
+impl AddAssign<&BitSet> for BitSet {
+  fn add_assign(&mut self, rhs: &BitSet) {
+    *self |= rhs;
+  }
+}
+
 impl Not for &BitSet {
   type Output = BitSet;
 
@@ -452,6 +498,32 @@ impl Sub for &BitSet {
       new_bits.pop();
     }
     BitSet { bits: new_bits }
+  }
+}
+
+impl Sub<BitSet> for &BitSet {
+  type Output = BitSet;
+
+  fn sub(self, rhs: BitSet) -> Self::Output {
+    self - &rhs
+  }
+}
+
+impl Sub<&BitSet> for BitSet {
+  type Output = BitSet;
+
+  fn sub(mut self, rhs: &BitSet) -> Self::Output {
+    self -= rhs;
+    self
+  }
+}
+
+impl Sub for BitSet {
+  type Output = BitSet;
+
+  fn sub(mut self, rhs: Self) -> Self::Output {
+    self -= rhs;
+    self
   }
 }
 
