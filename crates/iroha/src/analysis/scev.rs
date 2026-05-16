@@ -365,15 +365,18 @@ impl SCEV<'_> {
     }
   }
 
+  /// For AffineExpr in GEP offset
   pub fn get_affine_scev(&mut self, affine_expr: &AffineExpr) -> SCEVId {
     self.affine_to_scev_expr(affine_expr)
   }
 
+  /// For addr in Load/Store
   pub fn get_addr_offset_scev(&mut self, operand: Operand) -> SCEVId {
     let MemLoc { offset, .. } = self.cx.compute_mem_loc(operand);
     self.affine_to_scev_expr(&offset)
   }
 
+  /// For normal instructions
   pub fn get_op_scev(&mut self, op: Operand) -> SCEVId {
     self.trace_op(op)
   }
