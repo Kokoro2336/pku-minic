@@ -116,6 +116,7 @@ impl SCEV<'_> {
         loop_id: scev_loop_id,
         start,
         step,
+        ..
       } => {
         if scev_loop_id == loop_id {
           Some(AddRecInfo { start, step })
@@ -265,7 +266,7 @@ impl SCEV<'_> {
         {
           let start_scev = self.trace_op_rec(start, trace_visiting);
           let step_scev = self.trace_op_rec(rhs, trace_visiting);
-          self.arena.add_rec(loop_id, start_scev, step_scev)
+          self.arena.add_rec(loop_id, start_scev, step_scev, phi_id)
         } else {
           self.arena.dedup(SCEVExpr::Unknown(step_op))
         }
@@ -285,7 +286,7 @@ impl SCEV<'_> {
           let start_scev = self.trace_op_rec(start, trace_visiting);
           let step_scev = self.trace_op_rec(rhs, trace_visiting);
           let neg_step_scev = self.arena.neg(step_scev);
-          self.arena.add_rec(loop_id, start_scev, neg_step_scev)
+          self.arena.add_rec(loop_id, start_scev, neg_step_scev, phi_id)
         } else {
           self.arena.dedup(SCEVExpr::Unknown(phi_id))
         }
