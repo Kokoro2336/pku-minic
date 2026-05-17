@@ -732,39 +732,37 @@ impl std::fmt::Display for Operand {
   }
 }
 
-// attributes of instructions
+/// attributes of instructions
 #[derive(Clone, Debug)]
 pub enum Attr {
-  // for global var
+  /// for global var
   GlobalArray {
-    // if mutable -> .data; else .rodata
+    /// if mutable -> .data; else .rodata
     name: String,
     mutable: bool,
     typ: Type,
-    // None: zeroinitializer; Some: initializer list
+    /// None: zeroinitializer; Some: initializer list
     values: Option<Vec<Literal>>,
   },
   Promotion,
-  // Name
+  /// Name
   Name(String),
-  // Old OpId for Phi
+  /// Old OpId for Phi
   OldIdx(Operand),
   FuncName(String),
+  /// Only for GEP now, computing offset in byte rather than in element's size.
+  WeakType,
 }
 
 impl std::fmt::Display for Attr {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      Attr::GlobalArray {
-        name,
-        mutable: _,
-        typ: _,
-        values: _,
-      } => write!(f, "<global array: {}>", name),
+      Attr::GlobalArray { name, .. } => write!(f, "<global array: {}>", name),
       Attr::Name(name) => write!(f, "{}", name),
       Attr::Promotion => write!(f, "<promotion>"),
       Attr::OldIdx(op) => write!(f, "<old idx: {}>", op),
       Attr::FuncName(name) => write!(f, "<func name: {}>", name),
+      Attr::WeakType => write!(f, "<weak>"),
     }
   }
 }
@@ -853,7 +851,8 @@ impl Arena<Op> for DFG {
             Attr::GlobalArray { .. }
             | Attr::Name(_)
             | Attr::Promotion
-            | Attr::FuncName(_) => { /* no idx to rewrite */ }
+            | Attr::FuncName(_)
+            | Attr::WeakType => { /* no idx to rewrite */ }
           }
         });
 

@@ -9,15 +9,17 @@ use yachiyo::ir::mid::{OpData, Operand};
 use yachiyo::pass::PassContext;
 
 use crate::opt::CanonicalExpr;
+
 use rustc_hash::FxHashSet;
+use std::ops::{Index, IndexMut};
 
 #[allow(clippy::upper_case_acronyms)]
 pub struct SCEV<'a> {
   cx: &'a PassContext<'a>,
-  loops: &'a Loops,
-  block_to_loop: &'a [Option<LoopId>],
-  dom_tree: &'a DomTree,
-  arena: SCEVArena,
+  pub loops: Loops,
+  pub block_to_loop: Vec<Option<LoopId>>,
+  pub dom_tree: DomTree,
+  pub arena: SCEVArena,
 }
 
 impl SCEV<'_> {
@@ -71,8 +73,7 @@ impl SCEV<'_> {
     }
   }
 
-  #[allow(unused)]
-  fn is_scev_loop_invariant(&self, scev_id: SCEVId, loop_id: LoopId) -> bool {
+  pub fn is_scev_loop_invariant(&self, scev_id: SCEVId, loop_id: LoopId) -> bool {
     let mut visiting = FxHashSet::default();
     self.is_scev_loop_invariant_rec(scev_id, loop_id, &mut visiting)
   }
@@ -225,22 +226,10 @@ impl SCEV<'_> {
       return self.arena.dedup(SCEVExpr::Unknown(phi_id));
     }
 
-    let (pre_header_id, latch_id) =
-      header
-        .preds
-        .iter()
-        .fold((None, None), |(pre_header_id, latch_id), (pred_id, _)| {
-          if self
-            .dom_tree
-            .is_dom(header_id.get_bb_id(), pred_id.get_bb_id())
-          {
-            (pre_header_id, Some(*pred_id))
-          } else {
-            (Some(*pred_id), latch_id)
-          }
-        });
-
-    let (Some(pre_header_id), Some(latch_id)) = (pre_header_id, latch_id) else {
+    let (Some(pre_header_id), Some(latch_id)) = (
+      self.cx.get_pre_header_id(header_id, &self.dom_tree),
+      self.cx.get_latch_id(header_id, &self.dom_tree),
+    ) else {
       return self.arena.dedup(SCEVExpr::Unknown(phi_id));
     };
     let Some(step_op @ Operand::Value(_)) = self.cx.get_phi_incoming_value(phi_id, latch_id) else {
@@ -286,7 +275,9 @@ impl SCEV<'_> {
           let start_scev = self.trace_op_rec(start, trace_visiting);
           let step_scev = self.trace_op_rec(rhs, trace_visiting);
           let neg_step_scev = self.arena.neg(step_scev);
-          self.arena.add_rec(loop_id, start_scev, neg_step_scev, phi_id)
+          self
+            .arena
+            .add_rec(loop_id, start_scev, neg_step_scev, phi_id)
         } else {
           self.arena.dedup(SCEVExpr::Unknown(phi_id))
         }
@@ -384,12 +375,7 @@ impl SCEV<'_> {
 }
 
 impl<'a> Analysis for SCEV<'a> {
-  type Input = (
-    *mut PassContext<'a>,
-    &'a Loops,
-    &'a [Option<LoopId>],
-    &'a DomTree,
-  );
+  type Input = (*mut PassContext<'a>, Loops, Vec<Option<LoopId>>, DomTree);
   type Output = ();
 
   fn name() -> &'static str {
@@ -406,5 +392,20 @@ impl<'a> Analysis for SCEV<'a> {
     }
   }
 
-  fn run(&mut self) -> Self::Output { /*SCEV is based on query*/ }
+  fn run(&mut self) -> Self::Output { /*SCEV is based on query*/
+  }
+}
+
+impl Index<SCEVId> for SCEV<'_> {
+  type Output = SCEVExpr;
+
+  fn index(&self, index: SCEVId) -> &Self::Output {
+    &self.arena[index]
+  }
+}
+
+impl IndexMut<SCEVId> for SCEV<'_> {
+  fn index_mut(&mut self, index: SCEVId) -> &mut Self::Output {
+    &mut self.arena[index]
+  }
 }

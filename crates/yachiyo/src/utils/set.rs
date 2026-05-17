@@ -4,8 +4,8 @@
 
 use std::fmt;
 use std::ops::{
-  BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, IndexMut, Not, Sub,
-  SubAssign,
+  BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, IndexMut,
+  Not, Sub, SubAssign,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -452,6 +452,32 @@ impl Sub for &BitSet {
       new_bits.pop();
     }
     BitSet { bits: new_bits }
+  }
+}
+
+impl Sub<BitSet> for &BitSet {
+  type Output = BitSet;
+
+  fn sub(self, rhs: BitSet) -> Self::Output {
+    self - &rhs
+  }
+}
+
+impl Sub<&BitSet> for BitSet {
+  type Output = BitSet;
+
+  fn sub(mut self, rhs: &BitSet) -> Self::Output {
+    self -= rhs;
+    self
+  }
+}
+
+impl Sub for BitSet {
+  type Output = BitSet;
+
+  fn sub(mut self, rhs: Self) -> Self::Output {
+    self -= rhs;
+    self
   }
 }
 

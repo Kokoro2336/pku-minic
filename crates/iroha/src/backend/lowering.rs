@@ -331,8 +331,10 @@ impl Lowering {
 
     let (typ, attrs, data) = {
       let op = &self.ir.funcs[func_id].dfg[op_id];
+
       #[cfg(feature = "debug")]
       yachiyo::debug::info!("{:?}: Lowering op {:?}", op_id, op);
+
       (self.get_op_type(op_id), op.attrs.clone(), op.data.clone())
     };
 
@@ -340,11 +342,8 @@ impl Lowering {
     let lattr = attrs
       .iter()
       .filter_map(|attr| match attr {
-        Attr::Name(_) | Attr::FuncName(_) | Attr::GlobalArray { .. } => match attr {
-          Attr::FuncName(name) | Attr::Name(name) => Some(BAttr::Name(name.clone())),
-          Attr::GlobalArray { .. } | Attr::OldIdx(_) | Attr::Promotion => None,
-        },
-        Attr::OldIdx(_) | Attr::Promotion => None,
+        Attr::FuncName(name) | Attr::Name(name) => Some(BAttr::Name(name.clone())),
+        Attr::OldIdx(_) | Attr::Promotion | Attr::WeakType | Attr::GlobalArray { .. } => None,
       })
       .collect();
 
@@ -612,36 +611,47 @@ impl Lowering {
                 });
             }
             OpData::GEP { base, indices } => {
-                // GEP is only used for array in SysY.
-                let pointee_typ = {
-                  let base_typ = self.get_op_type(base);
-                  match &base_typ {
-                    Type::Pointer { base } => (**base).clone(),
-                    _ => unreachable!("Only array type can be the base of GEP"),
-                  }
-                };
-
                 // Initialize the current base address with the base pointer.
                 let mut current_lop_vreg_id = self.get(base);
                 // If indices are empty, we can map GEP to the base pointer directly.
                 if indices.is_empty() {
                   self.set(op_id, current_lop_vreg_id);
                 } else {
+                  let weak_type = attrs.iter().any(|attr| matches!(attr, Attr::WeakType));
+                  let pointee_typ = if weak_type {
+                    if indices.len() != 1 {
+                      unreachable!("WeakType GEP only supports a single index")
+                    }
+                    typ.unwrap_ptr()
+                  } else {
+                    // GEP is only used for array in SysY.
+                    let base_typ = self.get_op_type(base);
+                    match &base_typ {
+                      Type::Pointer { base } => (**base).clone(),
+                      _ => unreachable!("Only array type can be the base of GEP"),
+                    }
+                  };
+
                   for (dim, index) in indices.iter().enumerate() {
-                    // Compute step size for each index. For array pointee, each dim uses a shrinking subarray size.
-                    // For non-array pointee, only the first index is valid and it uses pointee size.
-                    let step_size = match &pointee_typ {
-                      Type::Array { dims, .. } => {
-                        if dim > dims.len() {
-                          unreachable!("GEP index out of bounds for array type")
+                    let step_size = if weak_type {
+                      // WeakType GEP indices are already byte offsets.
+                      1
+                    } else {
+                      // Compute step size for each index. For array pointee, each dim uses a shrinking subarray size.
+                      // For non-array pointee, only the first index is valid and it uses pointee size.
+                      match &pointee_typ {
+                        Type::Array { dims, .. } => {
+                          if dim > dims.len() {
+                            unreachable!("GEP index out of bounds for array type")
+                          }
+                          pointee_typ.subarr_size(dim)
                         }
-                        pointee_typ.subarr_size(dim)
-                      }
-                      _ => {
-                        if dim > 0 {
-                          unreachable!("Non-array GEP base only supports a single index")
+                        _ => {
+                          if dim > 0 {
+                            unreachable!("Non-array GEP base only supports a single index")
+                          }
+                          pointee_typ.size()
                         }
-                        pointee_typ.size()
                       }
                     };
 

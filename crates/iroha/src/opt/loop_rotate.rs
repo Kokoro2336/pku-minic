@@ -232,21 +232,20 @@ impl LoopRotate<'_> {
       let loop_data = &mut loops[lp_id.into()];
       let header_id = loop_data.header;
 
-      let (header_preds, header_succs) = {
+      let (header_preds_len, header_succs) = {
         let header = self.cx.get_bb(header_id);
-        (header.preds.clone(), header.succs.clone())
+        (header.preds.len(), header.succs.clone())
       };
-      assert!(header_preds.len() == 2);
+      assert!(header_preds_len == 2);
 
-      let (mut pre_header_id, mut latch_id) = (None, None);
-      for (header_pred_id, _) in header_preds.iter() {
-        if dom_tree.is_dom(header_id.get_bb_id(), header_pred_id.get_bb_id()) {
-          latch_id = Some(*header_pred_id);
-        } else {
-          pre_header_id = Some(*header_pred_id);
-        }
-      }
-      let (pre_header_id, latch_id) = (pre_header_id.unwrap(), latch_id.unwrap());
+      let pre_header_id = self
+        .cx
+        .get_pre_header_id(header_id, dom_tree)
+        .expect("LoopRotate expects loop-simplified pre-header");
+      let latch_id = self
+        .cx
+        .get_latch_id(header_id, dom_tree)
+        .expect("LoopRotate expects loop-simplified latch");
       let Some((exit_bb_id, _)) = header_succs
         .iter()
         .copied()

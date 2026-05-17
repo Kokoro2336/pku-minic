@@ -212,17 +212,8 @@ impl LICM<'_> {
             let header_id = loop_data.header;
             let pre_header_id = self
               .cx
-              .get_bb(header_id)
-              .preds
-              .iter()
-              .filter(|(pred_id, _)| !dom_tree.is_dom(header_id.get_bb_id(), pred_id.get_bb_id()))
-              .map(|(pred_id, _)| *pred_id)
-              .collect::<Vec<_>>();
-
-            // There should be only one pre-header block.
-            assert!(pre_header_id.len() == 1);
-
-            let pre_header_id = pre_header_id[0];
+              .get_pre_header_id(header_id, dom_tree)
+              .expect("LICM expects loop-simplified pre-header");
             let pre_header_term = *self.cx.get_bb(pre_header_id).cur.last().unwrap();
 
             self
