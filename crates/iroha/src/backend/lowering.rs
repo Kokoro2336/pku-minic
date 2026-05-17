@@ -634,7 +634,8 @@ impl Lowering {
 
                   for (dim, index) in indices.iter().enumerate() {
                     let step_size = if weak_type {
-                      pointee_typ.size()
+                      // WeakType GEP indices are already byte offsets.
+                      1
                     } else {
                       // Compute step size for each index. For array pointee, each dim uses a shrinking subarray size.
                       // For non-array pointee, only the first index is valid and it uses pointee size.

@@ -31,13 +31,25 @@ struct AddrCacheKey {
 impl LSR<'_> {
   fn init(&mut self, func_id: Operand) {
     self.cx.set_current_func(Some(func_id));
+    self.addr_cache.clear();
   }
 
   fn is_valid_at(&self, scev: &SCEV, op: Operand, pre_header_id: Operand) -> bool {
-    let op_bb_id = self.cx.op_bb(op);
-    scev
-      .dom_tree
-      .is_dom(op_bb_id.get_bb_id(), pre_header_id.get_bb_id())
+    match op {
+      Operand::Int(_)
+      | Operand::Global(_)
+      | Operand::Param(_)
+      | Operand::Bool(_)
+      | Operand::Float(_)
+      | Operand::Undefined => true,
+      Operand::BB(_) | Operand::Func(_) => false,
+      Operand::Value(_) => {
+        let op_bb_id = self.cx.op_bb(op);
+        scev
+          .dom_tree
+          .is_dom(op_bb_id.get_bb_id(), pre_header_id.get_bb_id())
+      }
+    }
   }
 
   fn is_materializable(
@@ -187,6 +199,7 @@ impl LSR<'_> {
           // Check the cache
           if let Some(addr_phi_id) = self.addr_cache.get(&addr_cache_key) {
             self.cx.replace_all_uses(addr, *addr_phi_id);
+            continue;
           }
 
           let (Some(start_op_id), Some(step_op_id)) = (
@@ -214,7 +227,7 @@ impl LSR<'_> {
           let addr_phi_id = {
             let mut guard = self.cx.guard();
             guard.set_current_block(header_id);
-            guard.create_before_term(Op::new(
+            guard.create_at_head(Op::new(
               addr_ty.clone(),
               vec![Attr::WeakType],
               OpData::Phi {
@@ -238,7 +251,7 @@ impl LSR<'_> {
               addr_ty.clone(),
               vec![Attr::WeakType],
               OpData::GEP {
-                base: new_addr,
+                base: addr_phi_id,
                 indices: vec![step_op_id],
               },
             ))
