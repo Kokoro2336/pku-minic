@@ -1,5 +1,8 @@
 //! Remove Trivial Phi.
 
+use std::collections::HashSet;
+
+use crate::analysis::{DomAnalysis, DomTree};
 use yachiyo::ir::mid::{Attr, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
 
@@ -30,8 +33,8 @@ impl RemoveTrivialPhi<'_> {
             PhiIncoming::Data { value, bb } => (value, bb),
             PhiIncoming::None => continue,
           };
-          // Crucial: Treat Undefined as a concrete value, you should not ignore it.
-          if *value == phi {
+          // Undef does not constrain the phi result, so only concrete non-self values count.
+          if *value == phi || *value == Operand::Undefined {
             continue;
           }
 
@@ -55,6 +58,97 @@ impl RemoveTrivialPhi<'_> {
     }
   }
 
+  fn value_available_in_block(&self, value: Operand, block: Operand, dom_tree: &DomTree) -> bool {
+    match value {
+      Operand::Int(_)
+      | Operand::Float(_)
+      | Operand::Bool(_)
+      | Operand::Param(_)
+      | Operand::Global(_)
+      | Operand::Undefined => true,
+      Operand::Value(_) => dom_tree.is_dom(self.cx.op_bb(value).get_bb_id(), block.get_bb_id()),
+      Operand::BB(_) | Operand::Func(_) => false,
+    }
+  }
+
+  fn value_available_at_inst(&self, value: Operand, inst: Operand, dom_tree: &DomTree) -> bool {
+    match value {
+      Operand::Int(_)
+      | Operand::Float(_)
+      | Operand::Bool(_)
+      | Operand::Param(_)
+      | Operand::Global(_)
+      | Operand::Undefined => true,
+      Operand::Value(_) => {
+        let value_bb = self.cx.op_bb(value);
+        let inst_bb = self.cx.op_bb(inst);
+        if value_bb != inst_bb {
+          return dom_tree.is_dom(value_bb.get_bb_id(), inst_bb.get_bb_id());
+        }
+
+        let cur = &self.cx.get_bb(inst_bb).cur;
+        let value_pos = cur.iter().position(|op| *op == value);
+        let inst_pos = cur.iter().position(|op| *op == inst);
+        matches!((value_pos, inst_pos), (Some(value_pos), Some(inst_pos)) if value_pos < inst_pos)
+      }
+      Operand::BB(_) | Operand::Func(_) => false,
+    }
+  }
+
+  fn can_replace_all_uses_with(&self, phi_id: Operand, value: Operand, dom_tree: &DomTree) -> bool {
+    self.cx.users(phi_id).iter().all(|&(user, idx)| {
+      if user == phi_id {
+        return true;
+      }
+
+      let Operand::Value(_) = user else {
+        return false;
+      };
+
+      if let OpData::Phi { incomings } = self.cx.get_op_data(user) {
+        let Some(PhiIncoming::Data { bb, .. }) = incomings.get(idx) else {
+          return false;
+        };
+        self.value_available_in_block(value, *bb, dom_tree)
+      } else {
+        self.value_available_at_inst(value, user, dom_tree)
+      }
+    })
+  }
+
+  fn is_dead_phi_web(&self, phi_id: Operand, visited: &mut HashSet<Operand>) -> bool {
+    if !visited.insert(phi_id) {
+      return true;
+    }
+
+    self.cx.users(phi_id).iter().all(|&(user, _)| {
+      if user == phi_id {
+        return true;
+      }
+
+      let Operand::Value(_) = user else {
+        return false;
+      };
+
+      self.cx.get_op_data(user).is(OpType::Phi) && self.is_dead_phi_web(user, visited)
+    })
+  }
+
+  fn single_replacement(
+    &self,
+    phi_id: Operand,
+    value: Operand,
+    dom_tree: &DomTree,
+  ) -> Option<Operand> {
+    if self.can_replace_all_uses_with(phi_id, value, dom_tree) {
+      Some(value)
+    } else if self.is_dead_phi_web(phi_id, &mut HashSet::new()) {
+      Some(Operand::Undefined)
+    } else {
+      None
+    }
+  }
+
   fn init(&mut self, func_id: Operand) {
     self.cx.set_current_func(Some(func_id));
 
@@ -69,7 +163,7 @@ impl RemoveTrivialPhi<'_> {
       .collect();
   }
 
-  fn remove_phi(&mut self) {
+  fn remove_phi(&mut self, dom_tree: &DomTree) {
     // Check whether the phi_ids are valid
     while let Some((phi_id, bb_id, check_result)) = self.worklist.pop() {
       {
@@ -108,6 +202,9 @@ impl RemoveTrivialPhi<'_> {
           self.cx.remove_op(phi_id, Some(bb_id));
         }
         CheckType::Single(value) => {
+          let Some(value) = self.single_replacement(phi_id, value, dom_tree) else {
+            continue;
+          };
           self.cx.replace_all_uses(phi_id, value);
           for (user, _) in uses {
             if user == phi_id {
@@ -150,8 +247,10 @@ impl<'a> Pass<'a> for RemoveTrivialPhi<'a> {
 
   fn run(&mut self) {
     for idx in self.cx.ir().funcs.collect_internal() {
-      self.init(Operand::Func(idx));
-      self.remove_phi();
+      let func_id = Operand::Func(idx);
+      let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(self.cx.get_func(func_id));
+      self.init(func_id);
+      self.remove_phi(dom_tree);
     }
   }
 }
