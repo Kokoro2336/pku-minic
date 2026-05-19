@@ -86,11 +86,20 @@ impl<'a> BPassContext<'a> {
     self.builder.current_function
   }
 
-  pub fn current_func(&self) -> BOperand {
+  pub fn get_current_func_id(&self) -> BOperand {
     self
       .builder
       .current_function
       .expect("BPassContext: current function is None")
+  }
+
+  pub fn get_current_func(&self) -> &BFunction {
+    self.get_func(self.get_current_func_id())
+  }
+
+  pub fn get_current_func_mut(&mut self) -> &mut BFunction {
+    let func_id = self.get_current_func_id();
+    self.get_func_mut(func_id)
   }
 
   pub fn current_block(&self) -> Option<BOperand> {
@@ -208,14 +217,12 @@ impl<'a> BPassContext<'a> {
 
   #[inline(always)]
   pub fn get_op(&self, op_id: BOperand) -> &BOp {
-    let func_id = self.current_func();
-    &self.get_func(func_id).dfg[op_id]
+    &self.get_current_func().dfg[op_id]
   }
 
   #[inline(always)]
   pub fn get_op_mut(&mut self, op_id: BOperand) -> &mut BOp {
-    let func_id = self.current_func();
-    &mut self.get_func_mut(func_id).dfg[op_id]
+    &mut self.get_current_func_mut().dfg[op_id]
   }
 
   #[inline(always)]
@@ -242,14 +249,12 @@ impl<'a> BPassContext<'a> {
 
   #[inline(always)]
   pub fn get_bb(&self, bb_id: BOperand) -> &BBasicBlock {
-    let func_id = self.current_func();
-    &self.get_func(func_id).cfg[bb_id]
+    &self.get_current_func().cfg[bb_id]
   }
 
   #[inline(always)]
   pub fn get_bb_mut(&mut self, bb_id: BOperand) -> &mut BBasicBlock {
-    let func_id = self.current_func();
-    &mut self.get_func_mut(func_id).cfg[bb_id]
+    &mut self.get_current_func_mut().cfg[bb_id]
   }
 
   #[inline(always)]
@@ -263,22 +268,17 @@ impl<'a> BPassContext<'a> {
   }
 
   pub fn op_bb(&self, op_id: BOperand) -> BOperand {
-    self.get_func(self.current_func()).op_to_bb[op_id]
+    self.get_current_func().op_to_bb[op_id]
   }
 
   pub fn next_valid(&self, operand: BOperand) -> Option<BOperand> {
-    let func_id = self.current_func();
+    let func = self.get_current_func();
     match operand {
-      BOperand::Inst(_) => self
-        .get_func(func_id)
+      BOperand::Inst(_) => func
         .dfg
         .next_valid(operand.get_inst_id())
         .map(BOperand::Inst),
-      BOperand::BB(_) => self
-        .get_func(func_id)
-        .cfg
-        .next_valid(operand.get_bb_id())
-        .map(BOperand::BB),
+      BOperand::BB(_) => func.cfg.next_valid(operand.get_bb_id()).map(BOperand::BB),
       _ => unreachable!(),
     }
   }
@@ -420,25 +420,25 @@ impl<'a> BPassContext<'a> {
   }
 
   pub fn alloc_slot(&mut self, slot: Slot) -> BOperand {
-    let func = self.get_func_mut(self.current_func());
+    let func = self.get_current_func_mut();
     BOperand::Slot(func.frame_info.alloc(slot))
   }
 
   pub fn get_operand_type(&self, operand: BOperand) -> BType {
-    let func_id = self.current_func();
+    let func = self.get_current_func();
 
     match operand {
       BOperand::Inst(_) => self.get_op(operand).typ.clone(),
       BOperand::Reg(reg) => match reg {
         Reg::X(_) => BType::I32,
         Reg::F(_) => BType::F32,
-        Reg::Virt(_) => self.get_func(func_id).vregs[operand].typ.clone(),
+        Reg::Virt(_) => func.vregs[operand].typ.clone(),
       },
       BOperand::IntImm(_) => BType::I32,
       BOperand::FloatImm(_) => BType::F32,
       BOperand::Undef => BType::Void,
 
-      BOperand::Slot(_) => match &self.get_func(func_id).frame_info[operand] {
+      BOperand::Slot(_) => match &func.frame_info[operand] {
         Slot::CalleeSaved { typ, .. }
         | Slot::Local { typ, .. }
         | Slot::Param { typ, .. }

@@ -107,11 +107,20 @@ impl<'a> PassContext<'a> {
     self.builder.current_function
   }
 
-  pub fn current_func(&self) -> Operand {
+  pub fn get_current_func_id(&self) -> Operand {
     self
       .builder
       .current_function
       .expect("PassContext: current function is None")
+  }
+
+  pub fn get_current_func(&self) -> &Function {
+    self.get_func(self.get_current_func_id())
+  }
+
+  pub fn get_current_func_mut(&mut self) -> &mut Function {
+    let func_id = self.get_current_func_id();
+    self.get_func_mut(func_id)
   }
 
   pub fn current_block(&self) -> Option<Operand> {
@@ -244,11 +253,11 @@ impl<'a> PassContext<'a> {
   }
 
   pub fn get_op_type(&self, operand: Operand) -> Type {
-    let func_id = self.current_func();
+    let func = self.get_current_func();
 
     match operand {
       Operand::Value(_) => self.get_op(operand).typ.clone(),
-      Operand::Param(_) => self.get_func(func_id).params[operand].typ.clone(),
+      Operand::Param(_) => func.params[operand].typ.clone(),
       Operand::Global(_) => self.ir().globals[operand].typ.clone(),
       Operand::Func(_) => self.ir().funcs[operand].typ.clone(),
 
@@ -262,7 +271,7 @@ impl<'a> PassContext<'a> {
   }
 
   pub fn op_bb(&self, op_id: Operand) -> Operand {
-    self.get_func(self.current_func()).op_to_bb[op_id]
+    self.get_current_func().op_to_bb[op_id]
   }
 
   pub fn create(&mut self, op: Op) -> Operand {
@@ -362,6 +371,17 @@ impl<'a> PassContext<'a> {
       current_block,
       split_point,
     )
+  }
+
+  #[inline(always)]
+  pub fn funcs(&self) -> Vec<Operand> {
+    self
+      .ir()
+      .funcs
+      .collect()
+      .into_iter()
+      .map(Operand::Func)
+      .collect()
   }
 
   #[inline(always)]
@@ -497,8 +517,7 @@ impl<'a> PassContext<'a> {
     match operand {
       Operand::Global(_) => mem_loc.base = operand,
       Operand::Param(_) => {
-        let func_id = self.current_func();
-        let param_typ = &self.get_func(func_id).params[operand].typ;
+        let param_typ = &self.get_current_func().params[operand].typ;
         if matches!(param_typ, Type::Pointer { .. }) {
           mem_loc.base = operand;
         } else {
@@ -556,9 +575,8 @@ impl<'a> PassContext<'a> {
 
   #[inline(always)]
   pub fn get_op(&self, op_id: Operand) -> &Op {
-    let func_id = self.current_func();
     match op_id {
-      Operand::Value(_) => &self.get_func(func_id).dfg[op_id],
+      Operand::Value(_) => &self.get_current_func().dfg[op_id],
       Operand::Global(_) => &self.ir().globals[op_id],
       _ => unreachable!("Expected Value or Global operand, got {:?}", op_id),
     }
@@ -566,9 +584,8 @@ impl<'a> PassContext<'a> {
 
   #[inline(always)]
   pub fn get_op_mut(&mut self, op_id: Operand) -> &mut Op {
-    let func_id = self.current_func();
     match op_id {
-      Operand::Value(_) => &mut self.get_func_mut(func_id).dfg[op_id],
+      Operand::Value(_) => &mut self.get_current_func_mut().dfg[op_id],
       Operand::Global(_) => &mut self.ir_mut().globals[op_id],
       _ => unreachable!("Expected Value or Global operand, got {:?}", op_id),
     }
@@ -576,14 +593,12 @@ impl<'a> PassContext<'a> {
 
   #[inline(always)]
   pub fn get_bb(&self, bb_id: Operand) -> &BasicBlock {
-    let func_id = self.current_func();
-    &self.get_func(func_id).cfg[bb_id]
+    &self.get_current_func().cfg[bb_id]
   }
 
   #[inline(always)]
   pub fn get_bb_mut(&mut self, bb_id: Operand) -> &mut BasicBlock {
-    let func_id = self.current_func();
-    &mut self.get_func_mut(func_id).cfg[bb_id]
+    &mut self.get_current_func_mut().cfg[bb_id]
   }
 
   /// For cases where guard doesn't live long enough, e.g., in AliasAnalysis.

@@ -26,7 +26,7 @@ impl LCSSA<'_> {
   }
 
   fn run(&mut self, dom_tree: &DomTree, dom_frontier: &DomFrontier, loops: &Loops) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
 
     for lp_id in (0..loops.len()).rev() {
       let loop_data = &loops[lp_id.into()];

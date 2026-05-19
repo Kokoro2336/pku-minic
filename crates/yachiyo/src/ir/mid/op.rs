@@ -256,6 +256,19 @@ impl OpData {
   }
 
   #[inline(always)]
+  pub fn is_icmp(&self) -> bool {
+    matches!(
+      self,
+      OpData::SNe { .. }
+        | OpData::SEq { .. }
+        | OpData::SGt { .. }
+        | OpData::SLt { .. }
+        | OpData::SGe { .. }
+        | OpData::SLe { .. }
+    )
+  }
+
+  #[inline(always)]
   pub fn phi_with_undef(preds: &[Operand]) -> OpData {
     OpData::Phi {
       incomings: preds
@@ -429,7 +442,7 @@ impl DFG {
           ) {
             vec![(addr, 0)]
           } else {
-            panic!("DFG match_src_tuple: Load address operand is not Value, Global, or Param");
+            panic!("DFG match_src_tuple: Load address operand is not Value, Global, or Param: {:?}", addr);
           }
         }
         OpData::Store { addr, value } => {
@@ -517,7 +530,7 @@ impl DFG {
           ) {
             vec![(addr, 0)]
           } else {
-            panic!("DFG match_src_tuple_mut: Load address operand is not Value, Global, or Param");
+            panic!("DFG match_src_tuple_mut: Load address operand is not Value, Global, or Param: {:?}", addr);
           }
         }
         OpData::Store { addr, value } => {

@@ -109,7 +109,7 @@ impl<'a> InsertPhi<'a> {
 
   pub fn insert(&mut self) {
     let defsites_len = self.defsites.len();
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     let (_, dom_frontier) = &*self.cx.analyze::<DomAnalysis>(self.cx.get_func(func_id));
     for idx in 0..defsites_len {
       while let Some(bb_id) = self.defsites[idx].pop() {

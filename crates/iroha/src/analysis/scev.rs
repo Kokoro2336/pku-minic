@@ -14,7 +14,10 @@ use rustc_hash::FxHashSet;
 use std::ops::{Index, IndexMut};
 
 #[allow(clippy::upper_case_acronyms)]
-pub struct SCEV<'a> {
+pub struct SCEV<'a>
+where
+  Self: Analysis,
+{
   cx: &'a PassContext<'a>,
   pub loops: Loops,
   pub block_to_loop: Vec<Option<LoopId>>,
@@ -117,10 +120,15 @@ impl SCEV<'_> {
         loop_id: scev_loop_id,
         start,
         step,
+        phi_id,
         ..
       } => {
         if scev_loop_id == loop_id {
-          Some(AddRecInfo { start, step })
+          Some(AddRecInfo {
+            start,
+            step,
+            iv: phi_id,
+          })
         } else {
           None
         }
@@ -140,10 +148,14 @@ impl SCEV<'_> {
     let mut start = vec![];
     let mut step = vec![];
     let mut saw_add_rec = false;
+    let mut iv = Operand::Undefined;
 
     for term in terms {
-      if let Some(add_rec) = self.get_add_rec_for_loop(term, loop_id) {
+      if let Some(add_rec @ AddRecInfo { iv: current_iv, .. }) =
+        self.get_add_rec_for_loop(term, loop_id)
+      {
         saw_add_rec = true;
+        iv = current_iv;
         start.push(add_rec.start);
         step.push(add_rec.step);
       } else if self.is_scev_loop_invariant(term, loop_id) {
@@ -169,6 +181,7 @@ impl SCEV<'_> {
     Some(AddRecInfo {
       start: start_scev,
       step: step_scev,
+      iv,
     })
   }
 
@@ -209,6 +222,7 @@ impl SCEV<'_> {
     Some(AddRecInfo {
       start: start_mul,
       step: step_mul,
+      iv: ar.iv,
     })
   }
 
@@ -371,6 +385,13 @@ impl SCEV<'_> {
   /// For normal instructions
   pub fn get_op_scev(&mut self, op: Operand) -> SCEVId {
     self.trace_op(op)
+  }
+
+  pub fn get_const(&mut self, scev_id: SCEVId) -> Option<i64> {
+    match &self.arena[scev_id] {
+      SCEVExpr::Const(c) => Some(*c),
+      _ => None,
+    }
   }
 }
 

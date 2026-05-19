@@ -170,7 +170,7 @@ impl LICM<'_> {
     call_graph: &CallGraph,
     pureness: &PurenessResult,
   ) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     // The loops are naturally in RPO order, so the traverse it in a reverse order.
     let dpo = self.cx.get_func(func_id).cfg.dpo();
     for lp_id in (0..loops.len()).rev() {

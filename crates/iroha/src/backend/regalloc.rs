@@ -14,8 +14,8 @@ use yachiyo::ir::back::{
 };
 use yachiyo::pass::{BPass, BPassContext};
 use yachiyo::utils::match_some;
-use yachiyo::utils::{array_set, ArraySet, BitSet};
 use yachiyo::utils::Worklist;
+use yachiyo::utils::{array_set, ArraySet, BitSet};
 
 use rustc_hash::FxHashSet;
 use std::ops::BitAndAssign;
@@ -125,7 +125,7 @@ impl Allocator<'_> {
   }
 
   fn reset(&mut self) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
 
     // Clear the nodes worklist.
     self.simplify_worklist.clear();
@@ -172,7 +172,7 @@ impl Allocator<'_> {
 
   #[inline(always)]
   fn is_target(&self, vreg_id: BOperand) -> bool {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     match_some! {
         target: vreg_id,
         enu: BOperand,
@@ -291,7 +291,7 @@ impl Allocator<'_> {
   }
 
   fn build(&mut self, live_outs: &LiveOuts) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     let cfg_ids = self.get_func(func_id).cfg.ids();
 
     for bb_id in cfg_ids {
@@ -510,7 +510,7 @@ impl Allocator<'_> {
   }
 
   fn make_worklist(&mut self) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     let vregs_ids = self.get_func(func_id).vregs.ids();
 
     for vreg_id in vregs_ids {
@@ -830,7 +830,7 @@ impl Allocator<'_> {
     for spilled in std::mem::take(&mut self.spilled_nodes).iter() {
       let vreg_id = BOperand::Reg(Reg::Virt(spilled));
       let (typ, defs, uses) = {
-        let func_id = self.cx.current_func();
+        let func_id = self.cx.get_current_func_id();
         let vreg = &self.get_func(func_id).vregs[vreg_id];
         (vreg.typ.clone(), vreg.defs.clone(), vreg.uses.clone())
       };
@@ -843,7 +843,7 @@ impl Allocator<'_> {
       // Insert store after each definition of the spilled node.
       for def in defs {
         let bb_id = {
-          let func_id = self.cx.current_func();
+          let func_id = self.cx.get_current_func_id();
           self.get_func(func_id).op_to_bb[def]
         };
         self.cx.set_current_block(bb_id);
@@ -865,7 +865,7 @@ impl Allocator<'_> {
 
       for (r#use, idx) in uses {
         let bb_id = {
-          let func_id = self.cx.current_func();
+          let func_id = self.cx.get_current_func_id();
           self.get_func(func_id).op_to_bb[r#use]
         };
         self.cx.set_current_block(bb_id);
@@ -915,7 +915,7 @@ impl Allocator<'_> {
   }
 
   fn rewrite(&mut self) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
 
     for bb_id in self.get_func(func_id).cfg.collect() {
       let bb_id = BOperand::BB(bb_id);
@@ -975,7 +975,7 @@ impl Allocator<'_> {
   /// Main function of register allocation.
   /// LiveOuts is the result of current function's liveness analysis, which is used for building the interference graph.
   fn run(&mut self) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     loop {
       // Reset the worklist.
       self.reset();
@@ -1089,7 +1089,7 @@ impl RegAlloc<'_> {
   }
 
   fn fold_zero_ptr_adds(&mut self) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     let bb_ids = self.cx.get_func(func_id).cfg.ids();
     for bb_id in bb_ids {
       let bb_id = BOperand::BB(bb_id);
@@ -1487,7 +1487,7 @@ impl RegAlloc<'_> {
 
   #[inline(always)]
   fn alloc_and_map_slot(&mut self, reg: Reg, slot: Slot) -> BOperand {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     let func = self.cx.get_func_mut(func_id);
     let slot_id = func.frame_info.alloc(slot);
     self.slot_map[u8::from(reg) as usize] = BOperand::Slot(slot_id);
@@ -1510,7 +1510,7 @@ impl RegAlloc<'_> {
 
   #[inline(always)]
   fn get_offset(&self, slot_id: BOperand) -> BOperand {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     BOperand::IntImm(match &self.cx.get_func(func_id).frame_info[slot_id] {
       Slot::Local { offset, .. } => *offset,
       Slot::Param { offset, .. } => *offset,
@@ -1561,7 +1561,7 @@ impl RegAlloc<'_> {
   /// 2. Save callee-saved registers
   /// 3. Save ra if the function is not a leaf.
   fn prologue(&mut self) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     let entry = self.cx.get_func(func_id).cfg.entry;
     if entry.is_none() {
       return;
@@ -1641,7 +1641,7 @@ impl RegAlloc<'_> {
   /// 2. Restore callee-saved registers
   /// 3. Move sp back
   fn epilogue(&mut self) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     for saved in 0..self.slot_map.len() {
       let slot_id = self.slot_map[saved];
       if slot_id == BOperand::Undef {
@@ -1711,7 +1711,7 @@ impl RegAlloc<'_> {
   /// * Figure out the used registers
   /// * Allocate space for callee-saved registers & ra.
   fn alloc_saved(&mut self) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     let bb_ids = self.cx.get_func(func_id).cfg.ids();
     let mut is_leaf = true;
 
@@ -1774,7 +1774,7 @@ impl RegAlloc<'_> {
   /// * Load/Store Lowering
   /// * Prologue/Epilogue Insertion
   fn frame_lowering(&mut self) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     let bb_ids = self.cx.get_func(func_id).cfg.ids();
     for bb_id in bb_ids {
       let bb_id = BOperand::BB(bb_id);

@@ -172,7 +172,7 @@ impl RemoveTrivialPhi<'_> {
         phi_op.attrs.retain(|attr| !matches!(attr, Attr::OldIdx(_)));
       }
       let uses = self.cx.users(phi_id).to_vec();
-      let current_function = self.cx.current_func();
+      let current_function = self.cx.get_current_func_id();
       match check_result {
         CheckType::Empty => {
           self.cx.replace_all_uses(phi_id, Operand::Undefined);

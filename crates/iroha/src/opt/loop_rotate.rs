@@ -219,7 +219,7 @@ impl LoopRotate<'_> {
   }
 
   fn run(&mut self, dom_tree: &DomTree) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     let (loops, _) = &mut *self
       .cx
       .analyze_mut::<LoopAnalysis>(self.cx.get_func(func_id));

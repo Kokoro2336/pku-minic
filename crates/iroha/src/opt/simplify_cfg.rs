@@ -2,8 +2,8 @@
 
 use yachiyo::ir::mid::{OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
-use yachiyo::utils::Arena;
 use yachiyo::utils::match_some;
+use yachiyo::utils::Arena;
 use yachiyo::utils::BitSet;
 
 use crate::analysis::Reachability;
@@ -23,7 +23,7 @@ impl SimplifyCFG<'_> {
 
   /// Cut off data flow and control flow edges of dead blocks.
   fn isolate_dead(&mut self, bb_id: Operand) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     let cur = self.cx.get_bb(bb_id).cur.clone();
     let succs = self.cx.get_bb(bb_id).succs.clone();
     self.cx.clear_uses();
@@ -68,7 +68,6 @@ impl SimplifyCFG<'_> {
           }
         }
       }
-      self.cx.replace_all_uses(*inst, Operand::Undefined);
     }
 
     for (succ_id, _) in succs {
@@ -124,7 +123,7 @@ impl SimplifyCFG<'_> {
   }
 
   pub fn simplify(&mut self, bb_id: Operand) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     let mut is_dead = false;
 
     // Case 1: 1 pred and the pred has only 1 succ. Then merge current block into its predecessor.
@@ -305,7 +304,7 @@ impl SimplifyCFG<'_> {
   }
 
   fn rewrite(&mut self) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     let visited = &*self.cx.analyze::<Reachability>(self.cx.get_func(func_id));
     let dead_blocks = self
       .cx
