@@ -115,7 +115,7 @@ fn main() -> Result<()> {
   // Run optimizations.
   PassManager::new(&cli)
     // Global memory localization
-    // .register::<Localize>()
+    .register::<Localize>()
     // Mem2Reg
     .register::<Mem2Reg>()
     .register::<RemoveTrivialPhi>()
@@ -135,14 +135,13 @@ fn main() -> Result<()> {
     // Loop Optimizations
     .register::<LoopSimplify>()
     .register::<LCSSA>()
-    .register::<LICM>()
-    .register::<Unrolling>()
-    .register::<SimplifyCFG>()
-    .register::<RemoveTrivialPhi>()
-    .register::<SCCP>()
-    .register::<GVN>()
-    .register::<DCE>()
-    .register::<LoopSimplify>()
+    // .register::<LICM>()
+    // .register::<Unrolling>()
+    // .register::<RemoveTrivialPhi>()
+    // .register::<LSR>()
+    // .register::<SCCP>()
+    // .register::<GVN>()
+    // .register::<DCE>()
     .register::<LoopRotate>()
     .register::<LICM>()
     .register::<LSR>()

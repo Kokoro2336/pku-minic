@@ -11,6 +11,7 @@ use rustc_hash::FxHashMap;
 use std::ops::Range;
 
 const MAX_UNROLL_COUNT: i64 = 64;
+const MAX_NESTED_UNROLL_OPS: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CmpKind {
@@ -18,6 +19,7 @@ enum CmpKind {
   Le,
   Gt,
   Ge,
+  Ne,
 }
 
 impl Default for CmpKind {
@@ -33,6 +35,7 @@ impl CmpKind {
       Self::Le => Self::Ge,
       Self::Gt => Self::Lt,
       Self::Ge => Self::Le,
+      Self::Ne => Self::Ne,
     }
   }
 }
@@ -233,6 +236,7 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
       OpData::SLe { lhs, rhs } => (CmpKind::Le, lhs, rhs),
       OpData::SGt { lhs, rhs } => (CmpKind::Gt, lhs, rhs),
       OpData::SGe { lhs, rhs } => (CmpKind::Ge, lhs, rhs),
+      OpData::SNe { lhs, rhs } => (CmpKind::Ne, lhs, rhs),
       _ => return None,
     };
 
@@ -308,6 +312,17 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
     };
     if count == 0 || count > MAX_UNROLL_COUNT {
       return false;
+    }
+    if loop_data.parent.is_some() {
+      let cloned_ops = loop_data
+        .blocks
+        .iter()
+        .filter(|bb_id| *bb_id != header_id.get_bb_id())
+        .map(|bb_id| self.cx.get_bb(Operand::BB(bb_id)).cur.len())
+        .sum::<usize>();
+      if cloned_ops.saturating_mul(count as usize) > MAX_NESTED_UNROLL_OPS {
+        return false;
+      }
     }
 
     // Reading exit blocks, record the old value in phis.
@@ -485,7 +500,23 @@ impl TripCount {
   }
 
   fn count(&self) -> Option<i64> {
-    if self.step == 0 || !self.valid_direction() {
+    if self.step == 0 {
+      return None;
+    }
+
+    if self.cmp == CmpKind::Ne {
+      let distance = self.bound - self.start;
+      if distance == 0 {
+        return Some(0);
+      }
+      if distance % self.step != 0 {
+        return None;
+      }
+      let count = distance / self.step;
+      return (count > 0).then_some(count);
+    }
+
+    if !self.valid_direction() {
       return None;
     }
 
