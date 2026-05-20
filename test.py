@@ -208,6 +208,14 @@ def select_runtime_seconds(stderr: bytes, wall_seconds):
         return sysy_seconds, "sysy"
     return None, "n/a"
 
+def select_runtime_seconds_from_stderr_file(stderr_path: str, wall_seconds=None):
+    try:
+        with open(stderr_path, "rb") as f_err:
+            stderr = f_err.read()
+    except OSError:
+        stderr = b""
+    return select_runtime_seconds(stderr, wall_seconds)
+
 def format_seconds(seconds):
     if seconds is None:
         return "n/a"
@@ -467,12 +475,17 @@ def finish_clang_case(clang_case, test_file: str, expected_output_file: str):
             with open(os.path.join(work_dir, "actual.out"), "wb") as f_actual:
                 f_actual.write(runtime_with_ret)
 
+    stderr_path = os.path.join(work_dir, "stderr.txt")
+
     with open(os.path.join(work_dir, "stdout.txt"), "wb") as f_out:
         f_out.write(final_stdout)
-    with open(os.path.join(work_dir, "stderr.txt"), "wb") as f_err:
+    with open(stderr_path, "wb") as f_err:
         f_err.write(final_stderr)
 
-    runtime_seconds, runtime_source = select_runtime_seconds(final_stderr, runtime_wall_seconds)
+    runtime_seconds, runtime_source = select_runtime_seconds_from_stderr_file(
+        stderr_path,
+        runtime_wall_seconds,
+    )
     return {
         "returncode": final_returncode,
         "runtime_seconds": runtime_seconds,
@@ -1285,10 +1298,12 @@ def main():
                         os.path.join(work_test_output_dir, "expected.out"),
                     )
 
+                stderr_path = os.path.join(work_test_output_dir, "stderr.txt")
+
                 # Save stdout/stderr
                 with open(os.path.join(work_test_output_dir, "stdout.txt"), "wb") as f:
                     f.write(final_stdout)
-                with open(os.path.join(work_test_output_dir, "stderr.txt"), "wb") as f:
+                with open(stderr_path, "wb") as f:
                     f.write(final_stderr)
 
                 # Move logs
@@ -1327,7 +1342,10 @@ def main():
 
                 clang_returncode = 0
                 if performance_record is not None and not args.qemu:
-                    iroha_seconds, iroha_source = select_runtime_seconds(final_stderr, runtime_wall_seconds)
+                    iroha_seconds, iroha_source = select_runtime_seconds_from_stderr_file(
+                        stderr_path,
+                        runtime_wall_seconds,
+                    )
                     performance_record["iroha_status"] = final_returncode == 0
                     performance_record["iroha_seconds"] = iroha_seconds
                     performance_record["iroha_source"] = iroha_source
@@ -1484,15 +1502,19 @@ def main():
                                 input_file,
                             )
                             perf_record = case.get("perf_record")
-                            if perf_record is not None:
-                                iroha_seconds, iroha_source = select_runtime_seconds(qemu_stderr, None)
-                                perf_record["iroha_seconds"] = iroha_seconds
-                                perf_record["iroha_source"] = iroha_source
+                            stderr_path = os.path.join(case["work_dir"], "stderr.txt")
 
                             with open(os.path.join(case["work_dir"], "stdout.txt"), "ab") as f_out:
                                 f_out.write(qemu_stdout)
-                            with open(os.path.join(case["work_dir"], "stderr.txt"), "ab") as f_err:
+                            with open(stderr_path, "ab") as f_err:
                                 f_err.write(qemu_stderr)
+
+                            if perf_record is not None:
+                                iroha_seconds, iroha_source = select_runtime_seconds_from_stderr_file(
+                                    stderr_path,
+                                )
+                                perf_record["iroha_seconds"] = iroha_seconds
+                                perf_record["iroha_source"] = iroha_source
 
                             if runtime_with_ret is None:
                                 case["returncode"] = 1
@@ -1536,7 +1558,7 @@ def main():
                                 f_actual.write(runtime_with_ret)
 
                             # Keep qemu process return code in logs for debugging; pass/fail is decided by output diff.
-                            with open(os.path.join(case["work_dir"], "stderr.txt"), "ab") as f_err:
+                            with open(stderr_path, "ab") as f_err:
                                 f_err.write(f"\n[INFO] qemu exit code: {qemu_code}\n".encode())
                     finally:
                         if container_running:

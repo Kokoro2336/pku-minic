@@ -115,7 +115,7 @@ fn main() -> Result<()> {
   // Run optimizations.
   PassManager::new(&cli)
     // Global memory localization
-    // .register::<Localize>()
+    .register::<Localize>()
     // Mem2Reg
     .register::<Mem2Reg>()
     .register::<RemoveTrivialPhi>()

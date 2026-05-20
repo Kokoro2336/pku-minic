@@ -221,7 +221,13 @@ impl SCEVArena {
     }
   }
 
-  pub fn add_rec(&mut self, loop_id: LoopId, start: SCEVId, step: SCEVId, phi_id: Operand) -> SCEVId {
+  pub fn add_rec(
+    &mut self,
+    loop_id: LoopId,
+    start: SCEVId,
+    step: SCEVId,
+    phi_id: Operand,
+  ) -> SCEVId {
     // No step forward
     if step == self.zero {
       return start;
