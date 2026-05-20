@@ -14,8 +14,8 @@ use yachiyo::ir::back::{
 };
 use yachiyo::pass::{BPass, BPassContext};
 use yachiyo::utils::match_some;
-use yachiyo::utils::{array_set, ArraySet, BitSet};
 use yachiyo::utils::Worklist;
+use yachiyo::utils::{array_set, ArraySet, BitSet};
 
 use rustc_hash::FxHashSet;
 use std::ops::BitAndAssign;

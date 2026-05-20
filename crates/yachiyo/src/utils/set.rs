@@ -4,8 +4,8 @@
 
 use std::fmt;
 use std::ops::{
-  BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, IndexMut,
-  Not, Sub, SubAssign,
+  BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, IndexMut, Not, Sub,
+  SubAssign,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

@@ -172,6 +172,52 @@ impl GVN<'_> {
     self.symbols.enter_scope();
   }
 
+  fn try_dse(
+    &mut self,
+    store_id: Operand,
+    mem_entries: &[Operand],
+    dead_stores: &mut BitSet,
+    call_graph: &CallGraph,
+    pureness: &PurenessResult,
+  ) {
+    let OpData::Store { addr, .. } = self.cx.get_op_data(store_id).clone() else {
+      unreachable!()
+    };
+
+    for mem_entry in mem_entries.iter().rev() {
+      match self.cx.get_op_data(*mem_entry).clone() {
+        OpData::Load { addr: load_addr } => {
+          let res = alias(&mut self.cx, addr, load_addr, call_graph);
+          match res {
+            AliasResult::NoAlias => continue,
+            // Load might use current addr, so we can't eliminate any earlier store.
+            AliasResult::MayAlias | AliasResult::MustAlias => return,
+          }
+        }
+        OpData::Store {
+          addr: store_addr, ..
+        } => {
+          let res = alias(&mut self.cx, addr, store_addr, call_graph);
+          match res {
+            AliasResult::MustAlias => {
+              // We can eliminate the previous store since it's overwritten by the current store.
+              dead_stores.insert(mem_entry.get_op_id());
+            }
+            AliasResult::NoAlias => continue,
+            AliasResult::MayAlias => return,
+          }
+        }
+        OpData::Call { func, .. } => {
+          if pureness[func] == Pureness::Impure {
+            // We conservatively assume that impure function may write to any memory, so we can't eliminate any earlier store.
+            return;
+          }
+        }
+        _ => unreachable!(),
+      }
+    }
+  }
+
   fn forward(
     &mut self,
     call_graph: &CallGraph,
@@ -221,6 +267,9 @@ impl GVN<'_> {
         GVNPhase::Start(bb_id) => {
           // Local store-load forwaring
           let mut mem_entries = vec![];
+          // DSE
+          let mut dead_stores = BitSet::new();
+
           let insts = self.cx.get_bb(bb_id).cur.clone();
 
           // Start GVN
@@ -246,6 +295,7 @@ impl GVN<'_> {
                 }
               }
               OpData::Store { .. } => {
+                self.try_dse(inst, &mem_entries, &mut dead_stores, call_graph, pureness);
                 mem_entries.push(inst);
                 continue;
               }
@@ -282,6 +332,11 @@ impl GVN<'_> {
               // Insert the canonical expression into the symbol table.
               self.symbols.insert(canonical_expr, inst);
             }
+          }
+
+          // Delete dead stores.
+          for dead_store in dead_stores.iter() {
+            self.cx.remove_op(Operand::Value(dead_store), Some(bb_id));
           }
 
           // Push End phase to the stack
