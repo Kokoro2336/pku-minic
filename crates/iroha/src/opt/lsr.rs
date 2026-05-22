@@ -67,12 +67,12 @@ impl LSR<'_> {
         .all(|&expr_id| self.is_materializable(expr_id, scev, pre_header_id, loop_id)),
       SCEVExpr::AddRec {
         loop_id: lp_id,
-        phi_id,
+        iv,
         ..
       } => {
         lp_id != loop_id
           && scev.loops.is_ancestor(lp_id, loop_id)
-          && self.is_valid_at(scev, phi_id, pre_header_id)
+          && self.is_valid_at(scev, iv, pre_header_id)
       }
     }
   }
@@ -131,7 +131,7 @@ impl LSR<'_> {
         Some(result)
       }
       // This AddRec is not the AddRec of current loop. Since it's accessible, we reuse it directly without materialization.
-      SCEVExpr::AddRec { phi_id, .. } => Some(phi_id),
+      SCEVExpr::AddRec { iv, .. } => Some(iv),
     }
   }
 

@@ -117,10 +117,10 @@ impl SCEV<'_> {
         loop_id: scev_loop_id,
         start,
         step,
-        ..
+        iv,
       } => {
         if scev_loop_id == loop_id {
-          Some(AddRecInfo { start, step })
+          Some(AddRecInfo { start, step, iv })
         } else {
           None
         }
@@ -140,12 +140,14 @@ impl SCEV<'_> {
     let mut start = vec![];
     let mut step = vec![];
     let mut saw_add_rec = false;
+    let mut iv = None;
 
     for term in terms {
       if let Some(add_rec) = self.get_add_rec_for_loop(term, loop_id) {
         saw_add_rec = true;
         start.push(add_rec.start);
         step.push(add_rec.step);
+        iv = Some(add_rec.iv);
       } else if self.is_scev_loop_invariant(term, loop_id) {
         start.push(term);
       } else {
@@ -169,6 +171,7 @@ impl SCEV<'_> {
     Some(AddRecInfo {
       start: start_scev,
       step: step_scev,
+      iv: iv.unwrap(),
     })
   }
 
@@ -209,6 +212,7 @@ impl SCEV<'_> {
     Some(AddRecInfo {
       start: start_mul,
       step: step_mul,
+      iv: ar.iv,
     })
   }
 

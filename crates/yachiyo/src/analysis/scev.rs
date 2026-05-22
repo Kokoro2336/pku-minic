@@ -26,6 +26,7 @@ impl From<SCEVId> for usize {
 pub struct AddRecInfo {
   pub start: SCEVId,
   pub step: SCEVId,
+  pub iv: Operand,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -38,7 +39,7 @@ pub enum SCEVExpr {
     start: SCEVId,
     step: SCEVId,
     loop_id: LoopId,
-    phi_id: Operand,
+    iv: Operand,
   },
 }
 
@@ -237,7 +238,7 @@ impl SCEVArena {
       loop_id,
       start,
       step,
-      phi_id,
+      iv: phi_id,
     })
   }
 }

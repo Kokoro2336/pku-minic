@@ -1,6 +1,7 @@
 //! Optimizer of the compiler.
 
 mod pre;
+mod utils;
 
 mod compaction;
 mod dce;
@@ -17,6 +18,7 @@ mod sccp;
 mod simplify_cfg;
 
 pub use pre::*;
+pub use utils::*;
 
 pub use compaction::*;
 pub use dce::*;
