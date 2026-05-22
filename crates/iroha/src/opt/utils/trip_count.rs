@@ -1,6 +1,6 @@
 //! TripCount for Identifying Loop Induction Variables.
 
-use yachiyo::analysis::{AddRecInfo, LoopData, LoopId, SCEVExpr};
+use yachiyo::analysis::{AddRecInfo, LoopId, SCEVExpr};
 use yachiyo::ir::mid::{OpData, Operand};
 use yachiyo::pass::PassContext;
 
