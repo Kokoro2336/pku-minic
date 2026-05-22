@@ -733,7 +733,7 @@ impl std::fmt::Display for Operand {
 }
 
 /// attributes of instructions
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Attr {
   /// for global var
   GlobalArray {
@@ -752,6 +752,8 @@ pub enum Attr {
   FuncName(String),
   /// Only for GEP now, computing offset in byte rather than in element's size.
   WeakType,
+  /// Explicitly mark an op as dead, so that DCE could remove it.
+  Dead,
 }
 
 impl std::fmt::Display for Attr {
@@ -763,6 +765,7 @@ impl std::fmt::Display for Attr {
       Attr::OldIdx(op) => write!(f, "<old idx: {}>", op),
       Attr::FuncName(name) => write!(f, "<func name: {}>", name),
       Attr::WeakType => write!(f, "<weak>"),
+      Attr::Dead => write!(f, "<dead>"),
     }
   }
 }
@@ -852,7 +855,8 @@ impl Arena<Op> for DFG {
             | Attr::Name(_)
             | Attr::Promotion
             | Attr::FuncName(_)
-            | Attr::WeakType => { /* no idx to rewrite */ }
+            | Attr::WeakType
+            | Attr::Dead => { /* no idx to rewrite */ }
           }
         });
 

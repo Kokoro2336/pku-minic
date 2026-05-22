@@ -343,7 +343,11 @@ impl Lowering {
       .iter()
       .filter_map(|attr| match attr {
         Attr::FuncName(name) | Attr::Name(name) => Some(BAttr::Name(name.clone())),
-        Attr::OldIdx(_) | Attr::Promotion | Attr::WeakType | Attr::GlobalArray { .. } => None,
+        Attr::OldIdx(_)
+        | Attr::Promotion
+        | Attr::WeakType
+        | Attr::GlobalArray { .. }
+        | Attr::Dead => None,
       })
       .collect();
 
@@ -1010,7 +1014,7 @@ impl Lowering {
 
   fn lower_global(&mut self) {
     // Pre-allocate global objects.
-    for global in self.ir.globals.ids() {
+    for global in self.ir.globals.collect() {
       let global_op = &self.ir.globals[global];
       match global_op.data.clone() {
         OpData::GlobalAlloca(_) => {

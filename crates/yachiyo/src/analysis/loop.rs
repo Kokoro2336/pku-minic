@@ -46,6 +46,8 @@ pub struct LoopData {
   pub level: LoopLevel,
   /// All the blocks in the loop, including the header and the blocks in its inner loops.
   pub blocks: BitSet,
+  /// The blocks that are owned by the loop, excluding the blocks in its inner loops.
+  pub owned_blocks: BitSet,
   /// The exit blocks of the loop.
   pub exit_blocks: BitSet,
 }
@@ -57,6 +59,7 @@ impl LoopData {
       parent: None,
       level: INVALID_LOOP_LEVEL,
       blocks: BitSet::new(),
+      owned_blocks: BitSet::new(),
       exit_blocks: BitSet::new(),
     }
   }

@@ -145,6 +145,17 @@ impl LoopAnalysis<'_> {
         lp_parent.blocks |= lp_blocks;
       }
     }
+    for lp_id in (0..self.loops.len()).rev() {
+      let loop_data = &mut self.loops[lp_id.into()];
+      loop_data.owned_blocks = loop_data.blocks.clone();
+    }
+    for lp_id in (0..self.loops.len()).rev() {
+      let lp_blocks = self.loops[lp_id.into()].blocks.clone();
+      let lp_parent = self.loops[lp_id.into()].parent;
+      if let Some(parent_id) = lp_parent {
+        self.loops[parent_id].owned_blocks -= lp_blocks;
+      }
+    }
   }
 
   fn find_exit_blocks(&mut self) {

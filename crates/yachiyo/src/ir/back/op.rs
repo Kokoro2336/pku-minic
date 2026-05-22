@@ -210,7 +210,10 @@ pub enum BOpData {
 impl BOpData {
   pub fn is_move(&self) -> bool {
     match self {
-      BOpData::M(mop_data) => matches!(mop_data, MOpData::Mv { .. } | MOpData::FmvS { .. }),
+      BOpData::M(mop_data) => matches!(
+        mop_data,
+        MOpData::Mv { .. } | MOpData::FmvS { .. }
+      ),
       BOpData::L(lop_data) => matches!(lop_data, LOpData::Move { .. }),
     }
   }
@@ -341,7 +344,7 @@ impl BDFG {
               Xor, Xori, And, Andi,
               FaddS, FsubS, FmulS, FdivS,
               FeqS, FltS, FleS,
-              FcvtWS, FcvtSW, FmvWX, FmvXW,
+              FcvtWS, FcvtSW, FmvDX, FmvXD,
               Lw, Flw, Ld, Fld
           ],
           rd_arm: MOpData(rd) => {
@@ -403,7 +406,7 @@ impl BDFG {
               Xor, Xori, And, Andi,
               FaddS, FsubS, FmulS, FdivS,
               FeqS, FltS, FleS,
-              FcvtWS, FcvtSW, FmvWX, FmvXW,
+              FcvtWS, FcvtSW, FmvDX, FmvXD,
               Lw, Flw, Ld, Fld
           ],
           rd_arm: MOpData(rd) => {
@@ -479,7 +482,7 @@ impl BDFG {
           bin_arm: MOpData { rs1, rs2 } => {
               vec![(rs1, 1), (rs2, 2)]
           },
-          un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
+          un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvDX, FmvXD],
           un_arm: MOpData { rs } => {
               vec![(rs, 1)]
           },
@@ -577,7 +580,7 @@ impl BDFG {
           bin_arm: MOpData { rs1, rs2 } => {
               vec![(rs1, 1), (rs2, 2)]
           },
-          un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
+          un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvDX, FmvXD],
           un_arm: MOpData { rs } => {
               vec![(rs, 1)]
           },

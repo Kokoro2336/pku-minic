@@ -441,13 +441,13 @@ impl AsmFormatCtx<'_> {
           self.format_operand(rd),
           self.format_operand(rs)
         ),
-        MOpData::FmvWX { rd, rs } => format!(
-          "fmv.w.x {}, {}",
+        MOpData::FmvDX { rd, rs } => format!(
+          "fmv.d.x {}, {}",
           self.format_operand(rd),
           self.format_operand(rs)
         ),
-        MOpData::FmvXW { rd, rs } => format!(
-          "fmv.x.w {}, {}",
+        MOpData::FmvXD { rd, rs } => format!(
+          "fmv.x.d {}, {}",
           self.format_operand(rd),
           self.format_operand(rs)
         ),

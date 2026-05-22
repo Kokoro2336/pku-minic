@@ -1,7 +1,7 @@
 //! Dead Code Elimination (DCE).
 
 use yachiyo::analysis::{analyze, Pureness, PurenessResult};
-use yachiyo::ir::mid::{OpData, OpType, Operand, PhiIncoming};
+use yachiyo::ir::mid::{Attr, OpData, OpType, Operand, PhiIncoming};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::match_src;
 use yachiyo::utils::BitSet;
@@ -37,7 +37,7 @@ impl DCE<'_> {
       let block = self.cx.get_bb(Operand::BB(block_id));
       for inst_id in block.cur.iter() {
         let is_impure = self.is_impure(*inst_id);
-        if self.is_dead(inst_id) && !is_impure {
+        if (self.is_dead(inst_id) && !is_impure) || self.cx.has_attr(*inst_id, &Attr::Dead) {
           self.worklist.push_back(*inst_id);
         }
       }
@@ -80,13 +80,17 @@ impl<'a> Pass<'a> for DCE<'a> {
       match operand {
         Operand::Value(id) => {
           let op_id = *id;
-          if this.is_dead(operand) && !this.is_impure(Operand::Value(op_id)) {
+          if (this.is_dead(operand) && !this.is_impure(Operand::Value(op_id)))
+            || this.cx.has_attr(Operand::Value(op_id), &Attr::Dead)
+          {
             this.worklist.push_back(*operand);
           }
         }
         Operand::Global(id) => {
           let global_id = *id;
-          if this.is_dead(operand) && !program.globals[global_id].is_impure() {
+          if (this.is_dead(operand) && !program.globals[global_id].is_impure())
+            || this.cx.has_attr(*operand, &Attr::Dead)
+          {
             this.worklist.push_back(*operand);
           }
         }
@@ -172,8 +176,12 @@ impl<'a> Pass<'a> for DCE<'a> {
                   }
                 }
 
-                OpData::Store { .. }
-                | OpData::Br { .. }
+                OpData::Store { addr, value } => {
+                  check(self, &addr);
+                  check(self, &value);
+                }
+
+                OpData::Br { .. }
                 | OpData::Jump { .. }
                 | OpData::Ret { .. }
                 | OpData::Alloca(_)

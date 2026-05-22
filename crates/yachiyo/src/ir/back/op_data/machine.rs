@@ -184,11 +184,11 @@ pub enum MOpData {
   /// Int to Float conversion.
   FcvtSW { rd: BOperand, rs: BOperand },
 
-  /// Move bit-pattern from Integer to FP register.
+  /// Move 64-bit bit-pattern from Integer to FP register.
   /// Required by RISC-V ABI when passing float args in integer registers.
-  FmvWX { rd: BOperand, rs: BOperand },
-  /// Move bit-pattern from FP to Integer register.
-  FmvXW { rd: BOperand, rs: BOperand },
+  FmvDX { rd: BOperand, rs: BOperand },
+  /// Move 64-bit bit-pattern from FP to Integer register.
+  FmvXD { rd: BOperand, rs: BOperand },
 
   // Memory Access
   Lw {

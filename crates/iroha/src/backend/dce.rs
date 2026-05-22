@@ -178,7 +178,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
                   check(self, rs1);
                   check(self, rs2);
               },
-              un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvWX, FmvXW],
+              un_ops: [Mv, FmvS, FcvtWS, FcvtSW, FmvDX, FmvXD],
               un_arm: MOpData { rs } => {
                   check(self, rs);
               },

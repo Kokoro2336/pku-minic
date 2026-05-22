@@ -119,6 +119,7 @@ fn main() -> Result<()> {
     // Mem2Reg
     .register::<Mem2Reg>()
     .register::<RemoveTrivialPhi>()
+    .register::<HoistArray>()
     // Constant propagation and control flow simplification
     .register::<SCCP>()
     .register::<SimplifyCFG>()
