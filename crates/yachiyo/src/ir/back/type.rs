@@ -29,6 +29,10 @@ impl BType {
     }
   }
   #[inline(always)]
+  pub fn is_float(&self) -> bool {
+    matches!(self, BType::F32 | BType::F64)
+  }
+  #[inline(always)]
   pub fn align(&self) -> u32 {
     match self {
       BType::Void => 1,

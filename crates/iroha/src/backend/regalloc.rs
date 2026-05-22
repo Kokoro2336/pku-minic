@@ -9,7 +9,7 @@ use yachiyo::config::{
 };
 use yachiyo::config::{INT_IMM_MAX, INT_IMM_MIN, REGS_NUM};
 use yachiyo::ir::back::{
-  get_clobbered, BAttr, BFunction, BOp, BOpData, BOperand, BType, BackIR, LOpData, MOpData,
+  get_clobbered, BAttr, BFunction, BOp, BOpData, BOperand, BType, BackIR, FReg, LOpData, MOpData,
   MemInfo, Reg, Slot, XReg,
 };
 use yachiyo::pass::{BPass, BPassContext};
@@ -826,7 +826,7 @@ impl Allocator<'_> {
     }
   }
 
-  fn insert_spills(&mut self) {
+  fn insert_spills(&mut self, available_fpr: &mut BitSet, is_leaf: bool) {
     for spilled in std::mem::take(&mut self.spilled_nodes).iter() {
       let vreg_id = BOperand::Reg(Reg::Virt(spilled));
       let (typ, defs, uses) = {
@@ -835,10 +835,23 @@ impl Allocator<'_> {
         (vreg.typ.clone(), vreg.defs.clone(), vreg.uses.clone())
       };
       // Allocate new slot
-      let slot_id = self.alloc_slot(Slot::Local {
-        typ: typ.clone(),
-        offset: 0,
-      });
+      let slot_id = if self.typ == AllocatorType::Int {
+        if !available_fpr.is_empty() && is_leaf && !typ.is_float() {
+          let reg = available_fpr.iter().next().unwrap();
+          available_fpr.remove(reg);
+          BOperand::Reg(Reg::from(reg as u8))
+        } else {
+          self.alloc_slot(Slot::Local {
+            typ: typ.clone(),
+            offset: 0,
+          })
+        }
+      } else {
+        self.alloc_slot(Slot::Local {
+          typ: typ.clone(),
+          offset: 0,
+        })
+      };
 
       // Insert store after each definition of the spilled node.
       for def in defs {
@@ -849,18 +862,30 @@ impl Allocator<'_> {
         self.cx.set_current_block(bb_id);
         self.cx.set_after_inst(Some(def));
 
-        let store_op = BOp::new(
-          BType::Void,
-          vec![],
-          LOpData::Store {
-            addr: slot_id,
-            value: *self.get_rd(def).unwrap(),
-            val_typ: typ.clone(),
-          }
-          .into(),
-        );
+        let save_op = match slot_id {
+          BOperand::Slot(_) => BOp::new(
+            BType::Void,
+            vec![],
+            LOpData::Store {
+              addr: slot_id,
+              value: *self.get_rd(def).unwrap(),
+              val_typ: typ.clone(),
+            }
+            .into(),
+          ),
+          BOperand::Reg(Reg::F(_)) => BOp::new(
+            BType::F64,
+            vec![],
+            MOpData::FmvDX {
+              rd: slot_id,
+              rs: *self.get_rd(def).unwrap(),
+            }
+            .into(),
+          ),
+          _ => unreachable!(),
+        };
 
-        self.create(store_op);
+        self.create(save_op);
       }
 
       for (r#use, idx) in uses {
@@ -871,17 +896,29 @@ impl Allocator<'_> {
         self.cx.set_current_block(bb_id);
         self.cx.set_before_inst(Some(r#use));
 
-        let load_op = BOp::new(
-          typ.clone(),
-          vec![],
-          LOpData::Load {
-            rd: BOperand::Undef,
-            addr: slot_id,
-          }
-          .into(),
-        );
+        let restore_op = match slot_id {
+          BOperand::Slot(_) => BOp::new(
+            typ.clone(),
+            vec![],
+            LOpData::Load {
+              rd: BOperand::Undef,
+              addr: slot_id,
+            }
+            .into(),
+          ),
+          BOperand::Reg(Reg::F(_)) => BOp::new(
+            typ.clone(),
+            vec![],
+            MOpData::FmvXD {
+              rd: BOperand::Undef,
+              rs: slot_id,
+            }
+            .into(),
+          ),
+          _ => unreachable!(),
+        };
 
-        let load_id = self.create(load_op);
+        let load_id = self.create(restore_op);
         let load_vreg_id = self.get_rd(load_id).cloned().unwrap();
 
         let old_operand = self
@@ -974,7 +1011,7 @@ impl Allocator<'_> {
 
   /// Main function of register allocation.
   /// LiveOuts is the result of current function's liveness analysis, which is used for building the interference graph.
-  fn run(&mut self) {
+  fn run(&mut self, available_fpr: &mut BitSet, is_leaf: bool) {
     let func_id = self.cx.current_func();
     loop {
       // Reset the worklist.
@@ -1049,7 +1086,7 @@ impl Allocator<'_> {
       if self.spilled_nodes.is_empty() {
         break;
       }
-      self.insert_spills();
+      self.insert_spills(available_fpr, is_leaf);
     }
 
     #[cfg(feature = "debug")]
@@ -1067,7 +1104,9 @@ impl Allocator<'_> {
 
 pub struct RegAlloc<'a> {
   cx: BPassContext<'a>,
-  allocators: Vec<Allocator<'a>>,
+
+  fpr_allocator: Allocator<'a>,
+  gpr_allocator: Allocator<'a>,
 
   // ========= Frame Lowering Structures ==========
   /// ra & Saved Registers -> Slot
@@ -1486,6 +1525,12 @@ impl RegAlloc<'_> {
   }
 
   #[inline(always)]
+  fn alloc_and_map_fpr(&mut self, reg: Reg, fpr: Reg) -> BOperand {
+    self.slot_map[u8::from(reg) as usize] = BOperand::Reg(fpr);
+    BOperand::Reg(fpr)
+  }
+
+  #[inline(always)]
   fn alloc_and_map_slot(&mut self, reg: Reg, slot: Slot) -> BOperand {
     let func_id = self.cx.current_func();
     let func = self.cx.get_func_mut(func_id);
@@ -1572,37 +1617,39 @@ impl RegAlloc<'_> {
 
     let sp_offset = -(self.cx.get_func(func_id).frame_info.size() as i32);
 
-    if !(INT_IMM_MIN..=INT_IMM_MAX).contains(&sp_offset) {
-      self.cx.create(BOp::new(
-        BType::I32,
-        vec![],
-        MOpData::Li {
-          rd: RESERVED_REG_BOPRD,
-          imm: sp_offset,
-        }
-        .into(),
-      ));
-      self.cx.create(BOp::new(
-        BType::U64,
-        vec![],
-        MOpData::Add {
-          rd: SP_BOPRD,
-          rs1: SP_BOPRD,
-          rs2: RESERVED_REG_BOPRD,
-        }
-        .into(),
-      ));
-    } else {
-      self.cx.create(BOp::new(
-        BType::U64,
-        vec![],
-        MOpData::Addi {
-          rd: SP_BOPRD,
-          rs1: SP_BOPRD,
-          imm: BOperand::IntImm(sp_offset),
-        }
-        .into(),
-      ));
+    if sp_offset != 0 {
+      if !(INT_IMM_MIN..=INT_IMM_MAX).contains(&sp_offset) {
+        self.cx.create(BOp::new(
+          BType::I32,
+          vec![],
+          MOpData::Li {
+            rd: RESERVED_REG_BOPRD,
+            imm: sp_offset,
+          }
+          .into(),
+        ));
+        self.cx.create(BOp::new(
+          BType::U64,
+          vec![],
+          MOpData::Add {
+            rd: SP_BOPRD,
+            rs1: SP_BOPRD,
+            rs2: RESERVED_REG_BOPRD,
+          }
+          .into(),
+        ));
+      } else {
+        self.cx.create(BOp::new(
+          BType::U64,
+          vec![],
+          MOpData::Addi {
+            rd: SP_BOPRD,
+            rs1: SP_BOPRD,
+            imm: BOperand::IntImm(sp_offset),
+          }
+          .into(),
+        ));
+      }
     }
 
     for saved in 0..self.slot_map.len() {
@@ -1611,6 +1658,19 @@ impl RegAlloc<'_> {
       if slot_id == BOperand::Undef {
         continue;
       }
+      if let BOperand::Reg(Reg::F(_)) = slot_id {
+        self.cx.create(BOp::new(
+          BType::F64,
+          vec![],
+          MOpData::FmvDX {
+            rd: slot_id,
+            rs: BOperand::Reg(Reg::from(saved as u8)),
+          }
+          .into(),
+        ));
+        continue;
+      }
+
       let reg = Reg::from(saved as u8);
       let offset = self.legalize_offset(self.get_offset(slot_id));
       let value = BOperand::Reg(reg);
@@ -1647,6 +1707,19 @@ impl RegAlloc<'_> {
       if slot_id == BOperand::Undef {
         continue;
       }
+      if let BOperand::Reg(Reg::F(_)) = slot_id {
+        self.cx.create(BOp::new(
+          BType::U64,
+          vec![],
+          MOpData::FmvXD {
+            rd: BOperand::Reg(Reg::from(saved as u8)),
+            rs: slot_id,
+          }
+          .into(),
+        ));
+        continue;
+      }
+
       let reg = Reg::from(saved as u8);
       let offset = self.legalize_offset(self.get_offset(slot_id));
       let rd = BOperand::Reg(reg);
@@ -1673,56 +1746,53 @@ impl RegAlloc<'_> {
 
     let sp_offset = self.cx.get_func(func_id).frame_info.size() as i32;
 
-    if !(INT_IMM_MIN..=INT_IMM_MAX).contains(&sp_offset) {
-      self.cx.create(BOp::new(
-        BType::I32,
-        vec![],
-        MOpData::Li {
-          rd: RESERVED_REG_BOPRD,
-          imm: sp_offset,
-        }
-        .into(),
-      ));
-      self.cx.create(BOp::new(
-        BType::U64,
-        vec![],
-        MOpData::Add {
-          rd: SP_BOPRD,
-          rs1: SP_BOPRD,
-          rs2: RESERVED_REG_BOPRD,
-        }
-        .into(),
-      ));
-    } else {
-      self.cx.create(BOp::new(
-        BType::U64,
-        vec![],
-        MOpData::Addi {
-          rd: SP_BOPRD,
-          rs1: SP_BOPRD,
-          imm: BOperand::IntImm(sp_offset),
-        }
-        .into(),
-      ));
+    if sp_offset != 0 {
+      if !(INT_IMM_MIN..=INT_IMM_MAX).contains(&sp_offset) {
+        self.cx.create(BOp::new(
+          BType::I32,
+          vec![],
+          MOpData::Li {
+            rd: RESERVED_REG_BOPRD,
+            imm: sp_offset,
+          }
+          .into(),
+        ));
+        self.cx.create(BOp::new(
+          BType::U64,
+          vec![],
+          MOpData::Add {
+            rd: SP_BOPRD,
+            rs1: SP_BOPRD,
+            rs2: RESERVED_REG_BOPRD,
+          }
+          .into(),
+        ));
+      } else {
+        self.cx.create(BOp::new(
+          BType::U64,
+          vec![],
+          MOpData::Addi {
+            rd: SP_BOPRD,
+            rs1: SP_BOPRD,
+            imm: BOperand::IntImm(sp_offset),
+          }
+          .into(),
+        ));
+      }
     }
   }
 
   /// * Check whether the function is a leaf
   /// * Figure out the used registers
   /// * Allocate space for callee-saved registers & ra.
-  fn alloc_saved(&mut self) {
+  fn alloc_saved(&mut self, available_fpr: &mut BitSet, is_leaf: bool) {
     let func_id = self.cx.current_func();
     let bb_ids = self.cx.get_func(func_id).cfg.ids();
-    let mut is_leaf = true;
 
     for bb_id in bb_ids {
       let bb_id = BOperand::BB(bb_id);
       let inst_ids = self.cx.get_bb(bb_id).cur.clone();
       for inst_id in inst_ids {
-        let data = self.cx.get_op_data(inst_id);
-        if data.is_call() {
-          is_leaf = false;
-        }
         let src = self
           .cx
           .get_src(inst_id)
@@ -1745,29 +1815,34 @@ impl RegAlloc<'_> {
       }
     }
 
-    // If the function is not a leaf, we should allocate space for ra.
-    if !is_leaf {
-      // Emm...though ra is actually caller-saved, we still allocate CalleeSaved for it.
-      self.alloc_and_map_slot(
-        Reg::X(XReg::Ra),
-        Slot::CalleeSaved {
-          typ: BType::U64,
-          offset: 0,
-        },
-      );
-    }
     // Allocate space for used callee-saved registers.
     let mut used_callee_saved = Self::get_callee_saved_bitset();
     used_callee_saved.bitand_assign(&self.used_phys);
+
+    let mut try_alloc_fpr = |reg: Reg| {
+      if !available_fpr.is_empty() && is_leaf && !matches!(reg, Reg::F(_)) {
+        let fpr = available_fpr.iter().next().unwrap();
+        available_fpr.remove(fpr);
+        self.alloc_and_map_fpr(reg, Reg::from(fpr as u8));
+      } else {
+        self.alloc_and_map_slot(
+          reg,
+          Slot::CalleeSaved {
+            typ: BType::U64,
+            offset: 0,
+          },
+        );
+      }
+    };
+
+    // If the function is not a leaf, we should allocate space for ra.
+    if !is_leaf {
+      // Emm...though ra is actually caller-saved, we still allocate CalleeSaved for it.
+      try_alloc_fpr(Reg::X(XReg::Ra));
+    }
     for reg in used_callee_saved.iter() {
       let reg = Reg::from(reg as u8);
-      self.alloc_and_map_slot(
-        reg,
-        Slot::CalleeSaved {
-          typ: BType::U64,
-          offset: 0,
-        },
-      );
+      try_alloc_fpr(reg);
     }
   }
 
@@ -2009,11 +2084,8 @@ impl Default for RegAlloc<'_> {
       cx: BPassContext::default(),
       slot_map: Vec::new(),
       used_phys: BitSet::new(),
-      allocators: vec![
-        // Run float first.
-        Allocator::new(AllocatorType::Float),
-        Allocator::new(AllocatorType::Int),
-      ],
+      fpr_allocator: Allocator::new(AllocatorType::Float),
+      gpr_allocator: Allocator::new(AllocatorType::Int),
     }
   }
 }
@@ -2029,11 +2101,10 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
 
   fn run(&mut self) {
     // Mount IR on allocators
-    for allocator in self.allocators.iter_mut() {
-      let ir_ptr = self.cx.ir_mut() as *mut BackIR;
-      unsafe {
-        allocator.cx.mount(&mut *ir_ptr);
-      }
+    let ir_ptr = self.cx.ir_mut() as *mut BackIR;
+    unsafe {
+      self.fpr_allocator.cx.mount(&mut *ir_ptr);
+      self.gpr_allocator.cx.mount(&mut *ir_ptr);
     }
 
     for func_id in self.cx.ir().funcs.collect_internal() {
@@ -2041,16 +2112,44 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
       self.init(func_id);
       self.reset();
 
+      // Check whether the function is a leaf.
+      let mut is_leaf = true;
+
+      for bb_id in self.cx.get_func(func_id).cfg.collect() {
+        let bb_id = BOperand::BB(bb_id);
+        let inst_ids = self.cx.get_bb(bb_id).cur.clone();
+        for inst_id in inst_ids {
+          let data = self.cx.get_op_data(inst_id);
+          if data.is_call() {
+            is_leaf = false;
+          }
+        }
+      }
+
       // ========== RA Phase ==========
       self.fold_zero_ptr_adds();
-      for allocator in self.allocators.iter_mut() {
-        allocator.init(func_id);
-        allocator.run();
+
+      // Allocate floats.
+      let mut available_fpr = BitSet::new();
+      for freg in FReg::nums() {
+        available_fpr.insert(freg as usize);
       }
+      self.fpr_allocator.init(func_id);
+      self.fpr_allocator.run(&mut available_fpr, is_leaf);
+
+      self.fpr_allocator.color.iter().for_each(|color| {
+        if let Some(color) = color {
+          available_fpr.remove(u8::from(*color) as usize);
+        }
+      });
+
+      // Allocate ints.
+      self.gpr_allocator.init(func_id);
+      self.gpr_allocator.run(&mut available_fpr, is_leaf);
 
       // ========== Post-RA Phase ==========
       // Pre checking
-      self.alloc_saved();
+      self.alloc_saved(&mut available_fpr, is_leaf);
       // Build stack frame
       let func = self.cx.get_func_mut(func_id);
       func.frame_info.build();

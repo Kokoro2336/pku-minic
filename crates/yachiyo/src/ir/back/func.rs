@@ -492,7 +492,7 @@ impl Arena<BFunction> for BCG {
                                         remap_with_vregs(rs2, &old_arena_vregs);
                                     }
                                 },
-                                un_ops: [FcvtWS, FcvtSW, FmvWX, FmvXW, Mv, FmvS],
+                                un_ops: [FcvtWS, FcvtSW, FmvDX, FmvXD, Mv, FmvS],
                                 un_arm: MOpData { rd, rs } => {
                                     if rd.is_virt() {
                                         remap_with_vregs(rd, &old_arena_vregs);

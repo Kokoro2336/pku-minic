@@ -1,5 +1,7 @@
 //! Register definitions of BackIR.
 
+use std::ops::Range;
+
 use crate::config::{CALLER_SAVED_FREGS, CALLER_SAVED_XREGS};
 
 #[repr(u8)]
@@ -242,6 +244,10 @@ impl FReg {
       FReg::Fa6,
       FReg::Fa7,
     ]
+  }
+  #[inline(always)]
+  pub fn nums() -> Range<u8> {
+    32..63
   }
 }
 
