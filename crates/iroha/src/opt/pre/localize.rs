@@ -18,8 +18,10 @@ pub struct Localize<'a> {
   mem_insts: Vec<FxHashMap<Operand, Vec<Operand>>>,
   /// FuncId -> Call/Ret Ids
   barriers: Vec<Vec<Operand>>,
-  /// FuncId -> GlobalId used by the function indirectly through calls
-  might_used_globals: Vec<BitSet>,
+  /// FuncId -> GlobalId read by the function directly or indirectly through calls
+  might_read_globals: Vec<BitSet>,
+  /// FuncId -> GlobalId written by the function directly or indirectly through calls
+  might_write_globals: Vec<BitSet>,
 }
 
 impl Localize<'_> {
@@ -37,9 +39,21 @@ impl Localize<'_> {
 
   fn run(&mut self) {
     let func_id = self.cx.current_func();
+    let mut only_load = BitSet::new();
+
     let globals = self.mem_insts[func_id.get_func_id()]
-      .keys()
-      .cloned()
+      .iter()
+      // Find out globals that are read only in the function. We don't need to update their
+      // backing storage before calls.
+      .map(|(global, insts)| {
+        if insts
+          .iter()
+          .all(|inst| matches!(self.cx.get_op_data(*inst), OpData::Load { .. }))
+        {
+          only_load.insert(global.get_global_id());
+        }
+        *global
+      })
       .collect::<Vec<_>>();
     let entry = self.cx.get_func(func_id).cfg.entry.unwrap();
     self.cx.set_current_block(Operand::BB(entry));
@@ -49,7 +63,7 @@ impl Localize<'_> {
       let global_typ = self.cx.get_op_type(global);
       let alloca_id = self.cx.create_at_head(Op::new(
         global_typ.clone(),
-        vec![],
+        vec![Attr::Promotion],
         OpData::Alloca(global_typ.unwrap_ptr()),
       ));
 
@@ -94,40 +108,54 @@ impl Localize<'_> {
         let op_data = guard.get_op_data(barrier).clone();
         match op_data {
           OpData::Call { func, .. } => {
-            if !self.might_used_globals[func.get_func_id()].contains(global.get_global_id()) {
+            let global_id = global.get_global_id();
+            let callee_reads = self.might_read_globals[func.get_func_id()].contains(global_id);
+            let callee_writes = self.might_write_globals[func.get_func_id()].contains(global_id);
+            if !callee_reads && !callee_writes {
               continue;
             }
 
-            guard.set_before_inst(Some(barrier));
-            let load_alloca_id = guard.create(Op::new(
-              global_typ.unwrap_ptr(),
-              vec![],
-              OpData::Load { addr: alloca_id },
-            ));
-            guard.create(Op::new(
-              Type::Void,
-              vec![],
-              OpData::Store {
-                addr: global,
-                value: load_alloca_id,
-              },
-            ));
-            guard.set_after_inst(Some(barrier));
-            let load_global_id = guard.create(Op::new(
-              global_typ.unwrap_ptr(),
-              vec![],
-              OpData::Load { addr: global },
-            ));
-            guard.create(Op::new(
-              Type::Void,
-              vec![],
-              OpData::Store {
-                addr: alloca_id,
-                value: load_global_id,
-              },
-            ));
+            // If the callee may read the global, flush the caller's localized value first.
+            if callee_reads && !only_load.contains(global_id) {
+              guard.set_before_inst(Some(barrier));
+              let load_alloca_id = guard.create(Op::new(
+                global_typ.unwrap_ptr(),
+                vec![],
+                OpData::Load { addr: alloca_id },
+              ));
+              guard.create(Op::new(
+                Type::Void,
+                vec![],
+                OpData::Store {
+                  addr: global,
+                  value: load_alloca_id,
+                },
+              ));
+            }
+
+            // If the callee may write the global, reload the localized value afterwards.
+            if callee_writes {
+              guard.set_after_inst(Some(barrier));
+              let load_global_id = guard.create(Op::new(
+                global_typ.unwrap_ptr(),
+                vec![],
+                OpData::Load { addr: global },
+              ));
+              guard.create(Op::new(
+                Type::Void,
+                vec![],
+                OpData::Store {
+                  addr: alloca_id,
+                  value: load_global_id,
+                },
+              ));
+            }
           }
           OpData::Ret { .. } => {
+            if only_load.contains(global.get_global_id()) {
+              continue;
+            }
+
             guard.set_before_inst(Some(barrier));
             let load_alloca_id = guard.create(Op::new(
               global_typ.unwrap_ptr(),
@@ -162,7 +190,8 @@ impl<'a> Pass<'a> for Localize<'a> {
     let funcs_len = self.cx.ir().funcs.len();
     self.mem_insts.resize(funcs_len, FxHashMap::default());
     self.barriers.resize(funcs_len, Vec::new());
-    self.might_used_globals.resize(funcs_len, BitSet::new());
+    self.might_read_globals.resize(funcs_len, BitSet::new());
+    self.might_write_globals.resize(funcs_len, BitSet::new());
 
     // Iterate over each function,
     for func_id in self.cx.ir().funcs.collect_internal() {
@@ -175,15 +204,25 @@ impl<'a> Pass<'a> for Localize<'a> {
         for inst in cur {
           let op_data = self.cx.get_op_data(inst);
           match op_data {
-            OpData::Load { addr } | OpData::Store { addr, .. } => {
+            OpData::Load { addr } => {
               if matches!(addr, Operand::Global(_)) && self.is_mutable_global(*addr) {
                 self.mem_insts[func_id.get_func_id()]
                   .entry(*addr)
                   .or_default()
                   .push(inst);
-                // Update might-used globals
                 if let Operand::Global(global_id) = addr {
-                  self.might_used_globals[func_id.get_func_id()].insert(*global_id);
+                  self.might_read_globals[func_id.get_func_id()].insert(*global_id);
+                }
+              }
+            }
+            OpData::Store { addr, .. } => {
+              if matches!(addr, Operand::Global(_)) && self.is_mutable_global(*addr) {
+                self.mem_insts[func_id.get_func_id()]
+                  .entry(*addr)
+                  .or_default()
+                  .push(inst);
+                if let Operand::Global(global_id) = addr {
+                  self.might_write_globals[func_id.get_func_id()].insert(*global_id);
                 }
               }
             }
@@ -198,7 +237,7 @@ impl<'a> Pass<'a> for Localize<'a> {
 
     let func_ids = self.cx.ir().funcs.collect_internal();
 
-    // Reversely propagate might-used globals through call graph
+    // Reversely propagate global reads/writes through call graph.
     let call_graph = &*self.cx.analyze::<CallGraphAnalysis>(self.cx.ir());
     let CallGraph {
       callers, callees, ..
@@ -209,12 +248,17 @@ impl<'a> Pass<'a> for Localize<'a> {
     }
 
     while let Some(func_id) = worklist.pop_front() {
-      let used_globals = self.might_used_globals[func_id.get_func_id()].clone();
+      let read_globals = self.might_read_globals[func_id.get_func_id()].clone();
+      let write_globals = self.might_write_globals[func_id.get_func_id()].clone();
       for &callee in &callees[func_id.get_func_id()] {
-        let callee_used_globals = self.might_used_globals[callee.get_func_id()].clone();
-        self.might_used_globals[func_id.get_func_id()] |= callee_used_globals;
+        let callee_read_globals = self.might_read_globals[callee.get_func_id()].clone();
+        let callee_write_globals = self.might_write_globals[callee.get_func_id()].clone();
+        self.might_read_globals[func_id.get_func_id()] |= callee_read_globals;
+        self.might_write_globals[func_id.get_func_id()] |= callee_write_globals;
       }
-      if used_globals != self.might_used_globals[func_id.get_func_id()] {
+      if read_globals != self.might_read_globals[func_id.get_func_id()]
+        || write_globals != self.might_write_globals[func_id.get_func_id()]
+      {
         for &caller in &callers[func_id.get_func_id()] {
           worklist.push_back(caller);
         }
