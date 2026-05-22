@@ -16,6 +16,7 @@ mod mem2reg;
 mod remove_trivial_phi;
 mod sccp;
 mod simplify_cfg;
+mod hoist_array;
 
 pub use pre::*;
 pub use utils::*;
@@ -33,3 +34,4 @@ pub use mem2reg::*;
 pub use remove_trivial_phi::*;
 pub use sccp::*;
 pub use simplify_cfg::*;
+pub use hoist_array::*;

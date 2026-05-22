@@ -8,7 +8,7 @@ use crate::base::Type;
 use crate::cli::Cli;
 use crate::debug::DumpLLVM;
 use crate::ir::mid::{
-  BasicBlock, Builder, Function, Globals, LoopInfo, Op, OpData, OpType, Operand, PhiIncoming, IR,
+  BasicBlock, Builder, Function, Globals, LoopInfo, Op, OpData, OpType, Operand, PhiIncoming, IR, Attr
 };
 use crate::pass::{AnalysisRef, AnalysisRefMut};
 
@@ -562,6 +562,24 @@ impl<'a> PassContext<'a> {
       Operand::Global(_) => &self.ir().globals[op_id],
       _ => unreachable!("Expected Value or Global operand, got {:?}", op_id),
     }
+  }
+
+  #[inline(always)]
+  pub fn has_attr(&self, op_id: Operand, attr: &Attr) -> bool {
+    self.get_op(op_id).attrs.contains(attr)
+  }
+
+  #[inline(always)]
+  pub fn add_attr(&mut self, op_id: Operand, attr: Attr) {
+    let op = self.get_op_mut(op_id);
+    if !op.attrs.contains(&attr) {
+      op.attrs.push(attr);
+    }
+  }
+
+  #[inline(always)]
+  pub fn get_attrs(&self, op_id: Operand) -> &[Attr] {
+    &self.get_op(op_id).attrs
   }
 
   #[inline(always)]

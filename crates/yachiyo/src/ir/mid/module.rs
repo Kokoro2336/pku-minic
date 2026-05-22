@@ -512,6 +512,42 @@ impl IR {
     old: Operand,
     new: Operand,
   ) {
+    if current_function.is_none() {
+      match old {
+        Operand::Global(_) => {
+          let users_by_func = self
+            .global_uses
+            .0
+            .iter()
+            .enumerate()
+            .filter_map(|(func_id, global_uses)| {
+              let users = global_uses.users(old).to_vec();
+              (!users.is_empty()).then_some((Operand::Func(func_id), users))
+            })
+            .collect::<Vec<_>>();
+
+          for (func_id, users) in users_by_func {
+            for use_op in users {
+              self.replace_use(Some(func_id), use_op, old, new);
+            }
+          }
+        }
+        Operand::Int(_)
+        | Operand::Float(_)
+        | Operand::Bool(_)
+        | Operand::Undefined
+        | Operand::Func(_)
+        | Operand::BB(_) => {}
+        Operand::Value(_) | Operand::Param(_) => {
+          panic!(
+            "IR replace_all_uses: function-local operand {:?} requires current function",
+            old
+          );
+        }
+      }
+      return;
+    }
+
     let users = self.users(current_function, old).to_vec();
     for use_op in users {
       self.replace_use(current_function, use_op, old, new);

@@ -4,7 +4,6 @@ use yachiyo::analysis::{analyze, Analysis, LoopId, SCEVExpr, SCEVId};
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{Attr, Op, OpData, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
-use yachiyo::utils::BitSet;
 
 use crate::analysis::{DomAnalysis, LoopAnalysis, SCEV};
 
@@ -16,7 +15,6 @@ pub struct LSR<'a> {
   cx: PassContext<'a>,
   /// Old Address Id -> Materialized Address Id(The phi)
   addr_cache: FxHashMap<AddrCacheKey, Operand>,
-  visited: BitSet,
 }
 
 #[derive(PartialEq, Eq, Hash, Clone)]
@@ -66,9 +64,7 @@ impl LSR<'_> {
         .iter()
         .all(|&expr_id| self.is_materializable(expr_id, scev, pre_header_id, loop_id)),
       SCEVExpr::AddRec {
-        loop_id: lp_id,
-        iv,
-        ..
+        loop_id: lp_id, iv, ..
       } => {
         lp_id != loop_id
           && scev.loops.is_ancestor(lp_id, loop_id)
@@ -138,7 +134,7 @@ impl LSR<'_> {
   fn run(&mut self, scev: &mut SCEV) {
     for loop_id in (0..scev.loops.len()).rev() {
       let loop_id: LoopId = loop_id.into();
-      let to_visit = &scev.loops[loop_id].blocks - &self.visited;
+      let to_visit = scev.loops[loop_id].owned_blocks.clone();
 
       for bb_id in to_visit.iter() {
         let bb_id = Operand::BB(bb_id);

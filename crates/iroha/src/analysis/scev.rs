@@ -372,9 +372,59 @@ impl SCEV<'_> {
     self.affine_to_scev_expr(&offset)
   }
 
+  pub fn depends_only_on(&self, scev_id: SCEVId, dep: SCEVId) -> bool {
+    let mut deps = FxHashSet::default();
+    self.find_deps(scev_id, &mut deps);
+
+    deps.len() == 1 && deps.contains(&dep)
+  }
+
+  pub fn compute_const(&self, scev_id: SCEVId) -> i64 {
+    self.compute_const_rec(scev_id)
+  }
+
+  fn compute_const_rec(&self, scev_id: SCEVId) -> i64 {
+    match &self[scev_id] {
+      SCEVExpr::Const(c) => *c,
+      SCEVExpr::Unknown(_) | SCEVExpr::AddRec { .. } => 0,
+      SCEVExpr::Add(operands) => operands
+        .iter()
+        .map(|operand| self.compute_const_rec(*operand))
+        .sum(),
+      SCEVExpr::Mul(operands) => operands
+        .iter()
+        .map(|operand| self.compute_const_rec(*operand))
+        .product(),
+    }
+  }
+
+  fn find_deps(&self, scev_id: SCEVId, deps: &mut FxHashSet<SCEVId>) {
+    match &self[scev_id] {
+      SCEVExpr::Const(_) => {}
+
+      SCEVExpr::Unknown(_) => {
+        deps.insert(scev_id);
+      }
+
+      SCEVExpr::Add(operands) | SCEVExpr::Mul(operands) => {
+        for operand in operands {
+          self.find_deps(*operand, deps);
+        }
+      }
+
+      SCEVExpr::AddRec { .. } => {
+        deps.insert(scev_id);
+      }
+    }
+  }
+
   /// For normal instructions
   pub fn get_op_scev(&mut self, op: Operand) -> SCEVId {
     self.trace_op(op)
+  }
+
+  pub fn get_id(&mut self, scev_expr: SCEVExpr) -> SCEVId {
+    self.arena.dedup(scev_expr)
   }
 }
 

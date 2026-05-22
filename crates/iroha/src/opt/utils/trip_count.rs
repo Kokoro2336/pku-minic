@@ -10,20 +10,16 @@ use crate::analysis::SCEV;
 /// Canonicalized Loop Trip Count.
 /// Only support loops with const start, step and bound for now.
 pub struct TripCount {
-  iv: Operand,
-  start: SCEVExpr,
-  step: SCEVExpr,
-  bound: SCEVExpr,
-  reverse: bool,
+  pub iv: Operand,
+  pub start: SCEVExpr,
+  pub step: SCEVExpr,
+  pub bound: SCEVExpr,
+  pub reverse: bool,
 }
 
 impl TripCount {
-  pub fn try_build(
-    cx: &PassContext,
-    scev: &mut SCEV,
-    lp_id: LoopId,
-    loop_data: &LoopData,
-  ) -> Option<Self> {
+  pub fn try_build(cx: &PassContext, scev: &mut SCEV, lp_id: LoopId) -> Option<Self> {
+    let loop_data = &scev.loops[lp_id];
     let header_id = loop_data.header;
     let header_term = cx.get_term(header_id);
     let header_term_data = cx.get_op_data(header_term);
