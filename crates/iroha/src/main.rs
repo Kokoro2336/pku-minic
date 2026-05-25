@@ -193,6 +193,7 @@ fn main() -> Result<()> {
     .register::<InstCombine>()
     .register::<BDCE>()
     .register::<BCompaction>()
+    .register::<BlockResorting>()
     // Register Allocation
     .register::<RegAlloc>()
     // Post RA Clean up

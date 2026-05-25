@@ -210,10 +210,7 @@ pub enum BOpData {
 impl BOpData {
   pub fn is_move(&self) -> bool {
     match self {
-      BOpData::M(mop_data) => matches!(
-        mop_data,
-        MOpData::Mv { .. } | MOpData::FmvS { .. }
-      ),
+      BOpData::M(mop_data) => matches!(mop_data, MOpData::Mv { .. } | MOpData::FmvS { .. }),
       BOpData::L(lop_data) => matches!(lop_data, LOpData::Move { .. }),
     }
   }

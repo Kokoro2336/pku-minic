@@ -4,10 +4,10 @@
 use crate::analysis::DomAnalysis;
 
 use yachiyo::analysis::{analyze, Analysis, DomTree, LoopData, LoopId, Loops};
-use yachiyo::ir::mid::{Function, Operand};
+use yachiyo::ir::mid::Operand;
 
 pub struct LoopAnalysis<'a> {
-  func: &'a Function,
+  graph: &'a [(Vec<usize>, Vec<usize>)],
   /// LoopId -> LoopData
   loops: Loops,
   /// BBId -> LoopId
@@ -16,23 +16,46 @@ pub struct LoopAnalysis<'a> {
 
 impl LoopAnalysis<'_> {
   fn init(&mut self) {
-    let cfg_len = self.func.cfg.len();
+    let cfg_len = self.graph.len();
     self.loops.clear();
     self.block_to_loop.clear();
     self.block_to_loop.resize(cfg_len, None);
   }
 
+  fn dpo_rec(&self, order: &mut Vec<usize>, visited: &mut [bool], bb_id: usize) {
+    if visited[bb_id] {
+      return;
+    }
+    visited[bb_id] = true;
+
+    for succ_id in &self.graph[bb_id].1 {
+      self.dpo_rec(order, visited, *succ_id);
+    }
+
+    order.push(bb_id);
+  }
+
+  fn dpo(&self) -> Vec<usize> {
+    let mut order = vec![];
+    if self.graph.is_empty() {
+      return order;
+    }
+
+    let mut visited = vec![false; self.graph.len()];
+    self.dpo_rec(&mut order, &mut visited, 0);
+    order
+  }
+
   /// Traverse the CFG in reverse post-order and find natural loops.
   fn find_loop_header(&mut self, dom_tree: &DomTree) {
-    let bbs_dpo = self.func.cfg.dpo();
+    let bbs_dpo = self.dpo();
 
     // RPO traversal
     for bb_id in bbs_dpo.into_iter().rev() {
-      let bb = &self.func.cfg[bb_id];
-      for (pred_id, _) in &bb.preds {
-        if dom_tree.is_dom(bb_id.get_bb_id(), pred_id.get_bb_id()) {
-          self.loops.push(LoopData::new(bb_id));
-          self.block_to_loop[bb_id.get_bb_id()] = Some((self.loops.len() - 1).into());
+      for pred_id in &self.graph[bb_id].0 {
+        if dom_tree.is_dom(bb_id, *pred_id) {
+          self.loops.push(LoopData::new(Operand::BB(bb_id)));
+          self.block_to_loop[bb_id] = Some((self.loops.len() - 1).into());
           break;
         }
       }
@@ -46,25 +69,26 @@ impl LoopAnalysis<'_> {
       // Start from the dominated pred of the header.
       {
         let lp = &self.loops[lp_id.into()];
+        let header_id = lp.header.get_bb_id();
         stack.extend(
-          self.func.cfg[lp.header]
-            .preds
+          self.graph[header_id]
+            .0
             .iter()
-            .filter(|(pred_id, _)| dom_tree.is_dom(lp.header.get_bb_id(), pred_id.get_bb_id()))
-            .map(|(pred_id, _)| *pred_id),
+            .filter(|pred_id| dom_tree.is_dom(header_id, **pred_id))
+            .copied(),
         );
       }
       while let Some(node) = stack.pop() {
         // Add the block to the loop
-        self.loops[lp_id.into()].blocks.insert(node.get_bb_id());
+        self.loops[lp_id.into()].blocks.insert(node);
 
-        let continue_dfs: Option<Operand>;
-        match self.block_to_loop[node.get_bb_id()] {
+        let continue_dfs: Option<usize>;
+        match self.block_to_loop[node] {
           None => {
             // If the block is not assigned to any loop, it indicates that the block is part of lp.
             // Regular blocks of lp's inner loop should all have been assigned a loop.
             // Header blocks should have been assigned a loop in find_loop_header.
-            self.block_to_loop[node.get_bb_id()] = Some(lp_id.into());
+            self.block_to_loop[node] = Some(lp_id.into());
             // As the block is a regular block, the tracing should continue.
             continue_dfs = Some(node);
           }
@@ -87,7 +111,7 @@ impl LoopAnalysis<'_> {
                   // Unknown inner loop of lp
                   self.loops[node_loop].parent = Some(lp_id.into());
                   // Jump to the inner loop header to continue tracing, as the inner loop header should have been assigned a loop in find_loop_header.
-                  continue_dfs = Some(self.loops[node_loop].header);
+                  continue_dfs = Some(self.loops[node_loop].header.get_bb_id());
                 }
               }
               Some(_) => {
@@ -100,11 +124,11 @@ impl LoopAnalysis<'_> {
         match continue_dfs {
           Some(node) => stack.extend(
             // Continue processing the preds of the block.
-            self.func.cfg[node]
-              .preds
+            self.graph[node]
+              .0
               .iter()
               // Push all the preds, not the dominated one.
-              .map(|(pred_id, _)| *pred_id),
+              .copied(),
           ),
           None => { /*No upstream block to process, do nothing*/ }
         }
@@ -162,10 +186,9 @@ impl LoopAnalysis<'_> {
     for lp_id in 0..self.loops.len() {
       let lp = &mut self.loops[lp_id.into()];
       for block_id in lp.blocks.iter() {
-        let block = &self.func.cfg[block_id];
-        for (succ_id, _) in &block.succs {
-          if !lp.blocks.contains(succ_id.get_bb_id()) {
-            lp.exit_blocks.insert(succ_id.get_bb_id());
+        for succ_id in &self.graph[block_id].1 {
+          if !lp.blocks.contains(*succ_id) {
+            lp.exit_blocks.insert(*succ_id);
           }
         }
       }
@@ -174,7 +197,7 @@ impl LoopAnalysis<'_> {
 }
 
 impl<'a> Analysis for LoopAnalysis<'a> {
-  type Input = &'a Function;
+  type Input = &'a [(Vec<usize>, Vec<usize>)];
   type Output = (Loops, Vec<Option<LoopId>>);
 
   fn name() -> &'static str {
@@ -182,13 +205,13 @@ impl<'a> Analysis for LoopAnalysis<'a> {
   }
   fn new(input: Self::Input) -> Self {
     Self {
-      func: input,
+      graph: input,
       loops: Loops::default(),
       block_to_loop: Vec::new(),
     }
   }
   fn run(&mut self) -> Self::Output {
-    let (dom_tree, _) = analyze::<DomAnalysis>(self.func);
+    let (dom_tree, _) = analyze::<DomAnalysis>(self.graph);
     self.init();
     self.find_loop_header(&dom_tree);
     self.discover_loop_blocks(&dom_tree);

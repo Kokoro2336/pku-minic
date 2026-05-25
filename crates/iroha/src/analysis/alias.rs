@@ -93,7 +93,7 @@ impl AliasAnalysis<'_, '_, '_> {
       };
     }
 
-    let current_func = cx.current_func();
+    let current_func = cx.get_current_func_id();
     if Self::in_progress(visiting, current_func, a_mem_loc, b_mem_loc) {
       return AliasResult::MayAlias;
     }
@@ -122,7 +122,7 @@ impl AliasAnalysis<'_, '_, '_> {
       (Operand::Global(_), Operand::Global(_)) => AliasResult::NoAlias,
 
       (Operand::Param(a_idx), Operand::Param(b_idx)) => {
-        let callee_id = cx.current_func();
+        let callee_id = cx.get_current_func_id();
         let call_sites_info = call_graph.get_call_sites_by_callee(callee_id);
         let mut saw_no = false;
         let mut saw_must = false;
@@ -170,7 +170,7 @@ impl AliasAnalysis<'_, '_, '_> {
       }
 
       (Operand::Param(idx), Operand::Global(_)) | (Operand::Global(_), Operand::Param(idx)) => {
-        let callee_id = cx.current_func();
+        let callee_id = cx.get_current_func_id();
         let call_sites_info = call_graph.get_call_sites_by_callee(callee_id);
         let mut saw_no = false;
         let mut saw_must = false;

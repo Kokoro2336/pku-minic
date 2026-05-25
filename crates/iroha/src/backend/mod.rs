@@ -1,5 +1,6 @@
 //! Backend.
 
+mod block_resorting;
 mod branch_folding;
 mod canonicalize;
 mod compaction;
@@ -12,6 +13,7 @@ mod peephole;
 mod regalloc;
 mod strength_reduct;
 
+pub use block_resorting::*;
 pub use branch_folding::*;
 pub use canonicalize::*;
 pub use compaction::*;

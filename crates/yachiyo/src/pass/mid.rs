@@ -8,7 +8,8 @@ use crate::base::Type;
 use crate::cli::Cli;
 use crate::debug::DumpLLVM;
 use crate::ir::mid::{
-  BasicBlock, Builder, Function, Globals, LoopInfo, Op, OpData, OpType, Operand, PhiIncoming, IR, Attr
+  Attr, BasicBlock, Builder, Function, Globals, LoopInfo, Op, OpData, OpType, Operand, PhiIncoming,
+  IR,
 };
 use crate::pass::{AnalysisRef, AnalysisRefMut};
 
@@ -107,11 +108,19 @@ impl<'a> PassContext<'a> {
     self.builder.current_function
   }
 
-  pub fn current_func(&self) -> Operand {
+  pub fn get_current_func_id(&self) -> Operand {
     self
       .builder
       .current_function
       .expect("PassContext: current function is None")
+  }
+
+  pub fn current_func(&self) -> &Function {
+    self.get_func(self.get_current_func_id())
+  }
+
+  pub fn current_func_mut(&mut self) -> &mut Function {
+    self.get_func_mut(self.get_current_func_id())
   }
 
   pub fn current_block(&self) -> Option<Operand> {
@@ -154,6 +163,25 @@ impl<'a> PassContext<'a> {
 
   pub fn get_func_mut(&mut self, func_id: Operand) -> &mut Function {
     &mut self.ir_mut().funcs[func_id]
+  }
+
+  pub fn extract_cfg(&self) -> Vec<(Vec<usize>, Vec<usize>)> {
+    let func = self.current_func();
+    let mut graph = vec![(vec![], vec![]); func.cfg.len()];
+    for bb_id in func.cfg.collect() {
+      let bb = &func.cfg[Operand::BB(bb_id)];
+      graph[bb_id] = (
+        bb.preds
+          .iter()
+          .map(|(pred_id, _)| pred_id.get_bb_id())
+          .collect(),
+        bb.succs
+          .iter()
+          .map(|(succ_id, _)| succ_id.get_bb_id())
+          .collect(),
+      );
+    }
+    graph
   }
 
   pub fn get_pre_header_id(&self, header_id: Operand, dom_tree: &DomTree) -> Option<Operand> {
@@ -244,7 +272,7 @@ impl<'a> PassContext<'a> {
   }
 
   pub fn get_op_type(&self, operand: Operand) -> Type {
-    let func_id = self.current_func();
+    let func_id = self.get_current_func_id();
 
     match operand {
       Operand::Value(_) => self.get_op(operand).typ.clone(),
@@ -262,7 +290,7 @@ impl<'a> PassContext<'a> {
   }
 
   pub fn op_bb(&self, op_id: Operand) -> Operand {
-    self.get_func(self.current_func()).op_to_bb[op_id]
+    self.get_func(self.get_current_func_id()).op_to_bb[op_id]
   }
 
   pub fn create(&mut self, op: Op) -> Operand {
@@ -497,7 +525,7 @@ impl<'a> PassContext<'a> {
     match operand {
       Operand::Global(_) => mem_loc.base = operand,
       Operand::Param(_) => {
-        let func_id = self.current_func();
+        let func_id = self.get_current_func_id();
         let param_typ = &self.get_func(func_id).params[operand].typ;
         if matches!(param_typ, Type::Pointer { .. }) {
           mem_loc.base = operand;
@@ -556,7 +584,7 @@ impl<'a> PassContext<'a> {
 
   #[inline(always)]
   pub fn get_op(&self, op_id: Operand) -> &Op {
-    let func_id = self.current_func();
+    let func_id = self.get_current_func_id();
     match op_id {
       Operand::Value(_) => &self.get_func(func_id).dfg[op_id],
       Operand::Global(_) => &self.ir().globals[op_id],
@@ -584,7 +612,7 @@ impl<'a> PassContext<'a> {
 
   #[inline(always)]
   pub fn get_op_mut(&mut self, op_id: Operand) -> &mut Op {
-    let func_id = self.current_func();
+    let func_id = self.get_current_func_id();
     match op_id {
       Operand::Value(_) => &mut self.get_func_mut(func_id).dfg[op_id],
       Operand::Global(_) => &mut self.ir_mut().globals[op_id],
@@ -594,13 +622,13 @@ impl<'a> PassContext<'a> {
 
   #[inline(always)]
   pub fn get_bb(&self, bb_id: Operand) -> &BasicBlock {
-    let func_id = self.current_func();
+    let func_id = self.get_current_func_id();
     &self.get_func(func_id).cfg[bb_id]
   }
 
   #[inline(always)]
   pub fn get_bb_mut(&mut self, bb_id: Operand) -> &mut BasicBlock {
-    let func_id = self.current_func();
+    let func_id = self.get_current_func_id();
     &mut self.get_func_mut(func_id).cfg[bb_id]
   }
 

@@ -172,7 +172,7 @@ impl RemoveTrivialPhi<'_> {
         phi_op.attrs.retain(|attr| !matches!(attr, Attr::OldIdx(_)));
       }
       let uses = self.cx.users(phi_id).to_vec();
-      let current_function = self.cx.current_func();
+      let current_function = self.cx.get_current_func_id();
       match check_result {
         CheckType::Empty => {
           self.cx.replace_all_uses(phi_id, Operand::Undefined);
@@ -248,8 +248,9 @@ impl<'a> Pass<'a> for RemoveTrivialPhi<'a> {
   fn run(&mut self) {
     for idx in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(idx);
-      let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(self.cx.get_func(func_id));
       self.init(func_id);
+      let graph = self.cx.extract_cfg();
+      let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(&graph);
       self.remove_phi(dom_tree);
     }
   }

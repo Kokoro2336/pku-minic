@@ -75,8 +75,19 @@ impl StrengthReduct<'_> {
     }
   }
 
+  /// Division by invariant using multiplication via GM94 algorithm.
+  /// Reference: https://dl.acm.org/doi/10.1145/178243.178249
+  ///
+  /// TODO: Only for non-power-of-two divisors.
+  #[inline(always)]
+  pub fn cvt_const_divisor(x: i32) -> Option<(usize, usize)> {
+    assert!(!(x as u32).is_power_of_two());
+
+    todo!()
+  }
+
   pub fn run(&mut self) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     let bb_ids = self.cx.get_func(func_id).cfg.dpo();
     for &bb_id in bb_ids.iter().rev() {
       let bb_id = BOperand::BB(bb_id);

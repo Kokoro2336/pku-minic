@@ -6,10 +6,10 @@ use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::BitSet;
 use yachiyo::utils::SymbolTable;
 
+use super::CanonicalExpr;
 use crate::analysis::{
   alias, CallGraphAnalysis, DomAnalysis, DomTree, PurenessAnalysis, SCCAnalysis,
 };
-use super::CanonicalExpr;
 
 enum GVNPhase {
   /// BasicBlock
@@ -277,10 +277,9 @@ impl<'a> Pass<'a> for GVN<'a> {
     // run dominance analysis to get the dominator tree
     for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
-      let func = self.cx.get_func(func_id);
-      let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(func);
-
       self.init(func_id);
+      let graph = self.cx.extract_cfg();
+      let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(&graph);
       let entry = Operand::BB(self.cx.get_func(func_id).cfg.entry.unwrap());
       self.dfs(entry);
       for (rdfn, bb_id) in self.dfs_post_order.iter().rev().enumerate() {

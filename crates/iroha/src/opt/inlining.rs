@@ -335,7 +335,8 @@ impl<'a> Pass<'a> for Inlining<'a> {
       for &mut call_site_info_id in call_site_info_ids {
         let call_site_info = &call_graph.call_site_infos[call_site_info_id];
         // Recompute loops and block_to_loop for each call site, as inlining may change the loop structure.
-        let (loops, block_to_loop) = &*self.cx.analyze::<LoopAnalysis>(self.cx.get_func(func_id));
+        let graph = self.cx.extract_cfg();
+        let (loops, block_to_loop) = &*self.cx.analyze::<LoopAnalysis>(&graph);
         if self.inlinable(
           call_site_info,
           scc,

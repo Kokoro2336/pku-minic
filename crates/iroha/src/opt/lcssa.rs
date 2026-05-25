@@ -26,7 +26,7 @@ impl LCSSA<'_> {
   }
 
   fn run(&mut self, dom_tree: &DomTree, dom_frontier: &DomFrontier, loops: &Loops) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
 
     for lp_id in (0..loops.len()).rev() {
       let loop_data = &loops[lp_id.into()];
@@ -115,9 +115,9 @@ impl<'a> Pass<'a> for LCSSA<'a> {
     for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
       self.init(func_id);
-      let func = self.cx.get_func(func_id);
-      let (dom_tree, dom_frontier) = &*self.cx.analyze::<DomAnalysis>(func);
-      let (loops, _) = &*self.cx.analyze::<LoopAnalysis>(func);
+      let graph = self.cx.extract_cfg();
+      let (dom_tree, dom_frontier) = &*self.cx.analyze::<DomAnalysis>(&graph);
+      let (loops, _) = &*self.cx.analyze::<LoopAnalysis>(&graph);
       self.run(dom_tree, dom_frontier, loops);
     }
   }

@@ -16,7 +16,7 @@ impl InstCombine<'_> {
   }
 
   fn run(&mut self) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     let bb_ids = self.cx.get_func(func_id).cfg.dpo();
     for &bb_id in bb_ids.iter().rev() {
       let bb_id = BOperand::BB(bb_id);

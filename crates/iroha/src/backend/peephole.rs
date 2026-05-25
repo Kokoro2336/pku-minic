@@ -16,7 +16,7 @@ impl Peephole<'_> {
   }
 
   pub fn combine(&mut self) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     let bb_ids = self.cx.get_func(func_id).cfg.ids();
     for bb_id in bb_ids {
       let bb_id = BOperand::BB(bb_id);

@@ -33,7 +33,7 @@ impl BranchFolding<'_> {
   }
 
   fn trampoline_forward(&mut self) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
 
     for bb_id in self.cx.bbs(func_id) {
       if self.is_trampoline(bb_id) {
@@ -50,7 +50,7 @@ impl BranchFolding<'_> {
   }
 
   fn fallthrough(&mut self) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
 
     for bb_id in self.cx.bbs(func_id) {
       let next_valid = self.cx.next_valid(bb_id);
@@ -68,7 +68,7 @@ impl BranchFolding<'_> {
 
   // FIXME: For simplicity, we use CFG API to remove it directly.
   fn clean_up(&mut self) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     for bb_id in std::mem::take(&mut self.trampoline).iter() {
       let bb_id = BOperand::BB(bb_id);
       // Remove terminator
