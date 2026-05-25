@@ -4,7 +4,7 @@ use yachiyo::analysis::{CallSiteInfo, LoopId, Loops, SCCS};
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{Op, OpData, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
-use yachiyo::utils::match_src;
+use yachiyo::utils::{match_src, Arena, BitSet};
 
 use crate::analysis::{CallGraphAnalysis, LoopAnalysis, SCCAnalysis};
 
@@ -27,6 +27,9 @@ pub struct Inlining<'a> {
   old_phis: Vec<(Operand, Vec<PhiIncoming>)>,
   /// RetId in callee.
   old_rets: Vec<Operand>,
+
+  /// Inlined CallSite.
+  inlined_call_site: BitSet,
 }
 
 impl Inlining<'_> {
@@ -319,6 +322,7 @@ impl<'a> Pass<'a> for Inlining<'a> {
     self.cx.mount(program);
   }
   fn run(&mut self) {
+    self.inlined_call_site.clear();
     let call_graph = &mut *self.cx.analyze_mut::<CallGraphAnalysis>(self.cx.ir());
 
     let scc = &*self.cx.analyze::<SCCAnalysis>(call_graph);
@@ -345,8 +349,29 @@ impl<'a> Pass<'a> for Inlining<'a> {
           block_to_loop,
         ) {
           self.inline(call_site_info);
+          self.inlined_call_site.insert(call_site_info_id.into());
         }
       }
+    }
+
+    let removed_funcs = call_graph
+      .callee_to_info
+      .iter()
+      .filter_map(|(&callee, call_site_info_ids)| {
+        if call_site_info_ids.is_empty() || self.cx.get_func(callee).is_external {
+          return None;
+        }
+        call_site_info_ids
+          .iter()
+          .all(|info_id| self.inlined_call_site.contains(usize::from(*info_id)))
+          .then_some(callee)
+      })
+      .collect::<Vec<_>>();
+
+    for func_id in removed_funcs {
+      let func_name = self.cx.get_func(func_id).name.clone();
+      self.cx.ir_mut().funcs.map.remove(&func_name);
+      self.cx.ir_mut().funcs.remove(func_id.get_func_id());
     }
   }
 }

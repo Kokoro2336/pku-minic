@@ -128,6 +128,7 @@ fn main() -> Result<()> {
     .register::<DCE>()
     // Function Inlining
     .register::<Inlining>()
+    .register::<Compaction>()
     .register::<SCCP>()
     .register::<SimplifyCFG>()
     .register::<RemoveTrivialPhi>()
