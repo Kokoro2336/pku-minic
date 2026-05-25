@@ -559,7 +559,7 @@ impl Arena<BFunction> for BCG {
                                             remap_idx(func_id, &old_arena);
                                         }
                                     }
-                                    MOpData::Bnez { rs, target } => {
+                                    MOpData::Bnez { rs, target } | MOpData::Beqz { rs, target } => {
                                         if rs.is_virt() {
                                             remap_with_vregs(rs, &old_arena_vregs);
                                         }

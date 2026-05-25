@@ -507,6 +507,11 @@ impl AsmFormatCtx<'_> {
           self.format_operand(rs),
           self.format_operand(target)
         ),
+        MOpData::Beqz { rs, target } => format!(
+          "beqz {}, {}",
+          self.format_operand(rs),
+          self.format_operand(target)
+        ),
         MOpData::Beq { rs1, rs2, offset } => format!(
           "beq {}, {}, {}",
           self.format_operand(rs1),

@@ -210,10 +210,7 @@ pub enum BOpData {
 impl BOpData {
   pub fn is_move(&self) -> bool {
     match self {
-      BOpData::M(mop_data) => matches!(
-        mop_data,
-        MOpData::Mv { .. } | MOpData::FmvS { .. }
-      ),
+      BOpData::M(mop_data) => matches!(mop_data, MOpData::Mv { .. } | MOpData::FmvS { .. }),
       BOpData::L(lop_data) => matches!(lop_data, LOpData::Move { .. }),
     }
   }
@@ -242,6 +239,7 @@ impl BOpData {
         mop_data,
         MOpData::J { .. }
           | MOpData::Bnez { .. }
+          | MOpData::Beqz { .. }
           | MOpData::Beq { .. }
           | MOpData::Bne { .. }
           | MOpData::Blt { .. }
@@ -358,6 +356,7 @@ impl BDFG {
               | MOpData::Fsd {..}
               | MOpData::J {..}
               | MOpData::Bnez {..}
+              | MOpData::Beqz {..}
               | MOpData::Call {..}
               | MOpData::Ret
               | MOpData::Beq {..}
@@ -420,6 +419,7 @@ impl BDFG {
               | MOpData::Fsd {..}
               | MOpData::J {..}
               | MOpData::Bnez {..}
+              | MOpData::Beqz {..}
               | MOpData::Call {..}
               | MOpData::Ret
               | MOpData::Beq {..}
@@ -514,7 +514,7 @@ impl BDFG {
               | MOpData::Bltu { rs1, rs2, offset }
               | MOpData::Bgeu { rs1, rs2, offset } => vec![(rs1, 0), (rs2, 1), (offset, 2)],
 
-              MOpData::Bnez { rs, .. } => vec![(rs, 0)],
+              MOpData::Bnez { rs, .. } | MOpData::Beqz { rs, .. } => vec![(rs, 0)],
 
               MOpData::Li { .. }
               | MOpData::La { .. }
@@ -614,7 +614,7 @@ impl BDFG {
               | MOpData::Bltu { rs1, rs2, offset }
               | MOpData::Bgeu { rs1, rs2, offset } => vec![(rs1, 0), (rs2, 1), (offset, 2)],
 
-              MOpData::Bnez { rs, .. } => vec![(rs, 0)],
+              MOpData::Bnez { rs, .. } | MOpData::Beqz { rs, .. } => vec![(rs, 0)],
 
               MOpData::Call { .. }
               | MOpData::Ret

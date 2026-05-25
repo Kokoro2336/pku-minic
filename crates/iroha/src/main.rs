@@ -128,6 +128,7 @@ fn main() -> Result<()> {
     .register::<DCE>()
     // Function Inlining
     .register::<Inlining>()
+    .register::<Compaction>()
     .register::<SCCP>()
     .register::<SimplifyCFG>()
     .register::<RemoveTrivialPhi>()
@@ -193,6 +194,7 @@ fn main() -> Result<()> {
     .register::<InstCombine>()
     .register::<BDCE>()
     .register::<BCompaction>()
+    .register::<BlockResorting>()
     // Register Allocation
     .register::<RegAlloc>()
     // Post RA Clean up

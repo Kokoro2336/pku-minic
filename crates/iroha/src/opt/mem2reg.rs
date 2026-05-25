@@ -109,8 +109,9 @@ impl<'a> InsertPhi<'a> {
 
   pub fn insert(&mut self) {
     let defsites_len = self.defsites.len();
-    let func_id = self.cx.current_func();
-    let (_, dom_frontier) = &*self.cx.analyze::<DomAnalysis>(self.cx.get_func(func_id));
+    let func_id = self.cx.get_current_func_id();
+    let graph = self.cx.extract_cfg();
+    let (_, dom_frontier) = &*self.cx.analyze::<DomAnalysis>(&graph);
     for idx in 0..defsites_len {
       while let Some(bb_id) = self.defsites[idx].pop() {
         for &frontier in dom_frontier[bb_id].iter() {
@@ -580,7 +581,9 @@ impl<'a> Pass<'a> for Mem2Reg<'a> {
     {
       for func_id in self.cx.ir().funcs.collect_internal() {
         let func_id = Operand::Func(func_id);
-        let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(self.cx.get_func(func_id));
+        self.cx.set_current_func(Some(func_id));
+        let graph = self.cx.extract_cfg();
+        let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(&graph);
         let program = self.cx.ir_mut();
         let mut renamer = Renaming::new(program, dom_tree);
         renamer.run(func_id);

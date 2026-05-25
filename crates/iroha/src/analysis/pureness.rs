@@ -17,7 +17,7 @@ impl PurenessAnalysis<'_, '_, '_> {
   }
 
   fn analyze(&mut self) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     if self.pureness[func_id] == Pureness::Impure {
       return;
     }

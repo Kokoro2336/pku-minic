@@ -292,9 +292,9 @@ impl<'a> Pass<'a> for LoopSimplify<'a> {
     for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
       self.init(func_id);
-      let func = self.cx.get_func(func_id);
-      let (loops_data, _) = &mut *self.cx.analyze_mut::<LoopAnalysis>(func);
-      let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(func);
+      let graph = self.cx.extract_cfg();
+      let (loops_data, _) = &mut *self.cx.analyze_mut::<LoopAnalysis>(&graph);
+      let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(&graph);
       self.run(dom_tree, loops_data);
     }
   }

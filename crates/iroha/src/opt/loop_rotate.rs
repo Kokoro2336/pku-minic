@@ -219,15 +219,12 @@ impl LoopRotate<'_> {
   }
 
   fn run(&mut self, dom_tree: &DomTree) {
-    let func_id = self.cx.current_func();
-    let (loops, _) = &mut *self
-      .cx
-      .analyze_mut::<LoopAnalysis>(self.cx.get_func(func_id));
+    let graph = self.cx.extract_cfg();
+    let (loops, _) = &mut *self.cx.analyze_mut::<LoopAnalysis>(&graph);
 
     for lp_id in (0..loops.len()).rev() {
-      let (loops, _) = &mut *self
-        .cx
-        .analyze_mut::<LoopAnalysis>(self.cx.get_func(func_id));
+      let graph = self.cx.extract_cfg();
+      let (loops, _) = &mut *self.cx.analyze_mut::<LoopAnalysis>(&graph);
 
       let loop_data = &mut loops[lp_id.into()];
       let header_id = loop_data.header;
@@ -411,14 +408,14 @@ impl<'a> Pass<'a> for LoopRotate<'a> {
     for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
       self.init(func_id);
-      let func = self.cx.get_func(func_id);
       {
-        let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(func);
+        let graph = self.cx.extract_cfg();
+        let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(&graph);
         self.run(dom_tree);
       }
 
-      let func = self.cx.get_func(func_id);
-      let (dom_tree, dom_frontier) = &*self.cx.analyze::<DomAnalysis>(func);
+      let graph = self.cx.extract_cfg();
+      let (dom_tree, dom_frontier) = &*self.cx.analyze::<DomAnalysis>(&graph);
       self.update_moved_phis(func_id, dom_tree, dom_frontier);
       self.update_normal_insts(func_id, dom_tree, dom_frontier);
     }

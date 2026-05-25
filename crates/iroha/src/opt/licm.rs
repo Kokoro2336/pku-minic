@@ -170,7 +170,7 @@ impl LICM<'_> {
     call_graph: &CallGraph,
     pureness: &PurenessResult,
   ) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     // The loops are naturally in RPO order, so the traverse it in a reverse order.
     let dpo = self.cx.get_func(func_id).cfg.dpo();
     for lp_id in (0..loops.len()).rev() {
@@ -244,9 +244,10 @@ impl<'a> Pass<'a> for LICM<'a> {
 
     for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
-      let (loops_data, block_to_loop) =
-        &*self.cx.analyze::<LoopAnalysis>(self.cx.get_func(func_id));
-      let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(self.cx.get_func(func_id));
+      self.cx.set_current_func(Some(func_id));
+      let graph = self.cx.extract_cfg();
+      let (loops_data, block_to_loop) = &*self.cx.analyze::<LoopAnalysis>(&graph);
+      let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(&graph);
       self.init(func_id, loops_data.len());
       self.run(loops_data, block_to_loop, dom_tree, call_graph, &pureness);
     }

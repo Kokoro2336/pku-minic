@@ -299,7 +299,7 @@ impl BackIR {
                     cfg.add_pred(target, (bb, op));
                     cfg.add_succ(bb, (target, op));
                 }
-                MOpData::Bnez { target, .. } => {
+                MOpData::Bnez { target, .. } | MOpData::Beqz { target, .. } => {
                     cfg.add_pred(target, (bb, op));
                     cfg.add_succ(bb, (target, op));
                 }
@@ -363,7 +363,7 @@ impl BackIR {
                     cfg.remove_pred(target, (bb, op));
                     cfg.remove_succ(bb, (target, op));
                 }
-                MOpData::Bnez { target, .. } => {
+                MOpData::Bnez { target, .. } | MOpData::Beqz { target, .. } => {
                     cfg.remove_pred(target, (bb, op));
                     cfg.remove_succ(bb, (target, op));
                 }
@@ -534,6 +534,7 @@ impl BackIR {
               | MOpData::Fsd { .. }
               | MOpData::J { .. }
               | MOpData::Bnez { .. }
+              | MOpData::Beqz { .. }
               | MOpData::Call { .. }
               | MOpData::Ret
               | MOpData::Beq { .. }
@@ -841,7 +842,7 @@ impl BackIR {
       }) => *then_bb == bb || *else_bb == bb,
       BOpData::L(LOpData::Jump { target_bb }) => *target_bb == bb,
       BOpData::M(MOpData::J { target }) => *target == bb,
-      BOpData::M(MOpData::Bnez { target, .. }) => *target == bb,
+      BOpData::M(MOpData::Bnez { target, .. } | MOpData::Beqz { target, .. }) => *target == bb,
       BOpData::M(
         MOpData::Beq { offset, .. }
         | MOpData::Bne { offset, .. }
@@ -944,6 +945,15 @@ impl BackIR {
           );
         }
         BOpData::M(MOpData::Bnez { rs, target: new_bb })
+      }
+      BOpData::M(MOpData::Beqz { rs, target }) => {
+        if target != old_bb {
+          panic!(
+            "BackIR redirect_bb: branch {:?} targets {:?}, not {:?}",
+            term_id, target, old_bb
+          );
+        }
+        BOpData::M(MOpData::Beqz { rs, target: new_bb })
       }
       BOpData::M(MOpData::Beq { rs1, rs2, offset }) => {
         if offset != old_bb {

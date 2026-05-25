@@ -6,11 +6,10 @@ use yachiyo::debug::info;
 
 use yachiyo::analysis::Analysis;
 pub use yachiyo::analysis::{DomFrontier, DomTree};
-use yachiyo::ir::mid::{Function, Operand};
 use yachiyo::utils::BitSet;
 
 struct BuildDomTree<'a> {
-  func: &'a Function,
+  graph: &'a [(Vec<usize>, Vec<usize>)],
   /// Vertex number -> DFS number
   dfn: Vec<usize>,
   dfn_cnt: usize,
@@ -35,9 +34,9 @@ struct BuildDomTree<'a> {
 }
 
 impl<'a> BuildDomTree<'a> {
-  pub fn new(func: &'a Function) -> Self {
+  pub fn new(graph: &'a [(Vec<usize>, Vec<usize>)]) -> Self {
     Self {
-      func,
+      graph,
       dfn: vec![],
       dfn_cnt: 0,
       rev: vec![],
@@ -52,7 +51,7 @@ impl<'a> BuildDomTree<'a> {
   }
 
   fn init(&mut self) {
-    let n = self.func.cfg.storage.len();
+    let n = self.graph.len();
     self.dfn = vec![0; n];
     self.dfn_cnt = 0;
 
@@ -76,21 +75,8 @@ impl<'a> BuildDomTree<'a> {
     self.rev[dfs_num] = src;
     self.dfn_cnt += 1;
 
-    let succs_len = {
-      let func = &self.func;
-      let block = &func.cfg[src];
-      block.succs.len()
-    };
-
-    (0..succs_len).for_each(|i| {
-      let succ = {
-        let func = &self.func;
-        let block = &func.cfg[src];
-        match &block.succs[i] {
-          (Operand::BB(id), _) => *id,
-          _ => panic!("BuildDomTree: successor is not a basic block"),
-        }
-      };
+    let succs = self.graph[src].1.clone();
+    succs.into_iter().for_each(|succ| {
       if !self.visited.contains(succ) {
         self.father[succ] = src;
         self.dfs(succ);
@@ -124,18 +110,15 @@ impl<'a> BuildDomTree<'a> {
   }
 
   pub fn build(&mut self) -> DomTree {
-    let func = &self.func;
-    let head = match func.cfg.entry {
-      Some(id) => id,
-      None => unreachable!(),
-    };
-
     self.init();
+    if self.graph.is_empty() {
+      return self.export();
+    }
 
     #[cfg(feature = "debug")]
     info!("Start DFS traversal.");
 
-    self.dfs(head);
+    self.dfs(0);
 
     #[cfg(feature = "debug")]
     info!("DFS traversal completed. Start computing dominators.");
@@ -144,23 +127,9 @@ impl<'a> BuildDomTree<'a> {
     for i in (1..num_visited).rev() {
       let u = self.rev[i];
 
-      let preds_num = {
-        let func = &self.func;
-        let block = &func.cfg[u];
-        block.preds.len()
-      };
-
       // find sdom[u]
-      for idx in 0..preds_num {
-        let pred = {
-          let func = &self.func;
-          let block = &func.cfg[u];
-          match &block.preds[idx] {
-            (Operand::BB(id), _) => *id,
-            _ => continue,
-          }
-        };
-
+      let preds = self.graph[u].0.clone();
+      for pred in preds {
         if !self.visited.contains(pred) {
           continue;
         }
@@ -194,7 +163,7 @@ impl<'a> BuildDomTree<'a> {
     #[cfg(feature = "debug")]
     info!("Dominator tree computed. Start refining immediate dominators.");
 
-    for i in 0..self.rev.len() {
+    for i in 0..num_visited {
       let v = self.rev[i];
       let u = self.idom[v];
       // If sdom[u] != sdom[v], then there's a vertex with lower dfn that dominates v, which is idom[u],
@@ -225,16 +194,16 @@ impl<'a> BuildDomTree<'a> {
 }
 
 struct BuildDomFrontier<'a> {
-  func: &'a Function,
+  graph: &'a [(Vec<usize>, Vec<usize>)],
   dom_tree: &'a DomTree,
   /// Vertex number -> its dominance frontier
   frontier: DomFrontier,
 }
 
 impl<'a> BuildDomFrontier<'a> {
-  pub fn new(func: &'a Function, dom_tree: &'a DomTree) -> Self {
+  pub fn new(graph: &'a [(Vec<usize>, Vec<usize>)], dom_tree: &'a DomTree) -> Self {
     Self {
-      func,
+      graph,
       dom_tree,
       frontier: DomFrontier::default(),
     }
@@ -260,18 +229,7 @@ impl<'a> BuildDomFrontier<'a> {
   }
 
   pub fn compute(&mut self, bb_id: usize) {
-    let succs = {
-      let func = self.func;
-      let block = &func.cfg[bb_id];
-      let mut succs = Vec::new();
-      for op in &block.succs {
-        match op {
-          (Operand::BB(id), _) => succs.push(*id),
-          _ => panic!("DomFrontier: successor is not a basic block"),
-        }
-      }
-      succs
-    };
+    let succs = self.graph[bb_id].1.clone();
 
     // Local frontier
     for succ in succs {
@@ -297,28 +255,25 @@ impl<'a> BuildDomFrontier<'a> {
 
   #[inline(always)]
   fn init(&mut self) {
-    let n = self.func.cfg.storage.len();
+    let n = self.graph.len();
     self.frontier = DomFrontier::with_len(n);
   }
 
   pub fn build(&mut self) -> DomFrontier {
-    let func = &self.func;
-    let head = match func.cfg.entry {
-      Some(id) => id,
-      None => unreachable!(),
-    };
     self.init();
-    self.compute(head);
+    if !self.graph.is_empty() {
+      self.compute(0);
+    }
     std::mem::take(&mut self.frontier)
   }
 }
 
 pub struct DomAnalysis<'a> {
-  func: &'a Function,
+  graph: &'a [(Vec<usize>, Vec<usize>)],
 }
 
 impl<'a> Analysis for DomAnalysis<'a> {
-  type Input = &'a Function;
+  type Input = &'a [(Vec<usize>, Vec<usize>)];
   type Output = (DomTree, DomFrontier);
 
   fn name() -> &'static str {
@@ -326,15 +281,15 @@ impl<'a> Analysis for DomAnalysis<'a> {
   }
 
   fn new(input: Self::Input) -> Self {
-    Self { func: input }
+    Self { graph: input }
   }
 
   fn run(&mut self) -> Self::Output {
-    let func = self.func;
-    let mut dom_tree_builder = BuildDomTree::new(func);
+    let graph = self.graph;
+    let mut dom_tree_builder = BuildDomTree::new(graph);
     let dom_trees = dom_tree_builder.build();
 
-    let mut dom_frontier_builder = BuildDomFrontier::new(func, &dom_trees);
+    let mut dom_frontier_builder = BuildDomFrontier::new(graph, &dom_trees);
     let dom_frontiers = dom_frontier_builder.build();
     (dom_trees, dom_frontiers)
   }

@@ -38,7 +38,7 @@ impl Localize<'_> {
   }
 
   fn run(&mut self) {
-    let func_id = self.cx.current_func();
+    let func_id = self.cx.get_current_func_id();
     let mut only_load = BitSet::new();
 
     let globals = self.mem_insts[func_id.get_func_id()]

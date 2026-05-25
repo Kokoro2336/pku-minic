@@ -17,7 +17,7 @@ pub struct BDCE<'a> {
 
 impl BDCE<'_> {
   pub fn is_dead(&self, operand: BOperand) -> bool {
-    let current_func = self.cx.get_func(self.cx.current_func());
+    let current_func = self.cx.current_func();
     let vregs = &current_func.vregs;
 
     match_some! {
@@ -94,7 +94,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
               }
               BOperand::Reg(Reg::Virt(_)) => {
                 let defs = {
-                    let func = this.cx.get_func(this.cx.current_func());
+                    let func = this.cx.current_func();
                     func.vregs[operand].defs.clone()
                 };
 
@@ -221,7 +221,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
                       check(self, rs2);
                       check(self, offset);
                   }
-                  MOpData::Bnez { rs, .. } => {
+                  MOpData::Bnez { rs, .. } | MOpData::Beqz { rs, .. } => {
                       check(self, rs);
                   }
                   MOpData::J { target } => {

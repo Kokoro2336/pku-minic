@@ -214,7 +214,13 @@ impl Arena<Function> for CG {
       // rewrite op refs in BasicBlocks
       for item in func.cfg.storage.iter_mut() {
         if let ArenaItem::Data(bb) = item {
+          for (_, op_idx) in bb.preds.iter_mut() {
+            remap_with_dfg(op_idx, &old_arena_dfg);
+          }
           for op_idx in bb.cur.iter_mut() {
+            remap_with_dfg(op_idx, &old_arena_dfg);
+          }
+          for (_, op_idx) in bb.succs.iter_mut() {
             remap_with_dfg(op_idx, &old_arena_dfg);
           }
         }

@@ -129,8 +129,9 @@ impl<'a> Pass<'a> for HoistArray<'a> {
   fn run(&mut self) {
     for func_id in self.cx.funcs_internal() {
       self.init(func_id);
-      let (dom_tree, _) = analyze::<DomAnalysis>(self.cx.get_func(func_id));
-      let (loops, block_to_loop) = analyze::<LoopAnalysis>(self.cx.get_func(func_id));
+      let graph = self.cx.extract_cfg();
+      let (dom_tree, _) = analyze::<DomAnalysis>(&graph);
+      let (loops, block_to_loop) = analyze::<LoopAnalysis>(&graph);
       let scev = <SCEV as Analysis>::new((&mut self.cx, loops, block_to_loop, dom_tree));
       self.run(scev);
     }
