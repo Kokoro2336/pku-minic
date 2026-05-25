@@ -224,7 +224,7 @@ impl BlockResorting<'_> {
           BOpData::M(MOpData::J { target }) => {
             remap_bb(target);
           }
-          BOpData::M(MOpData::Bnez { target, .. }) => {
+          BOpData::M(MOpData::Bnez { target, .. } | MOpData::Beqz { target, .. }) => {
             remap_bb(target);
           }
           BOpData::M(

@@ -6,14 +6,26 @@ use crate::ir::back::{BOpData, BOperand};
 pub enum MOpData {
   // Pseudo-instructions & Data Movement
   /// Load Immediate: Materializes a 32-bit constant.
-  Li { rd: BOperand, imm: i32 },
+  Li {
+    rd: BOperand,
+    imm: i32,
+  },
   /// Load Address: Materializes the absolute address of a global variable or array.
-  La { rd: BOperand, target: BOperand },
+  La {
+    rd: BOperand,
+    target: BOperand,
+  },
   /// Move: Register-to-register copy.
   /// Crucial for Phi elimination and register spilling/reloading.
-  Mv { rd: BOperand, rs: BOperand },
+  Mv {
+    rd: BOperand,
+    rs: BOperand,
+  },
   /// FP Move (Single): Copy between floating-point registers.
-  FmvS { rd: BOperand, rs: BOperand },
+  FmvS {
+    rd: BOperand,
+    rs: BOperand,
+  },
 
   // Integer Arithmetic & Logic
   // Register-Register ALU ops (32-bit)
@@ -180,15 +192,27 @@ pub enum MOpData {
 
   /// Float to Int conversion.
   /// Matches SysY semantic: truncate/round towards zero (RTZ).
-  FcvtWS { rd: BOperand, rs: BOperand },
+  FcvtWS {
+    rd: BOperand,
+    rs: BOperand,
+  },
   /// Int to Float conversion.
-  FcvtSW { rd: BOperand, rs: BOperand },
+  FcvtSW {
+    rd: BOperand,
+    rs: BOperand,
+  },
 
   /// Move 64-bit bit-pattern from Integer to FP register.
   /// Required by RISC-V ABI when passing float args in integer registers.
-  FmvDX { rd: BOperand, rs: BOperand },
+  FmvDX {
+    rd: BOperand,
+    rs: BOperand,
+  },
   /// Move 64-bit bit-pattern from FP to Integer register.
-  FmvXD { rd: BOperand, rs: BOperand },
+  FmvXD {
+    rd: BOperand,
+    rs: BOperand,
+  },
 
   // Memory Access
   Lw {
@@ -237,15 +261,26 @@ pub enum MOpData {
   // 5. Control Flow
   // ==========================================
   /// Unconditional jump (translates 'break', 'continue', or block merges).
-  J { target: BOperand },
+  J {
+    target: BOperand,
+  },
   /// Function call. Use this pseudo-instruction and let the assembler handle ra/auipc/jalr.
-  Call { target: BOperand },
+  Call {
+    target: BOperand,
+  },
 
   /// Return. Pseudo for 'jalr x0, 0(ra)'.
   Ret,
 
   /// Branching
-  Bnez { rs: BOperand, target: BOperand },
+  Bnez {
+    rs: BOperand,
+    target: BOperand,
+  },
+  Beqz {
+    rs: BOperand,
+    target: BOperand,
+  },
 
   Beq {
     rs1: BOperand,
@@ -290,6 +325,7 @@ impl MOpData {
         | MOpData::J { .. }
         | MOpData::Call { .. }
         | MOpData::Bnez { .. }
+        | MOpData::Beqz { .. }
         | MOpData::Beq { .. }
         | MOpData::Bne { .. }
         | MOpData::Blt { .. }

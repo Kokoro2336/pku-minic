@@ -221,7 +221,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
                       check(self, rs2);
                       check(self, offset);
                   }
-                  MOpData::Bnez { rs, .. } => {
+                  MOpData::Bnez { rs, .. } | MOpData::Beqz { rs, .. } => {
                       check(self, rs);
                   }
                   MOpData::J { target } => {
