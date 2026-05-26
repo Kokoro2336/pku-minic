@@ -161,7 +161,6 @@ impl Inlining<'_> {
 
       self.cx.replace_op(
         new_ret_id,
-        ret_bb,
         Op::new(
           Type::Void,
           vec![],
@@ -195,7 +194,7 @@ impl Inlining<'_> {
         });
     }
     // Finally, remove the call instruction.
-    self.cx.remove_op(*call_inst_id, Some(call_bb_id));
+    self.cx.remove_op(*call_inst_id);
   }
 
   fn clone_inst(&mut self, inst_id: Operand, callee: Operand, callee_bb_id: Operand) {

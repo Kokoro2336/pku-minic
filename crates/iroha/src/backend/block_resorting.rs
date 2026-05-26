@@ -65,7 +65,7 @@ impl BlockResorting<'_> {
       sorted_edges.into_iter().map(|(edge, _)| edge).collect();
 
     // Resort blocks.
-    let mut chains = vec![vec![]; self.cx.current_func().cfg.len()];
+    let mut chains = vec![vec![]; self.cx.get_cfg().len()];
     for bb_id in self.cx.get_bbs() {
       chains[bb_id.get_bb_id()].push(bb_id);
     }

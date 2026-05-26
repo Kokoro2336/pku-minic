@@ -49,7 +49,7 @@ impl LoopSimplify<'_> {
         minor_arms: {
           OpData::Jump { target_bb } => {
             if target_bb == header_id {
-              self.cx.replace_op(term_id, pred_id, Op::new(
+              self.cx.replace_op(term_id, Op::new(
                 Type::Void,
                 vec![],
                 OpData::Jump {
@@ -62,7 +62,7 @@ impl LoopSimplify<'_> {
           }
           OpData::Br { cond, then_bb, else_bb } => {
             if then_bb == header_id {
-              self.cx.replace_op(term_id, pred_id, Op::new(
+              self.cx.replace_op(term_id, Op::new(
                 Type::Void,
                 vec![],
                 OpData::Br {
@@ -72,7 +72,7 @@ impl LoopSimplify<'_> {
                 },
               ));
             } else if else_bb == header_id {
-              self.cx.replace_op(term_id, pred_id, Op::new(
+              self.cx.replace_op(term_id, Op::new(
                 Type::Void,
                 vec![],
                 OpData::Br {
@@ -188,7 +188,7 @@ impl LoopSimplify<'_> {
             minor_arms: {
               OpData::Jump { target_bb } => {
                 if target_bb == exit_bb_id {
-                  self.cx.replace_op(term_id, *exit_bb_pred_id, Op::new(
+                  self.cx.replace_op(term_id, Op::new(
                     Type::Void,
                     vec![],
                     OpData::Jump {
@@ -201,7 +201,7 @@ impl LoopSimplify<'_> {
               }
               OpData::Br { cond, then_bb, else_bb } => {
                 if then_bb == exit_bb_id {
-                  self.cx.replace_op(term_id, *exit_bb_pred_id, Op::new(
+                  self.cx.replace_op(term_id, Op::new(
                     Type::Void,
                     vec![],
                     OpData::Br {
@@ -211,7 +211,7 @@ impl LoopSimplify<'_> {
                     },
                   ));
                 } else if else_bb == exit_bb_id {
-                  self.cx.replace_op(term_id, *exit_bb_pred_id, Op::new(
+                  self.cx.replace_op(term_id, Op::new(
                     Type::Void,
                     vec![],
                     OpData::Br {

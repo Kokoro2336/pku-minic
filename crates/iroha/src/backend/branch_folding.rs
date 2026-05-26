@@ -72,7 +72,7 @@ impl BranchFolding<'_> {
       };
 
       if next_valid.is_some_and(|next_valid_id| next_valid_id == jump_target) {
-        self.cx.remove_op(jump_id, Some(bb_id));
+        self.cx.remove_op(jump_id);
         continue;
       }
 
@@ -135,8 +135,8 @@ impl BranchFolding<'_> {
         };
         let mut new_branch_op = branch_op;
         new_branch_op.data = inverted_data.into();
-        self.cx.replace_op(branch_id, bb_id, new_branch_op);
-        self.cx.remove_op(jump_id, Some(bb_id));
+        self.cx.replace_op(branch_id, new_branch_op);
+        self.cx.remove_op(jump_id);
       }
     }
   }
@@ -148,7 +148,7 @@ impl BranchFolding<'_> {
       let bb_id = BOperand::BB(bb_id);
       // Remove terminator
       let jump_id = *self.cx.get_bb(bb_id).cur.last().unwrap();
-      self.cx.remove_op(jump_id, Some(bb_id));
+      self.cx.remove_op(jump_id);
       // Remove the block
       let cfg = &mut self.cx.get_func_mut(func_id).cfg;
       cfg.remove(bb_id.get_bb_id());

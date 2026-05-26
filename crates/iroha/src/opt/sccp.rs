@@ -504,7 +504,6 @@ impl SCCP<'_> {
               let bb_id = self.cx.op_bb(br_op);
               self.cx.replace_op(
                 br_op,
-                bb_id,
                 Op {
                   typ: Type::Void,
                   attrs: vec![],

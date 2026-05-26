@@ -125,6 +125,7 @@ fn main() -> Result<()> {
     .register::<SimplifyCFG>()
     .register::<RemoveTrivialPhi>()
     .register::<GVN>()
+    .register::<GCM>()
     .register::<DCE>()
     // Function Inlining
     .register::<Inlining>()
@@ -145,6 +146,7 @@ fn main() -> Result<()> {
     .register::<SimplifyCFG>()
     .register::<SCCP>()
     .register::<GVN>()
+    .register::<GCM>()
     .register::<DCE>()
     // Final Clean Up
     .register::<SimplifyCFG>()

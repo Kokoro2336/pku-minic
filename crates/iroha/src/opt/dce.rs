@@ -32,7 +32,7 @@ impl DCE<'_> {
     self.worklist.clear();
 
     // Initialize the worklist
-    let block_ids = self.cx.get_func(func_id).cfg.collect();
+    let block_ids = self.cx.get_cfg().collect();
     for block_id in block_ids {
       let block = self.cx.get_bb(Operand::BB(block_id));
       for inst_id in block.cur.iter() {
@@ -134,8 +134,8 @@ impl<'a> Pass<'a> for DCE<'a> {
           self.cx.set_current_block(bb_id);
         }
         let removed_op = match op_id {
-          Operand::Global(_) => self.cx.remove_op(op_id, None),
-          _ => self.cx.remove_op(op_id, Some(bb_id)),
+          Operand::Global(_) => self.cx.remove_op(op_id),
+          _ => self.cx.remove_op(op_id),
         };
 
         // Check the operands of the removed instruction

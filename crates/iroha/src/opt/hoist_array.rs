@@ -100,13 +100,13 @@ impl HoistArray<'_> {
                 // RAUW
                 self.cx.replace_all_uses(base, global_arr_id);
                 // Remove the original alloca and store instructions.
-                self.cx.remove_op(base, Some(bb_id));
+                self.cx.remove_op(base);
               }
               Operand::Global(_) => {
                 let mut guard = self.cx.guard();
                 guard.set_current_func(None);
                 guard.replace_all_uses(base, global_arr_id);
-                guard.remove_op(base, None);
+                guard.remove_op(base);
               }
               _ => unreachable!(),
             }

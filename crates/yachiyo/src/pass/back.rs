@@ -7,7 +7,7 @@ use crate::analysis::{self, Analysis};
 use crate::cli::Cli;
 use crate::debug::DumpASM;
 use crate::ir::back::{
-  BBasicBlock, BBuilder, BFunction, BOp, BOpData, BOperand, BType, BackIR, Reg, Slot,
+  BBasicBlock, BBuilder, BFunction, BOp, BOpData, BOperand, BType, BackIR, Reg, Slot, BCFG, BDFG,
 };
 use crate::pass::{AnalysisRef, AnalysisRefMut};
 
@@ -105,6 +105,14 @@ impl<'a> BPassContext<'a> {
     self.get_func_mut(self.get_current_func_id())
   }
 
+  pub fn get_cfg(&self) -> &BCFG {
+    &self.current_func().cfg
+  }
+
+  pub fn get_dfg(&self) -> &BDFG {
+    &self.current_func().dfg
+  }
+
   pub fn current_block(&self) -> Option<BOperand> {
     self.builder.current_block
   }
@@ -154,10 +162,10 @@ impl<'a> BPassContext<'a> {
   }
 
   pub fn extract_cfg(&self) -> Vec<(Vec<usize>, Vec<usize>)> {
-    let func = self.current_func();
-    let mut graph = vec![(vec![], vec![]); func.cfg.len()];
-    for bb_id in func.cfg.collect() {
-      let bb = &func.cfg[BOperand::BB(bb_id)];
+    let cfg = self.get_cfg();
+    let mut graph = vec![(vec![], vec![]); cfg.len()];
+    for bb_id in cfg.collect() {
+      let bb = &cfg[BOperand::BB(bb_id)];
       graph[bb_id] = (
         bb.preds
           .iter()
@@ -239,8 +247,7 @@ impl<'a> BPassContext<'a> {
 
   #[inline(always)]
   pub fn get_op(&self, op_id: BOperand) -> &BOp {
-    let func_id = self.get_current_func_id();
-    &self.get_func(func_id).dfg[op_id]
+    &self.get_dfg()[op_id]
   }
 
   #[inline(always)]
@@ -285,8 +292,7 @@ impl<'a> BPassContext<'a> {
   #[inline(always)]
   pub fn get_bbs(&self) -> Vec<BOperand> {
     self
-      .current_func()
-      .cfg
+      .get_cfg()
       .collect()
       .into_iter()
       .map(BOperand::BB)
@@ -295,8 +301,7 @@ impl<'a> BPassContext<'a> {
 
   #[inline(always)]
   pub fn get_bb(&self, bb_id: BOperand) -> &BBasicBlock {
-    let func_id = self.get_current_func_id();
-    &self.get_func(func_id).cfg[bb_id]
+    &self.get_cfg()[bb_id]
   }
 
   #[inline(always)]
@@ -320,16 +325,13 @@ impl<'a> BPassContext<'a> {
   }
 
   pub fn next_valid(&self, operand: BOperand) -> Option<BOperand> {
-    let func_id = self.get_current_func_id();
     match operand {
       BOperand::Inst(_) => self
-        .get_func(func_id)
-        .dfg
+        .get_dfg()
         .next_valid(operand.get_inst_id())
         .map(BOperand::Inst),
       BOperand::BB(_) => self
-        .get_func(func_id)
-        .cfg
+        .get_cfg()
         .next_valid(operand.get_bb_id())
         .map(BOperand::BB),
       _ => unreachable!(),
@@ -356,52 +358,32 @@ impl<'a> BPassContext<'a> {
       .create_before_term(ir, current_function_option, op)
   }
 
-  pub fn remove_op(&mut self, op_id: BOperand, bb_id: Option<BOperand>) -> BOp {
+  pub fn remove_op(&mut self, op_id: BOperand) -> BOp {
+    let current_function_option = self.builder.current_function;
+    self.ir_mut().remove_op(current_function_option, op_id)
+  }
+
+  pub fn replace_op_no_rauw(&mut self, op_id: BOperand, new_op: BOp) -> BOperand {
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    ir.replace_op_no_rauw(&mut self.builder, current_function_option, op_id, new_op)
+  }
+
+  pub fn replace_op(&mut self, op_id: BOperand, new_op: BOp) -> BOperand {
+    self.replace_op_no_rauw(op_id, new_op)
+  }
+
+  pub fn replace_op_rauw(&mut self, op_id: BOperand, new_op: BOp) -> BOperand {
+    let current_function_option = self.builder.current_function;
+    let ir = self.ir.as_deref_mut().unwrap();
+    ir.replace_op_rauw(&mut self.builder, current_function_option, op_id, new_op)
+  }
+
+  pub fn move_op_to_bb_at(&mut self, op_id: BOperand, new_bb: BOperand, pos: Option<BOperand>) {
     let current_function_option = self.builder.current_function;
     self
       .ir_mut()
-      .remove_op(current_function_option, op_id, bb_id)
-  }
-
-  pub fn replace_op_no_rauw(&mut self, op_id: BOperand, bb_id: BOperand, new_op: BOp) -> BOperand {
-    let current_function_option = self.builder.current_function;
-    let ir = self.ir.as_deref_mut().unwrap();
-    ir.replace_op_no_rauw(
-      &mut self.builder,
-      current_function_option,
-      op_id,
-      bb_id,
-      new_op,
-    )
-  }
-
-  pub fn replace_op(&mut self, op_id: BOperand, bb_id: BOperand, new_op: BOp) -> BOperand {
-    self.replace_op_no_rauw(op_id, bb_id, new_op)
-  }
-
-  pub fn replace_op_rauw(&mut self, op_id: BOperand, bb_id: BOperand, new_op: BOp) -> BOperand {
-    let current_function_option = self.builder.current_function;
-    let ir = self.ir.as_deref_mut().unwrap();
-    ir.replace_op_rauw(
-      &mut self.builder,
-      current_function_option,
-      op_id,
-      bb_id,
-      new_op,
-    )
-  }
-
-  pub fn move_op_to_bb_at(
-    &mut self,
-    op_id: BOperand,
-    old_bb: BOperand,
-    new_bb: BOperand,
-    pos: Option<BOperand>,
-  ) {
-    let current_function_option = self.builder.current_function;
-    self
-      .ir_mut()
-      .move_op_to_bb_at(current_function_option, op_id, old_bb, new_bb, pos);
+      .move_op_to_bb_at(current_function_option, op_id, new_bb, pos);
   }
 
   pub fn redirect_bb(&mut self, operand: BOperand, old_bb: BOperand, new_bb: BOperand) -> BOperand {

@@ -41,7 +41,7 @@ impl GVN<'_> {
     self.dfs_post_order.clear();
 
     self.rdfn.clear();
-    self.rdfn.resize(self.cx.get_func(func_id).cfg.len(), 0);
+    self.rdfn.resize(self.cx.get_cfg().len(), 0);
   }
 
   fn dfs(&mut self, bb_id: Operand) {
@@ -230,7 +230,7 @@ impl GVN<'_> {
 
           // Delete dead stores.
           for dead_store in dead_stores.iter() {
-            self.cx.remove_op(Operand::Value(dead_store), Some(bb_id));
+            self.cx.remove_op(Operand::Value(dead_store));
           }
 
           // Push End phase to the stack
@@ -280,7 +280,7 @@ impl<'a> Pass<'a> for GVN<'a> {
       self.init(func_id);
       let graph = self.cx.extract_cfg();
       let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(&graph);
-      let entry = Operand::BB(self.cx.get_func(func_id).cfg.entry.unwrap());
+      let entry = Operand::BB(self.cx.get_cfg().entry.unwrap());
       self.dfs(entry);
       for (rdfn, bb_id) in self.dfs_post_order.iter().rev().enumerate() {
         self.rdfn[bb_id.get_bb_id()] = rdfn;

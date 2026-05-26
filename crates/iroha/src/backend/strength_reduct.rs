@@ -87,8 +87,7 @@ impl StrengthReduct<'_> {
   }
 
   pub fn run(&mut self) {
-    let func_id = self.cx.get_current_func_id();
-    let bb_ids = self.cx.get_func(func_id).cfg.dpo();
+    let bb_ids = self.cx.get_cfg().dpo();
     for &bb_id in bb_ids.iter().rev() {
       let bb_id = BOperand::BB(bb_id);
       self.cx.set_current_block(bb_id);
@@ -104,15 +103,14 @@ impl StrengthReduct<'_> {
           enu: LOpData,
           minor_arms: {
             LOpData::MulI { rd, lhs, rhs } => if let BOperand::IntImm(imm) = rhs {
-              let bb_id = self.cx.op_bb(inst_id);
               if imm == -1 {
-                self.cx.replace_op_no_rauw(inst_id, bb_id, BOp::new(
+                self.cx.replace_op_no_rauw(inst_id, BOp::new(
                   typ,
                   attrs,
                   LOpData::SubI { rd, lhs: BOperand::Reg(Reg::X(XReg::Zero)), rhs: lhs }.into()
                 ));
               } else if let Some(shift) = if imm == 1 { None } else { Self::pow2_shift(imm) } {
-                self.cx.replace_op_no_rauw(inst_id, bb_id, BOp::new(
+                self.cx.replace_op_no_rauw(inst_id, BOp::new(
                   typ,
                   attrs,
                   LOpData::Shl { rd, lhs, rhs: BOperand::IntImm(shift as i32) }.into()
@@ -124,7 +122,7 @@ impl StrengthReduct<'_> {
                   LOpData::Shl { rd: BOperand::Undef, lhs, rhs: BOperand::IntImm(shift as i32) }.into()
                 ));
                 let shift_vreg_id = *self.cx.get_rd(shift_op_id).unwrap();
-                self.cx.replace_op_no_rauw(inst_id, bb_id, BOp::new(
+                self.cx.replace_op_no_rauw(inst_id, BOp::new(
                   typ,
                   attrs,
                   LOpData::AddI { rd, lhs: shift_vreg_id, rhs: lhs }.into()
@@ -136,7 +134,7 @@ impl StrengthReduct<'_> {
                   LOpData::Shl { rd: BOperand::Undef, lhs, rhs: BOperand::IntImm(shift as i32) }.into()
                 ));
                 let shift_vreg_id = *self.cx.get_rd(shift_op_id).unwrap();
-                self.cx.replace_op_no_rauw(inst_id, bb_id, BOp::new(
+                self.cx.replace_op_no_rauw(inst_id, BOp::new(
                   typ,
                   attrs,
                   LOpData::SubI { rd, lhs: shift_vreg_id, rhs: lhs }.into()
@@ -148,7 +146,7 @@ impl StrengthReduct<'_> {
                   LOpData::Shl { rd: BOperand::Undef, lhs, rhs: BOperand::IntImm(shift as i32) }.into()
                 ));
                 let shift_vreg_id = *self.cx.get_rd(shift_op_id).unwrap();
-                self.cx.replace_op_no_rauw(inst_id, bb_id, BOp::new(
+                self.cx.replace_op_no_rauw(inst_id, BOp::new(
                   typ,
                   attrs,
                   LOpData::SubI { rd, lhs: BOperand::Reg(Reg::X(XReg::Zero)), rhs: shift_vreg_id }.into()
@@ -166,7 +164,7 @@ impl StrengthReduct<'_> {
                   LOpData::AddI { rd: BOperand::Undef, lhs: shift_vreg_id, rhs: lhs }.into()
                 ));
                 let add_vreg_id = *self.cx.get_rd(add_op_id).unwrap();
-                self.cx.replace_op_no_rauw(inst_id, bb_id, BOp::new(
+                self.cx.replace_op_no_rauw(inst_id, BOp::new(
                   typ,
                   attrs,
                   LOpData::SubI { rd, lhs: BOperand::Reg(Reg::X(XReg::Zero)), rhs: add_vreg_id }.into()
@@ -178,7 +176,7 @@ impl StrengthReduct<'_> {
                   LOpData::Shl { rd: BOperand::Undef, lhs, rhs: BOperand::IntImm(shift as i32) }.into()
                 ));
                 let shift_vreg_id = *self.cx.get_rd(shift_op_id).unwrap();
-                self.cx.replace_op_no_rauw(inst_id, bb_id, BOp::new(
+                self.cx.replace_op_no_rauw(inst_id, BOp::new(
                   typ,
                   attrs,
                   LOpData::SubI { rd, lhs, rhs: shift_vreg_id }.into()
@@ -187,7 +185,7 @@ impl StrengthReduct<'_> {
             },
             LOpData::DivI { rd, lhs, rhs } => if let BOperand::IntImm(imm) = rhs {
               if imm == -1 {
-                self.cx.replace_op_no_rauw(inst_id, bb_id, BOp::new(
+                self.cx.replace_op_no_rauw(inst_id, BOp::new(
                   typ,
                   attrs,
                   LOpData::SubI { rd, lhs: BOperand::Reg(Reg::X(XReg::Zero)), rhs: lhs }.into()
@@ -215,7 +213,7 @@ impl StrengthReduct<'_> {
                 ));
                 let add_vreg_id = *self.cx.get_rd(add_op_id).unwrap();
                 // Shift
-                self.cx.replace_op_no_rauw(inst_id, bb_id, BOp::new(
+                self.cx.replace_op_no_rauw(inst_id, BOp::new(
                   typ,
                   attrs,
                   LOpData::Sar { rd, lhs: add_vreg_id, rhs: BOperand::IntImm(shift as i32) }.into()

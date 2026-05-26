@@ -983,13 +983,9 @@ impl Lowering {
     };
 
     let current_function = self.builder.current_function;
-    self.lower_ir.replace_op_rauw(
-      &mut self.builder,
-      current_function,
-      from_term_id,
-      from,
-      new_lop,
-    );
+    self
+      .lower_ir
+      .replace_op_rauw(&mut self.builder, current_function, from_term_id, new_lop);
 
     // Insert terminator and the moves for phi elimination.
     {
@@ -997,10 +993,10 @@ impl Lowering {
       guard.set_current_block(tramp_id);
 
       // Move the moves to the trampoline block's end.
-      for (move_lop_id, move_bb_id) in new {
+      for (move_lop_id, _) in new {
         self
           .lower_ir
-          .move_op_to_bb_at(current_function, move_lop_id, move_bb_id, tramp_id, None);
+          .move_op_to_bb_at(current_function, move_lop_id, tramp_id, None);
       }
 
       let jump_lop = BOp::new(

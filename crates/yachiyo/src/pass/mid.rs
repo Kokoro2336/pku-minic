@@ -9,7 +9,7 @@ use crate::cli::Cli;
 use crate::debug::DumpLLVM;
 use crate::ir::mid::{
   Attr, BasicBlock, Builder, Function, Globals, LoopInfo, Op, OpData, OpType, Operand, PhiIncoming,
-  IR,
+  CFG, DFG, IR,
 };
 use crate::pass::{AnalysisRef, AnalysisRefMut};
 
@@ -123,6 +123,14 @@ impl<'a> PassContext<'a> {
     self.get_func_mut(self.get_current_func_id())
   }
 
+  pub fn get_cfg(&self) -> &CFG {
+    &self.current_func().cfg
+  }
+
+  pub fn get_dfg(&self) -> &DFG {
+    &self.current_func().dfg
+  }
+
   pub fn current_block(&self) -> Option<Operand> {
     self.builder.current_block
   }
@@ -166,10 +174,10 @@ impl<'a> PassContext<'a> {
   }
 
   pub fn extract_cfg(&self) -> Vec<(Vec<usize>, Vec<usize>)> {
-    let func = self.current_func();
-    let mut graph = vec![(vec![], vec![]); func.cfg.len()];
-    for bb_id in func.cfg.collect() {
-      let bb = &func.cfg[Operand::BB(bb_id)];
+    let cfg = self.get_cfg();
+    let mut graph = vec![(vec![], vec![]); cfg.len()];
+    for bb_id in cfg.collect() {
+      let bb = &cfg[Operand::BB(bb_id)];
       graph[bb_id] = (
         bb.preds
           .iter()
@@ -293,6 +301,17 @@ impl<'a> PassContext<'a> {
     self.get_func(self.get_current_func_id()).op_to_bb[op_id]
   }
 
+  #[inline(always)]
+  pub fn bbs(&self, func_id: Operand) -> Vec<Operand> {
+    self
+      .get_func(func_id)
+      .cfg
+      .collect()
+      .into_iter()
+      .map(Operand::BB)
+      .collect()
+  }
+
   pub fn create(&mut self, op: Op) -> Operand {
     let current_function_option = self.builder.current_function;
     let ir = self.ir.as_deref_mut().unwrap();
@@ -318,36 +337,22 @@ impl<'a> PassContext<'a> {
     self.ir_mut().create_new_block(current_function_option)
   }
 
-  pub fn replace_op(&mut self, op_id: Operand, bb_id: Operand, new_op: Op) -> Operand {
+  pub fn replace_op(&mut self, op_id: Operand, new_op: Op) -> Operand {
     let current_function_option = self.builder.current_function;
     let ir = self.ir.as_deref_mut().unwrap();
-    ir.replace_op(
-      &mut self.builder,
-      current_function_option,
-      op_id,
-      bb_id,
-      new_op,
-    )
+    ir.replace_op(&mut self.builder, current_function_option, op_id, new_op)
   }
 
-  pub fn remove_op(&mut self, op_id: Operand, bb_id: Option<Operand>) -> crate::ir::mid::Op {
+  pub fn remove_op(&mut self, op_id: Operand) -> crate::ir::mid::Op {
+    let current_function_option = self.builder.current_function;
+    self.ir_mut().remove_op(current_function_option, op_id)
+  }
+
+  pub fn move_op_to_bb_at(&mut self, op_id: Operand, to_bb: Operand, before_op: Option<Operand>) {
     let current_function_option = self.builder.current_function;
     self
       .ir_mut()
-      .remove_op(current_function_option, op_id, bb_id)
-  }
-
-  pub fn move_op_to_bb_at(
-    &mut self,
-    op_id: Operand,
-    from_bb: Operand,
-    to_bb: Operand,
-    before_op: Option<Operand>,
-  ) {
-    let current_function_option = self.builder.current_function;
-    self
-      .ir_mut()
-      .move_op_to_bb_at(current_function_option, op_id, from_bb, to_bb, before_op);
+      .move_op_to_bb_at(current_function_option, op_id, to_bb, before_op);
   }
 
   pub fn redirect_bb(&mut self, operand: Operand, old_bb: Operand, new_bb: Operand) -> Operand {
@@ -465,11 +470,11 @@ impl<'a> PassContext<'a> {
     self.get_src(op_id).iter().map(|src| **src).collect()
   }
 
-  pub fn remove_control_flow(&mut self, op_id: Operand, bb_id: Operand) {
+  pub fn remove_control_flow(&mut self, op_id: Operand) {
     let current_function_option = self.builder.current_function;
     self
       .ir_mut()
-      .remove_control_flow(current_function_option, op_id, bb_id);
+      .remove_control_flow(current_function_option, op_id);
   }
 
   pub fn add_uses(&mut self, op_id: Operand) {
@@ -584,9 +589,8 @@ impl<'a> PassContext<'a> {
 
   #[inline(always)]
   pub fn get_op(&self, op_id: Operand) -> &Op {
-    let func_id = self.get_current_func_id();
     match op_id {
-      Operand::Value(_) => &self.get_func(func_id).dfg[op_id],
+      Operand::Value(_) => &self.get_dfg()[op_id],
       Operand::Global(_) => &self.ir().globals[op_id],
       _ => unreachable!("Expected Value or Global operand, got {:?}", op_id),
     }
@@ -621,9 +625,13 @@ impl<'a> PassContext<'a> {
   }
 
   #[inline(always)]
+  pub fn get_entry(&self, func_id: Operand) -> Operand {
+    Operand::BB(self.get_func(func_id).cfg.entry.unwrap())
+  }
+
+  #[inline(always)]
   pub fn get_bb(&self, bb_id: Operand) -> &BasicBlock {
-    let func_id = self.get_current_func_id();
-    &self.get_func(func_id).cfg[bb_id]
+    &self.get_cfg()[bb_id]
   }
 
   #[inline(always)]

@@ -55,7 +55,7 @@ impl Localize<'_> {
         *global
       })
       .collect::<Vec<_>>();
-    let entry = self.cx.get_func(func_id).cfg.entry.unwrap();
+    let entry = self.cx.get_cfg().entry.unwrap();
     self.cx.set_current_block(Operand::BB(entry));
 
     for global in globals {
@@ -197,7 +197,7 @@ impl<'a> Pass<'a> for Localize<'a> {
     for func_id in self.cx.ir().funcs.collect_internal() {
       let func_id = Operand::Func(func_id);
       self.cx.set_current_func(Some(func_id));
-      let bb_ids = self.cx.get_func(func_id).cfg.collect();
+      let bb_ids = self.cx.get_cfg().collect();
       // Collect memory instructions and barriers
       for bb_id in bb_ids {
         let cur = self.cx.get_bb(Operand::BB(bb_id)).cur.clone();

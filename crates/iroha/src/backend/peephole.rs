@@ -16,8 +16,7 @@ impl Peephole<'_> {
   }
 
   pub fn combine(&mut self) {
-    let func_id = self.cx.get_current_func_id();
-    let bb_ids = self.cx.get_func(func_id).cfg.ids();
+    let bb_ids = self.cx.get_cfg().ids();
     for bb_id in bb_ids {
       let bb_id = BOperand::BB(bb_id);
       let inst_ids = self.cx.get_bb(bb_id).cur.clone();
@@ -31,7 +30,7 @@ impl Peephole<'_> {
                   LOpData::Move { rd, src } => {
                       // If the source and destination are the same, we can remove this instruction directly.
                       if rd == src {
-                          self.cx.remove_op(inst_id, Some(bb_id));
+                          self.cx.remove_op(inst_id);
                       }
                   }
               },
@@ -44,12 +43,12 @@ impl Peephole<'_> {
               minor_arms: {
                   MOpData::Mv { rd, rs } => {
                       if rd == rs {
-                          self.cx.remove_op(inst_id, Some(bb_id));
+                          self.cx.remove_op(inst_id);
                       }
                   },
                   MOpData::FmvS { rd, rs } => {
                       if rd == rs {
-                          self.cx.remove_op(inst_id, Some(bb_id));
+                          self.cx.remove_op(inst_id);
                       }
                   }
               },
