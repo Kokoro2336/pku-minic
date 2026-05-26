@@ -129,12 +129,10 @@ impl Legalize<'_> {
   }
 
   pub fn run(&mut self) {
-    let func_id = self.cx.get_current_func_id();
-    let bb_ids = self.cx.get_func(func_id).cfg.ids();
+    let bb_ids = self.cx.get_cfg().ids();
     for bb_id in bb_ids {
       let bb_id = BOperand::BB(bb_id);
       self.cx.set_current_block(bb_id);
-      let current_block = bb_id;
 
       let inst_ids = self.cx.get_bb(bb_id).cur.clone();
       for inst_id in inst_ids {
@@ -223,7 +221,7 @@ impl Legalize<'_> {
 
                   _ => unreachable!("Unexpected op: {:?}", lop_data),
                 };
-                self.cx.replace_op_no_rauw(inst_id, current_block, BOp::new(
+                self.cx.replace_op_no_rauw(inst_id, BOp::new(
                   typ,
                   attrs,
                   new_lop_data.into(),
@@ -297,7 +295,7 @@ impl Legalize<'_> {
 
                   _ => unreachable!("Unexpected op with literal on the right: {:?}", lop_data),
                 };
-                self.cx.replace_op_no_rauw(inst_id, current_block, BOp::new(
+                self.cx.replace_op_no_rauw(inst_id, BOp::new(
                   typ,
                   attrs,
                   new_lop_data.into(),
@@ -347,7 +345,7 @@ impl Legalize<'_> {
 
                   _ => unreachable!("Unexpected op with no literal operand: {:?}", lop_data),
                 };
-                self.cx.replace_op_no_rauw(inst_id, current_block, BOp::new(
+                self.cx.replace_op_no_rauw(inst_id, BOp::new(
                   typ,
                   attrs,
                   new_lop_data.into(),
@@ -365,7 +363,7 @@ impl Legalize<'_> {
                 LOpData::Fptosi { rd, value: self.legalize(value, LegalizeOption::ForceImmLoad) },
               _ => unreachable!("Unexpected unary op: {:?}", lop_data),
             };
-            self.cx.replace_op_no_rauw(inst_id, current_block, BOp::new(
+            self.cx.replace_op_no_rauw(inst_id, BOp::new(
               typ,
               attrs,
               new_lop_data.into(),
@@ -375,7 +373,7 @@ impl Legalize<'_> {
             LOpData::Store { addr, value, val_typ } => {
               // Mem operand should not be
               let new_lop_data = LOpData::Store { addr: self.legalize(addr, LegalizeOption::NoLoad), value: self.legalize(value, LegalizeOption::ForceImmLoad), val_typ };
-              self.cx.replace_op_no_rauw(inst_id, current_block, BOp::new(
+              self.cx.replace_op_no_rauw(inst_id, BOp::new(
                 typ,
                 attrs,
                 new_lop_data.into(),
@@ -384,7 +382,7 @@ impl Legalize<'_> {
             LOpData::Load { addr, rd } => {
               // Mem operand should not be legalized to Load again, otherwise it will cause infinite loop.
               let new_lop_data = LOpData::Load { addr: self.legalize(addr, LegalizeOption::NoLoad), rd };
-              self.cx.replace_op_no_rauw(inst_id, current_block, BOp::new(
+              self.cx.replace_op_no_rauw(inst_id, BOp::new(
                 typ,
                 attrs,
                 new_lop_data.into(),
@@ -393,7 +391,7 @@ impl Legalize<'_> {
             LOpData::Move { rd, src } => {
               // Move should not have literal operand, but we still legalize it just in case.
               let new_lop_data = LOpData::Move { rd, src: self.legalize(src, LegalizeOption::ForceImmLoad) };
-              self.cx.replace_op_no_rauw(inst_id, current_block, BOp::new(
+              self.cx.replace_op_no_rauw(inst_id, BOp::new(
                 typ,
                 attrs,
                 new_lop_data.into(),
@@ -405,7 +403,7 @@ impl Legalize<'_> {
                 then_bb,
                 else_bb,
               };
-              self.cx.replace_op_no_rauw(inst_id, current_block, BOp::new(
+              self.cx.replace_op_no_rauw(inst_id, BOp::new(
                 typ,
                 attrs,
                 new_lop_data.into(),

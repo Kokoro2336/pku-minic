@@ -320,13 +320,14 @@ impl BackIR {
     }
   }
 
-  pub fn remove_control_flow(
-    &mut self,
-    current_function: Option<BOperand>,
-    op: BOperand,
-    bb: BOperand,
-  ) {
+  pub fn remove_control_flow(&mut self, current_function: Option<BOperand>, op: BOperand) {
     let current_function = current_function.unwrap();
+    let bb = self.funcs[current_function].op_to_bb[op];
+    assert!(
+      matches!(bb, BOperand::BB(_)),
+      "BackIR remove_control_flow: instruction {:?} is not mapped to a block",
+      op
+    );
     let func = &mut self.funcs[current_function];
     let (cfg, dfg) = (&mut func.cfg, &mut func.dfg);
     let data = dfg[op.get_inst_id()].data.clone();
@@ -615,12 +616,7 @@ impl BackIR {
     BOperand::BB(bb_id)
   }
 
-  pub fn remove_op(
-    &mut self,
-    current_function: Option<BOperand>,
-    op: BOperand,
-    bb: Option<BOperand>,
-  ) -> BOp {
+  pub fn remove_op(&mut self, current_function: Option<BOperand>, op: BOperand) -> BOp {
     #[cfg(feature = "debug")]
     crate::debug::info!(
       "Removing op {:?}: {:?} in function {:?}",
@@ -629,33 +625,31 @@ impl BackIR {
       current_function
     );
 
-    self.remove_def(current_function, op);
-    self.remove_uses(current_function, op);
-    if let Some(bb_id) = bb {
-      self.remove_control_flow(current_function, op, bb_id);
-    }
-
     let current_function = current_function.unwrap();
+    let bb_id = self.funcs[current_function].op_to_bb[op];
+    assert!(
+      matches!(bb_id, BOperand::BB(_)),
+      "BackIR remove_op: instruction {:?} is not mapped to a block",
+      op
+    );
+
+    self.remove_def(Some(current_function), op);
+    self.remove_uses(Some(current_function), op);
+    self.remove_control_flow(Some(current_function), op);
+
     let func = &mut self.funcs[current_function];
     let (cfg, dfg, op_to_bb) = (&mut func.cfg, &mut func.dfg, &mut func.op_to_bb);
 
     let op_id = op.get_inst_id();
-    let bb_id = bb
-      .unwrap_or_else(|| {
-        panic!(
-          "BackIR remove_op: bb is None when removing instruction {:?}",
-          op
-        )
-      })
-      .get_bb_id();
-    let bb = &mut cfg[bb_id];
+    let bb_idx = bb_id.get_bb_id();
+    let bb = &mut cfg[bb_idx];
 
     if let Some(pos) = bb.cur.iter().position(|id| id.get_inst_id() == op_id) {
       bb.cur.remove(pos);
     } else {
       panic!(
         "BackIR remove_op: instruction {:?} not found in block {:?}",
-        op, bb_id
+        op, bb_idx
       );
     }
 
@@ -671,7 +665,7 @@ impl BackIR {
       "Removed op {:?}: {:?} in block {:?} of function {:?}",
       op,
       removed_op,
-      bb_id,
+      bb_idx,
       current_function
     );
 
@@ -686,7 +680,6 @@ impl BackIR {
     builder: &mut BBuilder,
     current_function: Option<BOperand>,
     op_id: BOperand,
-    bb_id: BOperand,
     new_op: BOp,
   ) -> BOperand {
     #[cfg(feature = "debug")]
@@ -698,6 +691,12 @@ impl BackIR {
     );
 
     let current_function = current_function.unwrap();
+    let bb_id = self.funcs[current_function].op_to_bb[op_id];
+    assert!(
+      matches!(bb_id, BOperand::BB(_)),
+      "BackIR replace_op_no_rauw: instruction {:?} is not mapped to a block",
+      op_id
+    );
 
     let pos = {
       let cfg = &self.funcs[current_function].cfg;
@@ -725,7 +724,7 @@ impl BackIR {
       // We won't bind the new operation with the old vreg. We create a new one directly.
       guard.set_before_inst(self, Some(current_function), next_inst);
       // Remove the old operation.
-      self.remove_op(Some(current_function), op_id, Some(bb_id));
+      self.remove_op(Some(current_function), op_id);
       guard.create(self, Some(current_function), new_op)
     }
   }
@@ -736,7 +735,6 @@ impl BackIR {
     builder: &mut BBuilder,
     current_function: Option<BOperand>,
     op_id: BOperand,
-    bb_id: BOperand,
     new_op: BOp,
   ) -> BOperand {
     #[cfg(feature = "debug")]
@@ -748,6 +746,12 @@ impl BackIR {
     );
 
     let current_function = current_function.unwrap();
+    let bb_id = self.funcs[current_function].op_to_bb[op_id];
+    assert!(
+      matches!(bb_id, BOperand::BB(_)),
+      "BackIR replace_op_rauw: instruction {:?} is not mapped to a block",
+      op_id
+    );
 
     let pos = {
       let cfg = &self.funcs[current_function].cfg;
@@ -778,7 +782,7 @@ impl BackIR {
       // RAUW
       self.replace_all_uses(Some(current_function), op_id, new_op_id);
       // Remove the old operation.
-      self.remove_op(Some(current_function), op_id, Some(bb_id));
+      self.remove_op(Some(current_function), op_id);
       new_op_id
     }
   }
@@ -787,15 +791,15 @@ impl BackIR {
     &mut self,
     current_function: Option<BOperand>,
     op: BOperand,
-    old_bb: BOperand,
     new_bb: BOperand,
     pos: Option<BOperand>,
   ) {
     let current_function = current_function.unwrap();
     let func = &mut self.funcs[current_function];
-    let cfg = &mut func.cfg;
+    let (cfg, op_to_bb) = (&mut func.cfg, &mut func.op_to_bb);
 
     let op_id = op.get_inst_id();
+    let old_bb = op_to_bb[op];
     let old_bb_id = old_bb.get_bb_id();
 
     let old_bb_ref = &mut cfg[old_bb_id];
@@ -832,7 +836,7 @@ impl BackIR {
       new_bb_ref.cur.push(op);
     }
 
-    func.op_to_bb[op] = new_bb;
+    op_to_bb[op] = new_bb;
   }
 
   fn op_data_targets_bb(data: &BOpData, bb: BOperand) -> bool {
@@ -864,7 +868,7 @@ impl BackIR {
     new_bb: BOperand,
   ) -> BOperand {
     let current_function = current_function.unwrap();
-    let (term_id, term_bb) = match operand {
+    let term_id = match operand {
       BOperand::BB(_) => {
         let term_id = self.funcs[current_function].cfg[operand]
           .cur
@@ -880,9 +884,9 @@ impl BackIR {
               operand, old_bb
             )
           });
-        (term_id, operand)
+        term_id
       }
-      BOperand::Inst(_) => (operand, self.funcs[current_function].op_to_bb[operand]),
+      BOperand::Inst(_) => operand,
       _ => panic!(
         "BackIR redirect_bb: expected BB or Inst operand, got {:?}",
         operand
@@ -1043,7 +1047,6 @@ impl BackIR {
       builder,
       Some(current_function),
       term_id,
-      term_bb,
       BOp::new(typ, attrs, new_data),
     )
   }

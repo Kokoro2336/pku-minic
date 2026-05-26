@@ -92,7 +92,7 @@ impl SimplifyCFG<'_> {
     }
 
     if let Some(last) = cur.last() {
-      self.cx.remove_control_flow(*last, bb_id);
+      self.cx.remove_control_flow(*last);
     }
 
     self.processed.insert(bb_id.get_bb_id());
@@ -105,7 +105,7 @@ impl SimplifyCFG<'_> {
     to_bb: Operand,
     before_op: Option<Operand>,
   ) {
-    self.cx.move_op_to_bb_at(op_id, from_bb, to_bb, before_op);
+    self.cx.move_op_to_bb_at(op_id, to_bb, before_op);
     // If a user of the moved instruction is a phi node in the original block, we need to update the phi node to point to the new block.
     let users = self.cx.users(op_id).to_vec();
     for (user, _) in users {
@@ -124,7 +124,6 @@ impl SimplifyCFG<'_> {
   }
 
   pub fn simplify(&mut self, bb_id: Operand) {
-    let func_id = self.cx.get_current_func_id();
     let mut is_dead = false;
 
     // Case 1: 1 pred and the pred has only 1 succ. Then merge current block into its predecessor.
@@ -156,7 +155,7 @@ impl SimplifyCFG<'_> {
         None => unreachable!(),
       };
       let bb_term_op = self.cx.get_op(bb_term_id).clone();
-      self.cx.replace_op(pred_term_id, pred_id, bb_term_op);
+      self.cx.replace_op(pred_term_id, bb_term_op);
 
       // Update downstream's phi nodes
       let bb = self.cx.get_bb(bb_id);
@@ -203,7 +202,7 @@ impl SimplifyCFG<'_> {
       })
       && bb.succs[0].0 != bb_id
       // Ignore entry block.
-      && bb_id != Operand::BB(self.cx.get_func(func_id).cfg.entry.unwrap())
+      && bb_id != Operand::BB(self.cx.get_cfg().entry.unwrap())
     {
       is_dead = true;
 
@@ -243,7 +242,7 @@ impl SimplifyCFG<'_> {
             unreachable!()
           }
         }
-        self.cx.replace_op(pred_term, *pred_id, pred_term_op);
+        self.cx.replace_op(pred_term, pred_term_op);
       }
 
       // Update the phi nodes in successor block.
@@ -368,7 +367,7 @@ impl<'a> Pass<'a> for SimplifyCFG<'a> {
       self.init(func_id);
 
       // TODO: fixed point iteration.
-      let dfs = self.cx.get_func(func_id).cfg.dpo();
+      let dfs = self.cx.get_cfg().dpo();
       // Reverse post order
       for bb_id in dfs.into_iter().rev() {
         self.simplify(bb_id);

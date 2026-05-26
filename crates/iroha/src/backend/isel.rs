@@ -24,7 +24,6 @@ impl ISel<'_> {
   }
 
   pub fn select(&mut self, lop_id: BOperand) {
-    let current_block = self.cx.current_block().unwrap();
     let bop = self.cx.get_op(lop_id);
     let (lop_data, attrs, typ) = (bop.data.clone().into(), bop.attrs.clone(), bop.typ.clone());
 
@@ -203,7 +202,7 @@ impl ISel<'_> {
                         }
                     };
 
-                    self.cx.replace_op_rauw(lop_id, current_block, BOp::new(typ.clone(), attrs, mop_data.into()));
+                    self.cx.replace_op_rauw(lop_id, BOp::new(typ.clone(), attrs, mop_data.into()));
                 },
                 (false, false) => {
                     let (rs1, rs2) = (*lhs, *rhs);
@@ -388,7 +387,7 @@ impl ISel<'_> {
                         }
                     };
 
-                    self.cx.replace_op_rauw(lop_id, current_block, BOp::new(typ.clone(), attrs, mop_data.into()));
+                    self.cx.replace_op_rauw(lop_id, BOp::new(typ.clone(), attrs, mop_data.into()));
                 }
             }
         },
@@ -407,17 +406,14 @@ impl ISel<'_> {
                 }
             };
 
-            self.cx.replace_op_rauw(lop_id, current_block, BOp::new(typ.clone(), attrs, mop_data.into()));
+            self.cx.replace_op_rauw(lop_id, BOp::new(typ.clone(), attrs, mop_data.into()));
         },
         fallback: {
             LOpData::Store {..}
             | LOpData::Load {..} => {/*do nothing. Store/Load will be lowered in Post-RA later. */}
 
             LOpData::Call { func } => {
-                self.cx.replace_op_rauw(
-                    lop_id,
-                    current_block,
-                    BOp::new(
+                self.cx.replace_op_rauw(lop_id, BOp::new(
                         typ.clone(),
                         attrs,
                         MOpData::Call { target: *func }.into(),
@@ -433,10 +429,7 @@ impl ISel<'_> {
                         MOpData::Bnez { rs: *cond, target: *then_bb }.into(),
                     )
                 );
-                self.cx.replace_op_rauw(
-                    lop_id,
-                    current_block,
-                    BOp::new(
+                self.cx.replace_op_rauw(lop_id, BOp::new(
                         typ.clone(),
                         attrs,
                         MOpData::J { target: *else_bb }.into(),
@@ -445,10 +438,7 @@ impl ISel<'_> {
             }
 
             LOpData::Jump { target_bb } => {
-                self.cx.replace_op_rauw(
-                    lop_id,
-                    current_block,
-                    BOp::new(
+                self.cx.replace_op_rauw(lop_id, BOp::new(
                         typ.clone(),
                         attrs,
                         MOpData::J { target: *target_bb }.into()
@@ -469,10 +459,7 @@ impl ISel<'_> {
                             BType::F32 => MOpData::FmvS { rd: *rd, rs: *src },
                             BType::Void | BType::F64 => unreachable!("Move with void type doesn't make sense"),
                         };
-                        self.cx.replace_op_no_rauw(
-                            lop_id,
-                            current_block,
-                            BOp::new(
+                        self.cx.replace_op_no_rauw(lop_id, BOp::new(
                                 typ.clone(),
                                 attrs,
                                 // For Move, we still use the original rd.
@@ -491,20 +478,14 @@ impl ISel<'_> {
                             BType::Void | BType::F64 => unreachable!("Move with void type doesn't make sense"),
                         };
                         if attrs.contains(&BAttr::PhiMove) {
-                            self.cx.replace_op_no_rauw(
-                                lop_id,
-                                current_block,
-                                BOp::new(
+                            self.cx.replace_op_no_rauw(lop_id, BOp::new(
                                     typ.clone(),
                                     attrs,
                                     mop_data.into(),
                                 ),
                             );
                         } else {
-                            self.cx.replace_op_rauw(
-                                lop_id,
-                                current_block,
-                                BOp::new(
+                            self.cx.replace_op_rauw(lop_id, BOp::new(
                                     typ.clone(),
                                     attrs,
                                     mop_data.into(),
@@ -522,10 +503,7 @@ impl ISel<'_> {
                     Type::Float,
                     vec![BOperand::FloatImm(imm.to_bits())],
                 ));
-                self.cx.replace_op_rauw(
-                    lop_id,
-                    current_block,
-                    BOp::new(
+                self.cx.replace_op_rauw(lop_id, BOp::new(
                         BType::F32,
                         attrs,
                         // CAUTION: Create LOpData::Load here.
@@ -535,10 +513,7 @@ impl ISel<'_> {
             }
 
             LOpData::LoadIntImm { imm, .. } => {
-                self.cx.replace_op_rauw(
-                    lop_id,
-                    current_block,
-                    BOp::new(
+                self.cx.replace_op_rauw(lop_id, BOp::new(
                         typ.clone(),
                         attrs,
                         MOpData::Li { rd: BOperand::Undef, imm: *imm }.into(),
@@ -547,10 +522,7 @@ impl ISel<'_> {
             }
 
             LOpData::LoadAddress { addr, .. } => {
-                self.cx.replace_op_rauw(
-                    lop_id,
-                    current_block,
-                    BOp::new(
+                self.cx.replace_op_rauw(lop_id, BOp::new(
                         typ.clone(),
                         attrs,
                         MOpData::La { rd: BOperand::Undef, target: *addr }.into(),
@@ -560,10 +532,7 @@ impl ISel<'_> {
 
             LOpData::Ret => {
                 // For non-binbinary/unary ops, we simply emit them as is.
-                self.cx.replace_op_rauw(
-                    lop_id,
-                    current_block,
-                    BOp::new(
+                self.cx.replace_op_rauw(lop_id, BOp::new(
                         BType::Void,
                         attrs,
                         MOpData::Ret.into(),
@@ -587,9 +556,8 @@ impl<'a> BPass<'a> for ISel<'a> {
   fn run(&mut self) {
     for func_id in self.cx.ir().funcs.collect_internal() {
       self.init(func_id);
-      let func_id = BOperand::Func(func_id);
 
-      let ids = self.cx.get_func(func_id).cfg.ids();
+      let ids = self.cx.get_cfg().ids();
       for bb_id in ids {
         self.cx.set_current_block(BOperand::BB(bb_id));
         let cur = self.cx.get_bb(BOperand::BB(bb_id)).cur.clone();

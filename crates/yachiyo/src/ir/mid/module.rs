@@ -583,13 +583,14 @@ impl IR {
     }
   }
 
-  pub fn remove_control_flow(
-    &mut self,
-    current_function: Option<Operand>,
-    op: Operand,
-    bb: Operand,
-  ) {
+  pub fn remove_control_flow(&mut self, current_function: Option<Operand>, op: Operand) {
     let current_function = current_function.unwrap();
+    let bb = self.funcs[current_function].op_to_bb[op];
+    assert!(
+      matches!(bb, Operand::BB(_)),
+      "IR remove_control_flow: instruction {:?} is not mapped to a block",
+      op
+    );
     let func = &mut self.funcs[current_function];
     let (cfg, dfg) = (&mut func.cfg, &mut func.dfg);
     let data = dfg[op.get_op_id()].data.clone();
@@ -804,37 +805,37 @@ impl IR {
     ops
   }
 
-  pub fn remove_op(
-    &mut self,
-    current_function: Option<Operand>,
-    op: Operand,
-    bb: Option<Operand>,
-  ) -> Op {
+  pub fn remove_op(&mut self, current_function: Option<Operand>, op: Operand) -> Op {
     if matches!(op, Operand::Global(_)) {
       assert!(!self.has_users(None, op));
       let removed_op = self.globals.remove(op.get_global_id());
       return removed_op;
     }
 
-    self.remove_uses(current_function, op);
-    if let Some(bb_id) = bb {
-      self.remove_control_flow(current_function, op, bb_id);
-    }
-
     let current_function = current_function.unwrap();
+    let bb_id = self.funcs[current_function].op_to_bb[op];
+    assert!(
+      matches!(bb_id, Operand::BB(_)),
+      "IR remove_op: instruction {:?} is not mapped to a block",
+      op
+    );
+
+    self.remove_uses(Some(current_function), op);
+    self.remove_control_flow(Some(current_function), op);
+
     let func = &mut self.funcs[current_function];
     let (cfg, dfg, op_to_bb) = (&mut func.cfg, &mut func.dfg, &mut func.op_to_bb);
 
     let op_id = op.get_op_id();
-    let bb_id = bb.unwrap().get_bb_id();
-    let bb = &mut cfg[bb_id];
+    let bb_idx = bb_id.get_bb_id();
+    let bb = &mut cfg[bb_idx];
 
     if let Some(pos) = bb.cur.iter().position(|id| id.get_op_id() == op_id) {
       bb.cur.remove(pos);
     } else {
       panic!(
         "IR remove_op: instruction {:?} not found in block {:?}",
-        op, bb_id
+        op, bb_idx
       );
     }
 
@@ -849,11 +850,17 @@ impl IR {
     builder: &mut Builder,
     current_function: Option<Operand>,
     op_id: Operand,
-    bb_id: Operand,
     new_op: Op,
   ) -> Operand {
+    let current_function = current_function.unwrap();
+    let bb_id = self.funcs[current_function].op_to_bb[op_id];
+    assert!(
+      matches!(bb_id, Operand::BB(_)),
+      "IR replace_op: instruction {:?} is not mapped to a block",
+      op_id
+    );
+
     let pos = {
-      let current_function = current_function.unwrap();
       let cfg = &mut self.funcs[current_function].cfg;
       let bb = &cfg[bb_id];
       bb.cur
@@ -863,7 +870,6 @@ impl IR {
     };
 
     let next_inst = {
-      let current_function = current_function.unwrap();
       let cfg = &mut self.funcs[current_function].cfg;
       let bb = &cfg[bb_id.get_bb_id()];
       bb.cur.get(pos + 1).cloned()
@@ -873,12 +879,12 @@ impl IR {
     {
       guard.set_current_block(bb_id);
       // Create new instruction first.
-      guard.set_before_inst(self, current_function, next_inst);
-      let new_op_id = guard.create(self, current_function, new_op);
+      guard.set_before_inst(self, Some(current_function), next_inst);
+      let new_op_id = guard.create(self, Some(current_function), new_op);
       // RAUW
-      self.replace_all_uses(current_function, op_id, new_op_id);
+      self.replace_all_uses(Some(current_function), op_id, new_op_id);
       // Remove old instruction.
-      self.remove_op(current_function, op_id, Some(bb_id));
+      self.remove_op(Some(current_function), op_id);
       new_op_id
     }
   }
@@ -887,15 +893,15 @@ impl IR {
     &mut self,
     current_function: Option<Operand>,
     op: Operand,
-    old_bb: Operand,
     new_bb: Operand,
     pos: Option<Operand>,
   ) {
     let current_function = current_function.unwrap();
     let func = &mut self.funcs[current_function];
-    let cfg = &mut func.cfg;
+    let (cfg, op_to_bb) = (&mut func.cfg, &mut func.op_to_bb);
 
     let op_id = op.get_op_id();
+    let old_bb = op_to_bb[op];
     let old_bb_id = old_bb.get_bb_id();
 
     let old_bb_ref = &mut cfg[old_bb_id];
@@ -928,7 +934,7 @@ impl IR {
       new_bb_ref.cur.push(op);
     }
 
-    func.op_to_bb[op] = new_bb;
+    op_to_bb[op] = new_bb;
   }
 
   pub fn redirect_bb(
@@ -940,7 +946,7 @@ impl IR {
     new_bb: Operand,
   ) -> Operand {
     let current_function = current_function.unwrap();
-    let (term_id, term_bb) = match operand {
+    let term_id = match operand {
       Operand::BB(_) => {
         let term_id = self.funcs[current_function].cfg[operand]
           .cur
@@ -953,14 +959,14 @@ impl IR {
               .is_terminator()
           })
           .unwrap_or_else(|| panic!("IR redirect_bb: block {:?} has no terminator", operand));
-        (term_id, operand)
+        term_id
       }
       Operand::Value(_) => {
         let op_data = &self.funcs[current_function].dfg[operand].data;
         if !matches!(op_data, OpData::Br { .. } | OpData::Jump { .. }) {
           panic!("IR redirect_bb: expected Br or Jump, got {:?}", op_data);
         }
-        (operand, self.funcs[current_function].op_to_bb[operand])
+        operand
       }
       _ => panic!(
         "IR redirect_bb: expected BB or Value operand, got {:?}",
@@ -1014,7 +1020,6 @@ impl IR {
       builder,
       Some(current_function),
       term_id,
-      term_bb,
       Op::new(typ, attrs, new_data),
     )
   }
@@ -1135,7 +1140,6 @@ impl IR {
       builder,
       Some(current_function),
       term_id,
-      current_block,
       Op::new(Type::Void, vec![], OpData::Jump { target_bb: new_bb }),
     );
 

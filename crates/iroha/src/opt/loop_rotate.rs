@@ -265,7 +265,7 @@ impl LoopRotate<'_> {
         minor_arms: {
           OpData::Jump { target_bb } => {
             if target_bb == header_id {
-              self.cx.replace_op(pre_header_term_id, pre_header_id, Op::new(
+              self.cx.replace_op(pre_header_term_id, Op::new(
                 Type::Void,
                 vec![],
                 OpData::Jump {
@@ -278,7 +278,7 @@ impl LoopRotate<'_> {
           }
           OpData::Br { cond, then_bb, else_bb } => {
             if then_bb == header_id {
-              self.cx.replace_op(pre_header_term_id, pre_header_id, Op::new(
+              self.cx.replace_op(pre_header_term_id, Op::new(
                 Type::Void,
                 vec![],
                 OpData::Br {
@@ -288,7 +288,7 @@ impl LoopRotate<'_> {
                 },
               ));
             } else if else_bb == header_id {
-              self.cx.replace_op(pre_header_term_id, pre_header_id, Op::new(
+              self.cx.replace_op(pre_header_term_id, Op::new(
                 Type::Void,
                 vec![],
                 OpData::Br {
@@ -372,7 +372,7 @@ impl LoopRotate<'_> {
       for phi_id in phis {
         self
           .cx
-          .move_op_to_bb_at(phi_id, header_id, body_bb_id, Some(body_head_op_id));
+          .move_op_to_bb_at(phi_id, body_bb_id, Some(body_head_op_id));
         self.moved_phis.push(phi_id);
         // Refine incoming block of the moved phi nodes.
         let OpData::Phi { incomings } = self.cx.get_op_data(phi_id).clone() else {

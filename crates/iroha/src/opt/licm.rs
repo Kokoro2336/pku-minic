@@ -170,9 +170,8 @@ impl LICM<'_> {
     call_graph: &CallGraph,
     pureness: &PurenessResult,
   ) {
-    let func_id = self.cx.get_current_func_id();
     // The loops are naturally in RPO order, so the traverse it in a reverse order.
-    let dpo = self.cx.get_func(func_id).cfg.dpo();
+    let dpo = self.cx.get_cfg().dpo();
     for lp_id in (0..loops.len()).rev() {
       let loop_data = &loops[lp_id.into()];
       // Traverse the blocks in the loop in RPO order.
@@ -218,7 +217,7 @@ impl LICM<'_> {
 
             self
               .cx
-              .move_op_to_bb_at(inst_id, *bb_id, pre_header_id, Some(pre_header_term));
+              .move_op_to_bb_at(inst_id, pre_header_id, Some(pre_header_term));
             // We dont' need to add inst_id to the outer scope's invariants,
             // since the pass is run with a strict inner-to-outer order.
             // So just leave it as it is!

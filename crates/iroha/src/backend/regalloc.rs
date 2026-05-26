@@ -1128,8 +1128,7 @@ impl RegAlloc<'_> {
   }
 
   fn fold_zero_ptr_adds(&mut self) {
-    let func_id = self.cx.get_current_func_id();
-    let bb_ids = self.cx.get_func(func_id).cfg.ids();
+    let bb_ids = self.cx.get_cfg().ids();
     for bb_id in bb_ids {
       let bb_id = BOperand::BB(bb_id);
       self.cx.set_current_block(bb_id);
@@ -1152,7 +1151,7 @@ impl RegAlloc<'_> {
         };
         self
           .cx
-          .replace_op_no_rauw(inst_id, bb_id, BOp::new(typ, attrs, new_op_data.into()));
+          .replace_op_no_rauw(inst_id, BOp::new(typ, attrs, new_op_data.into()));
       }
     }
   }
@@ -1607,7 +1606,7 @@ impl RegAlloc<'_> {
   /// 3. Save ra if the function is not a leaf.
   fn prologue(&mut self) {
     let func_id = self.cx.get_current_func_id();
-    let entry = self.cx.get_func(func_id).cfg.entry;
+    let entry = self.cx.get_cfg().entry;
     if entry.is_none() {
       return;
     }
@@ -1786,8 +1785,7 @@ impl RegAlloc<'_> {
   /// * Figure out the used registers
   /// * Allocate space for callee-saved registers & ra.
   fn alloc_saved(&mut self, available_fpr: &mut BitSet, is_leaf: bool) {
-    let func_id = self.cx.get_current_func_id();
-    let bb_ids = self.cx.get_func(func_id).cfg.ids();
+    let bb_ids = self.cx.get_cfg().ids();
 
     for bb_id in bb_ids {
       let bb_id = BOperand::BB(bb_id);
@@ -1849,8 +1847,7 @@ impl RegAlloc<'_> {
   /// * Load/Store Lowering
   /// * Prologue/Epilogue Insertion
   fn frame_lowering(&mut self) {
-    let func_id = self.cx.get_current_func_id();
-    let bb_ids = self.cx.get_func(func_id).cfg.ids();
+    let bb_ids = self.cx.get_cfg().ids();
     for bb_id in bb_ids {
       let bb_id = BOperand::BB(bb_id);
       self.cx.set_current_block(bb_id);
@@ -1919,7 +1916,7 @@ impl RegAlloc<'_> {
                   unreachable!("Expected memory enetities, found {:?}", addr);
               }
           };
-          self.cx.replace_op(inst_id, bb_id, store_op);
+          self.cx.replace_op(inst_id, store_op);
         } else if let BOpData::L(LOpData::Load { rd, addr }) = op_data {
           self.cx.set_before_inst(Some(inst_id));
           #[cfg(feature = "debug")]
@@ -1971,7 +1968,7 @@ impl RegAlloc<'_> {
                   unreachable!("Expected memory enetities, found {:?}", addr);
               }
           };
-          self.cx.replace_op(inst_id, bb_id, load_op);
+          self.cx.replace_op(inst_id, load_op);
 
         // Pointer arithmetic lowering
         } else if let BOpData::L(LOpData::AddI { rd, lhs, rhs: addr }) = op_data {
@@ -2020,7 +2017,7 @@ impl RegAlloc<'_> {
                   unreachable!("Expected memory enetities, found {:?}", addr);
               }
           };
-          self.cx.replace_op(inst_id, bb_id, add_op);
+          self.cx.replace_op(inst_id, add_op);
         } else if let BOpData::L(LOpData::SubI { rd, lhs, rhs: addr }) = op_data {
           self.cx.set_before_inst(Some(inst_id));
 
@@ -2067,7 +2064,7 @@ impl RegAlloc<'_> {
                   unreachable!("Expected memory enetities, found {:?}", addr);
               }
           };
-          self.cx.replace_op(inst_id, bb_id, sub_op);
+          self.cx.replace_op(inst_id, sub_op);
         } else if let BOpData::M(MOpData::Ret) = op_data {
           self.cx.set_before_inst(Some(inst_id));
           // Insert epilogue
@@ -2115,7 +2112,7 @@ impl<'a> BPass<'a> for RegAlloc<'a> {
       // Check whether the function is a leaf.
       let mut is_leaf = true;
 
-      for bb_id in self.cx.get_func(func_id).cfg.collect() {
+      for bb_id in self.cx.get_cfg().collect() {
         let bb_id = BOperand::BB(bb_id);
         let inst_ids = self.cx.get_bb(bb_id).cur.clone();
         for inst_id in inst_ids {

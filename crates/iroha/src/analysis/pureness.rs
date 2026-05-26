@@ -22,7 +22,7 @@ impl PurenessAnalysis<'_, '_, '_> {
       return;
     }
 
-    for bb_id in self.cx.get_func(func_id).cfg.collect() {
+    for bb_id in self.cx.get_cfg().collect() {
       let bb_id = Operand::BB(bb_id);
       for inst_id in self.cx.get_bb(bb_id).cur.clone() {
         let op_data = self.cx.get_op(inst_id).data.clone();

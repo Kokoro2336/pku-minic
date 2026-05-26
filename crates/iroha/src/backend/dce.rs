@@ -52,7 +52,7 @@ impl BDCE<'_> {
     self.worklist.clear();
 
     // Initialize the worklist
-    let block_ids = self.cx.get_func(func_id).cfg.collect();
+    let block_ids = self.cx.get_cfg().collect();
     for block_id in block_ids {
       let block = self.cx.get_bb(BOperand::BB(block_id));
       for inst_id in block.cur.iter() {
@@ -120,7 +120,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
         let bb_id = self.cx.op_bb(op_id);
         self.cx.set_current_block(bb_id);
 
-        let removed_op = self.cx.remove_op(op_id, Some(bb_id));
+        let removed_op = self.cx.remove_op(op_id);
 
         // Check the operands of the removed instruction
         match removed_op.data {

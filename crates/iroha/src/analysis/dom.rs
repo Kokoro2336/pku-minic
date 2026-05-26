@@ -186,9 +186,10 @@ impl<'a> BuildDomTree<'a> {
     for idx in 0..self.idom.len() {
       let idom = self.idom[idx];
       if idom != idx {
-        dom_tree[idom].push(idx);
+        dom_tree.set_idom(idx, idom);
       }
     }
+    dom_tree.update_depth();
     dom_tree
   }
 }
@@ -210,22 +211,7 @@ impl<'a> BuildDomFrontier<'a> {
   }
 
   pub fn is_dom(&self, dominator: usize, dominatee: usize) -> bool {
-    let dom_num = {
-      let dom_tree = &self.dom_tree;
-      dom_tree[dominator].len()
-    };
-    if self.dom_tree[dominator].contains(&dominatee) {
-      true
-    } else {
-      // If not direct child, check recursively
-      (0..dom_num).any(|child| {
-        let child = {
-          let dom_tree = &self.dom_tree;
-          dom_tree[dominator][child]
-        };
-        self.is_dom(child, dominatee)
-      })
-    }
+    self.dom_tree.is_dom(dominator, dominatee)
   }
 
   pub fn compute(&mut self, bb_id: usize) {

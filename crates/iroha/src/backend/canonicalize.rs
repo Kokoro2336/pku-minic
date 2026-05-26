@@ -161,8 +161,7 @@ impl Canonicalize<'_> {
   }
 
   fn run(&mut self) {
-    let func_id = self.cx.get_current_func_id();
-    let bb_ids = self.cx.get_func(func_id).cfg.ids();
+    let bb_ids = self.cx.get_cfg().ids();
     for bb_id in bb_ids {
       let bb_id = BOperand::BB(bb_id);
       self.cx.set_current_block(bb_id);
@@ -179,14 +178,14 @@ impl Canonicalize<'_> {
 
         if let Some(folded) = Self::fold(&lop_data) {
           self.cx.replace_all_uses(inst_id, folded);
-          self.cx.remove_op(inst_id, Some(bb_id));
+          self.cx.remove_op(inst_id);
           continue;
         }
 
         if let Some(new_lop_data) = Self::canonicalize(lop_data, &attrs) {
           self
             .cx
-            .replace_op_no_rauw(inst_id, bb_id, BOp::new(typ, attrs, new_lop_data.into()));
+            .replace_op_no_rauw(inst_id, BOp::new(typ, attrs, new_lop_data.into()));
         }
       }
     }

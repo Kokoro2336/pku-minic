@@ -165,7 +165,7 @@ impl RemoveTrivialPhi<'_> {
 
   fn remove_phi(&mut self, dom_tree: &DomTree) {
     // Check whether the phi_ids are valid
-    while let Some((phi_id, bb_id, check_result)) = self.worklist.pop() {
+    while let Some((phi_id, _, check_result)) = self.worklist.pop() {
       {
         let phi_op = self.cx.get_op_mut(phi_id);
         // Remove OldIdx Attr
@@ -199,7 +199,7 @@ impl RemoveTrivialPhi<'_> {
               }
             }
           }
-          self.cx.remove_op(phi_id, Some(bb_id));
+          self.cx.remove_op(phi_id);
         }
         CheckType::Single(value) => {
           let Some(value) = self.single_replacement(phi_id, value, dom_tree) else {
@@ -228,7 +228,7 @@ impl RemoveTrivialPhi<'_> {
               }
             }
           }
-          self.cx.remove_op(phi_id, Some(bb_id));
+          self.cx.remove_op(phi_id);
         }
         CheckType::Ignore => {}
       }

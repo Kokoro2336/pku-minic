@@ -74,7 +74,7 @@ impl<'a> InsertPhi<'a> {
     self.phis = vec![vec![]; self.var_counter];
 
     // Compute defsites, origins and phis
-    let bb_ids = self.cx.get_func(func_id).cfg.collect();
+    let bb_ids = self.cx.get_cfg().collect();
     for bb_id in bb_ids {
       let cur = self.cx.get_bb(Operand::BB(bb_id)).cur.clone();
       for op_id_operand in &cur {
@@ -263,7 +263,6 @@ impl<'a, 'dom> Renaming<'a, 'dom> {
           self.program.as_deref_mut().unwrap().move_op_to_bb_at(
             self.builder.current_function,
             *alloca,
-            Operand::BB(bb_id),
             Operand::BB(entry),
             // Entry block has at least one jump.
             Some(Operand::Value(0)),
@@ -508,12 +507,12 @@ impl<'a, 'dom> Renaming<'a, 'dom> {
     self.rename();
 
     // Clean up removed ops for this function
-    for (op, bb) in &self.removed {
+    for (op, _) in &self.removed {
       self
         .program
         .as_deref_mut()
         .unwrap()
-        .remove_op(self.builder.current_function, *op, Some(*bb));
+        .remove_op(self.builder.current_function, *op);
     }
     self.removed.clear();
 
@@ -540,11 +539,11 @@ impl<'a, 'dom> Renaming<'a, 'dom> {
         .collect::<Vec<Operand>>()
     };
     for alloca in promoted_allocas {
-      self.program.as_deref_mut().unwrap().remove_op(
-        self.builder.current_function,
-        alloca,
-        Some(Operand::BB(head)),
-      );
+      self
+        .program
+        .as_deref_mut()
+        .unwrap()
+        .remove_op(self.builder.current_function, alloca);
     }
   }
 }
