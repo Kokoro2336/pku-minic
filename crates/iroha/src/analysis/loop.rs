@@ -152,7 +152,8 @@ impl LoopAnalysis<'_> {
               stack.pop();
             }
           } else {
-            self.loops[*node_id].level = 0usize.into();
+            // level == 0 means we are not in a loop(INVALID), so we start from 1
+            self.loops[*node_id].level = 1usize.into();
             stack.pop();
           }
         }

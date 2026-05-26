@@ -301,6 +301,17 @@ impl<'a> PassContext<'a> {
     self.get_func(self.get_current_func_id()).op_to_bb[op_id]
   }
 
+  #[inline(always)]
+  pub fn bbs(&self, func_id: Operand) -> Vec<Operand> {
+    self
+      .get_func(func_id)
+      .cfg
+      .collect()
+      .into_iter()
+      .map(Operand::BB)
+      .collect()
+  }
+
   pub fn create(&mut self, op: Op) -> Operand {
     let current_function_option = self.builder.current_function;
     let ir = self.ir.as_deref_mut().unwrap();
@@ -611,6 +622,11 @@ impl<'a> PassContext<'a> {
       Operand::Global(_) => &mut self.ir_mut().globals[op_id],
       _ => unreachable!("Expected Value or Global operand, got {:?}", op_id),
     }
+  }
+
+  #[inline(always)]
+  pub fn get_entry(&self, func_id: Operand) -> Operand {
+    Operand::BB(self.get_func(func_id).cfg.entry.unwrap())
   }
 
   #[inline(always)]

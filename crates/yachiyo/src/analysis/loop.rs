@@ -5,9 +5,10 @@ use std::ops::{Deref, DerefMut, Index, IndexMut};
 use crate::ir::mid::Operand;
 use crate::utils::BitSet;
 
-const INVALID_LOOP_LEVEL: LoopLevel = LoopLevel(usize::MAX);
+pub const INVALID_LOOP_LEVEL: LoopLevel = LoopLevel(0);
+pub const MAX_LOOP_LEVEL: LoopLevel = LoopLevel(usize::MAX);
 
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy, PartialOrd)]
 /// Loop level, 0 for top-level loops, 1 for loops nested directly inside them, etc.
 pub struct LoopLevel(usize);
 
@@ -25,7 +26,7 @@ impl From<LoopLevel> for usize {
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy, Hash)]
 /// LoopId
-pub struct LoopId(usize);
+pub struct LoopId(pub usize);
 
 impl From<usize> for LoopId {
   fn from(value: usize) -> Self {

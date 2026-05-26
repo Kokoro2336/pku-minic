@@ -72,11 +72,13 @@ impl DomTree {
     self.depth[v]
   }
 
+  /// Return path from `from` to `to`
   pub fn get_path(&self, from: usize, to: usize) -> Vec<usize> {
     let mut node = to;
     let mut path = vec![node];
     loop {
       if node == from {
+        path.reverse();
         return path;
       }
 
