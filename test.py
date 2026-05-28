@@ -347,7 +347,50 @@ def copy_test_context(test_file: str, expected_output_file: str, output_dir: str
             os.path.join(output_dir, "expected.out"),
         )
 
-def start_clang_case(clang_binary: str, repo_root: str, test_file: str, work_dir: str, name_no_ext: str):
+def write_clang_riscv_runtime_header(header_path: str):
+    """Writes SysY runtime declarations that do not depend on host libc headers."""
+    with open(header_path, "w", encoding="utf-8") as f_header:
+        f_header.write(
+            """\
+int getint(), getch(), getarray(int a[]);
+float getfloat();
+int getfarray(float a[]);
+void putint(int a), putch(int a), putarray(int n, int a[]);
+void putfloat(float a);
+void putfarray(int n, float a[]);
+void putf(char a[], ...);
+void _sysy_starttime(int lineno);
+void _sysy_stoptime(int lineno);
+#define starttime() _sysy_starttime(__LINE__)
+#define stoptime() _sysy_stoptime(__LINE__)
+"""
+        )
+
+def sanitize_clang_riscv_asm(asm_path: str):
+    """Drops Clang metadata directives unsupported by the older GNU assembler in the RV container."""
+    try:
+        with open(asm_path, "r", encoding="utf-8") as f_asm:
+            lines = f_asm.readlines()
+
+        with open(asm_path, "w", encoding="utf-8") as f_asm:
+            for line in lines:
+                stripped = line.lstrip()
+                if stripped.startswith(".attribute") or stripped.startswith(".addrsig"):
+                    continue
+                f_asm.write(line)
+    except OSError as e:
+        return 1, f"\n[ERROR] Failed to sanitize clang RISC-V assembly: {e}\n".encode()
+
+    return 0, b""
+
+def start_clang_case(
+    clang_binary: str,
+    repo_root: str,
+    test_file: str,
+    work_dir: str,
+    name_no_ext: str,
+    target_triple: str = None,
+):
     target_dir = os.path.join(work_dir, "target")
     os.makedirs(target_dir, exist_ok=True)
     exe_path = os.path.join(target_dir, f"{name_no_ext}.out")
@@ -355,26 +398,45 @@ def start_clang_case(clang_binary: str, repo_root: str, test_file: str, work_dir
     asm_path = os.path.join(target_dir, f"{name_no_ext}.s")
     sylib_h = os.path.join(repo_root, "sylib", "sylib.h")
     sylib_c = os.path.join(repo_root, "sylib", "sylib.c")
+
+    runtime_header = sylib_h
+    if target_triple == "riscv64-linux-gnu":
+        runtime_header = os.path.join(target_dir, "sysy_runtime.h")
+        write_clang_riscv_runtime_header(runtime_header)
+
     common_cmd = [
         clang_binary,
+    ]
+    if target_triple == "riscv64-linux-gnu":
+        common_cmd.extend([
+            "--target=riscv64-linux-gnu",
+            "-march=rv64gc",
+            "-mabi=lp64d",
+            "-fno-addrsig",
+        ])
+
+    common_cmd.extend([
         "-O3",
         "-w",
         "-Wno-incompatible-pointer-types",
         "-fwrapv",
+        "-ffp-contract=off",
         "-x",
         "c",
         "-include",
-        sylib_h,
+        runtime_header,
         "-fcommon",
-    ]
-    cmd = [
-        *common_cmd,
-        test_file,
-        sylib_c,
-        "-o",
-        exe_path,
-        "-lm",
-    ]
+    ])
+    cmd = None
+    if target_triple is None:
+        cmd = [
+            *common_cmd,
+            test_file,
+            sylib_c,
+            "-o",
+            exe_path,
+            "-lm",
+        ]
     ll_cmd = [
         *common_cmd,
         "-S",
@@ -392,16 +454,21 @@ def start_clang_case(clang_binary: str, repo_root: str, test_file: str, work_dir
     ]
 
     with open(os.path.join(work_dir, "command.txt"), "w", encoding="utf-8") as f_cmd:
-        for label, command in [
-            ("executable", cmd),
+        commands = [
             ("llvm", ll_cmd),
             ("asm", asm_cmd),
-        ]:
+        ]
+        if cmd is not None:
+            commands.insert(0, ("executable", cmd))
+
+        for label, command in commands:
             f_cmd.write(f"# {label}\n")
             f_cmd.write(" ".join(shlex.quote(part) for part in command))
             f_cmd.write("\n")
 
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = None
+    if cmd is not None:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     ll_proc = subprocess.Popen(ll_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     asm_proc = subprocess.Popen(asm_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return {
@@ -413,12 +480,19 @@ def start_clang_case(clang_binary: str, repo_root: str, test_file: str, work_dir
         "exe_path": exe_path,
         "ll_path": ll_path,
         "asm_path": asm_path,
+        "sanitize_asm": target_triple == "riscv64-linux-gnu",
     }
 
-def finish_clang_case(clang_case, test_file: str, expected_output_file: str):
+def finish_clang_case(clang_case, test_file: str, expected_output_file: str, run_runtime=True):
     work_dir = clang_case["work_dir"]
-    final_stdout, final_stderr = clang_case["proc"].communicate()
-    final_returncode = clang_case["proc"].returncode
+    proc = clang_case.get("proc")
+    if proc is None:
+        final_stdout = b""
+        final_stderr = b""
+        final_returncode = 0
+    else:
+        final_stdout, final_stderr = proc.communicate()
+        final_returncode = proc.returncode
     ll_stdout, ll_stderr = clang_case["ll_proc"].communicate()
     ll_returncode = clang_case["ll_proc"].returncode
     asm_stdout, asm_stderr = clang_case["asm_proc"].communicate()
@@ -448,8 +522,13 @@ def finish_clang_case(clang_case, test_file: str, expected_output_file: str):
         final_stderr += (
             f"\n[ERROR] clang assembly dump not found: {clang_case['asm_path']}\n"
         ).encode()
+    elif clang_case.get("sanitize_asm", False):
+        sanitize_returncode, sanitize_stderr = sanitize_clang_riscv_asm(clang_case["asm_path"])
+        if sanitize_returncode != 0:
+            final_returncode = sanitize_returncode
+            final_stderr += sanitize_stderr
 
-    if final_returncode == 0:
+    if final_returncode == 0 and run_runtime:
         input_file = os.path.splitext(test_file)[0] + ".in"
         exec_result, runtime_wall_seconds = run_program([clang_case["exe_path"]], input_file)
         runtime_raw = exec_result.stdout
@@ -811,7 +890,7 @@ def main():
     parser.add_argument('--graph', action='store_true', help='Generate CFG graphs (.dot/.svg) from linked LLVM IR using opt + graphviz')
     parser.add_argument('--trace', action='store_true', help='Enable trace logging')
     parser.add_argument('--no-debug', action='store_true', help='Disable cargo debug feature (enabled by default)')
-    parser.add_argument('--clang', action='store_true', help='Also build/run each testcase with clang -O3 and compare runtime against Iroha')
+    parser.add_argument('--clang', action='store_true', help='Also build/run each testcase with clang -O3 and compare runtime against Iroha; with --qemu, run clang RISC-V asm in the same container')
     debug_group = parser.add_mutually_exclusive_group()
     debug_group.add_argument('--gdb', action='store_true', help='Run compiler under rust-gdb for interactive debugging (single test only)')
     debug_group.add_argument('--lldb', action='store_true', help='Run compiler under rust-lldb for interactive debugging (single test only)')
@@ -1116,6 +1195,7 @@ def main():
                     test_file,
                     clang_work_dir,
                     name_no_ext,
+                    target_triple="riscv64-linux-gnu" if args.qemu else None,
                 )
                 performance_record = {
                     "name": name_no_ext,
@@ -1351,11 +1431,17 @@ def main():
                     performance_record["iroha_source"] = iroha_source
 
                 if clang_case is not None:
-                    clang_result = finish_clang_case(clang_case, test_file, expected_output_file)
+                    clang_result = finish_clang_case(
+                        clang_case,
+                        test_file,
+                        expected_output_file,
+                        run_runtime=not args.qemu,
+                    )
                     clang_returncode = clang_result["returncode"]
-                    performance_record["clang_status"] = clang_returncode == 0
-                    performance_record["clang_seconds"] = clang_result["runtime_seconds"]
-                    performance_record["clang_source"] = clang_result["runtime_source"]
+                    if not args.qemu:
+                        performance_record["clang_status"] = clang_returncode == 0
+                        performance_record["clang_seconds"] = clang_result["runtime_seconds"]
+                        performance_record["clang_source"] = clang_result["runtime_source"]
 
                     if not args.qemu and final_returncode == 0 and clang_returncode != 0:
                         final_returncode = clang_returncode or 1
@@ -1402,6 +1488,13 @@ def main():
                         "elf_path": elf_host_path,
                         "expected_output_file": expected_output_file,
                         "clang_returncode": clang_returncode,
+                        "clang_work_dir": clang_case["work_dir"] if clang_case is not None else None,
+                        "clang_asm_path": clang_case["asm_path"] if clang_case is not None else None,
+                        "clang_elf_path": (
+                            os.path.join(clang_case["target_dir"], f"{name_no_ext}.elf")
+                            if clang_case is not None
+                            else None
+                        ),
                         "perf_record": performance_record,
                         "returncode": final_returncode,
                         "host_passed": final_returncode == 0,
@@ -1560,6 +1653,67 @@ def main():
                             # Keep qemu process return code in logs for debugging; pass/fail is decided by output diff.
                             with open(stderr_path, "ab") as f_err:
                                 f_err.write(f"\n[INFO] qemu exit code: {qemu_code}\n".encode())
+
+                            clang_work_dir = case.get("clang_work_dir")
+                            clang_asm_path = case.get("clang_asm_path")
+                            clang_elf_path = case.get("clang_elf_path")
+                            if (
+                                clang_work_dir is not None
+                                and clang_asm_path is not None
+                                and clang_elf_path is not None
+                                and case.get("clang_returncode", 0) == 0
+                            ):
+                                print(f"  [QEMU] Running {name_no_ext} clang...")
+                                (
+                                    clang_qemu_code,
+                                    clang_qemu_stdout,
+                                    clang_qemu_stderr,
+                                    clang_runtime_with_ret,
+                                    clang_runtime_raw,
+                                ) = run_qemu_runtime(
+                                    qemu_container_name,
+                                    repo_root,
+                                    clang_asm_path,
+                                    clang_elf_path,
+                                    input_file,
+                                )
+                                clang_stderr_path = os.path.join(clang_work_dir, "stderr.txt")
+
+                                with open(os.path.join(clang_work_dir, "stdout.txt"), "ab") as f_out:
+                                    f_out.write(clang_qemu_stdout)
+                                with open(clang_stderr_path, "ab") as f_err:
+                                    f_err.write(clang_qemu_stderr)
+
+                                if clang_runtime_with_ret is None:
+                                    case["clang_returncode"] = 1
+                                    if perf_record is not None:
+                                        perf_record["clang_status"] = False
+                                    with open(clang_stderr_path, "ab") as f_err:
+                                        f_err.write(b"\n[ERROR] clang qemu runtime execution did not produce output.\n")
+                                else:
+                                    expected_norm = normalize_output_bytes(expected_bytes)
+                                    actual_with_ret_norm = normalize_output_bytes(clang_runtime_with_ret)
+                                    actual_raw_norm = normalize_output_bytes(clang_runtime_raw or b"")
+                                    if expected_norm != actual_with_ret_norm and expected_norm != actual_raw_norm:
+                                        case["clang_returncode"] = 1
+                                        with open(clang_stderr_path, "ab") as f_err:
+                                            f_err.write(b"\n[ERROR] Output mismatch with expected .out\n")
+                                    else:
+                                        case["clang_returncode"] = 0
+
+                                    with open(os.path.join(clang_work_dir, "actual.out"), "wb") as f_actual:
+                                        f_actual.write(clang_runtime_with_ret)
+
+                                with open(clang_stderr_path, "ab") as f_err:
+                                    f_err.write(f"\n[INFO] qemu exit code: {clang_qemu_code}\n".encode())
+
+                                if perf_record is not None:
+                                    clang_seconds, clang_source = select_runtime_seconds_from_stderr_file(
+                                        clang_stderr_path,
+                                    )
+                                    perf_record["clang_seconds"] = clang_seconds
+                                    perf_record["clang_source"] = clang_source
+                                    perf_record["clang_status"] = case["clang_returncode"] == 0
                     finally:
                         if container_running:
                             stop_qemu_container(qemu_container_name)

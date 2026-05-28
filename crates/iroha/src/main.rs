@@ -135,6 +135,12 @@ fn main() -> Result<()> {
     .register::<RemoveTrivialPhi>()
     .register::<GVN>()
     .register::<DCE>()
+    // Unrolling
+    .register::<Unrolling>()
+    .register::<SCCP>()
+    .register::<RemoveTrivialPhi>()
+    .register::<GVN>()
+    .register::<DCE>()
     // Loop Optimizations
     .register::<LoopSimplify>()
     .register::<LCSSA>()

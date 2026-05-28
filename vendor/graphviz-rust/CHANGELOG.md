@@ -1,0 +1,40 @@
+- **`0.1.0`**
+  - Initial implementation
+- **`0.2.0`**
+  - Fix bugs
+  - Change contract for the context*
+- **`0.3.0`**
+  - Fix bugs with html tags in labels
+- **`0.4.0`**
+  - Add method exec_dot
+- **`0.5.0`**
+  - Reformat documentation
+- **`0.5.1`**
+  - Fix a bug with a return type in exec  
+- **`0.5.2`**
+  - Fix a bug with the comment after graph without a new line
+- **`0.6.1`**
+  - Fix a bug with names
+  - add into params for command lines attrs
+- **`0.6.2`**
+  - up the versions for the underlings
+- **`0.6.6`**
+  - fix some bugs
+- **`0.7.0`**
+  - fix some bugs with port parsing
+- **`0.7.2`**
+  - fix formatting
+- **`0.8.0`**
+  - update macros in the generator
+  - add macros to construct graph attributes
+- **`0.9.1`**
+  - add configurable comma between attributes on multiple lines to PrinterContext
+- **`0.9.2`**
+  - Fix bugs with executing dot on Windows
+- **`0.9.3`**
+  - make some methods public
+- **`0.9.7`**
+  - minor changes for printer
+- **`0.9.8`**
+  - add eq for some structs
+
