@@ -366,6 +366,13 @@ impl SCEV<'_> {
     self.affine_to_scev_expr(affine_expr)
   }
 
+  pub fn get_const(&self, scev_id: SCEVId) -> Option<i64> {
+    match &self[scev_id] {
+      SCEVExpr::Const(c) => Some(*c),
+      _ => None,
+    }
+  }
+
   /// For addr in Load/Store
   pub fn get_addr_offset_scev(&mut self, operand: Operand) -> SCEVId {
     let MemLoc { offset, .. } = self.cx.compute_mem_loc(operand);
