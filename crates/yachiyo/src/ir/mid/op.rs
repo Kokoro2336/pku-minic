@@ -754,6 +754,9 @@ pub enum Attr {
   WeakType,
   /// Explicitly mark an op as dead, so that DCE could remove it.
   Dead,
+  /// For SLP Vectorization.
+  #[allow(clippy::upper_case_acronyms)]
+  SLP,
 }
 
 impl std::fmt::Display for Attr {
@@ -766,6 +769,7 @@ impl std::fmt::Display for Attr {
       Attr::FuncName(name) => write!(f, "<func name: {}>", name),
       Attr::WeakType => write!(f, "<weak>"),
       Attr::Dead => write!(f, "<dead>"),
+      Attr::SLP => write!(f, "<slp>"),
     }
   }
 }
@@ -856,7 +860,8 @@ impl Arena<Op> for DFG {
             | Attr::Promotion
             | Attr::FuncName(_)
             | Attr::WeakType
-            | Attr::Dead => { /* no idx to rewrite */ }
+            | Attr::Dead
+            | Attr::SLP => { /* no idx to rewrite */ }
           }
         });
 

@@ -15,6 +15,7 @@ pub struct TripCount {
   pub step: SCEVExpr,
   pub bound: SCEVExpr,
   pub reverse: bool,
+  pub inclusive: bool,
 }
 
 impl TripCount {
@@ -65,6 +66,7 @@ impl TripCount {
             step: SCEVExpr::Const(step),
             bound: SCEVExpr::Const(bound),
             reverse: step < 0,
+            inclusive: false,
           })
         } else {
           None
@@ -88,6 +90,7 @@ impl TripCount {
               step: SCEVExpr::Const(step),
               bound: SCEVExpr::Const(bound),
               reverse: false,
+              inclusive: false,
             })
           } else {
             None
@@ -110,6 +113,7 @@ impl TripCount {
               step: SCEVExpr::Const(step),
               bound: SCEVExpr::Const(bound),
               reverse: true,
+              inclusive: false,
             });
           } else {
             return None;
@@ -135,6 +139,7 @@ impl TripCount {
               step: SCEVExpr::Const(step),
               bound: SCEVExpr::Const(bound),
               reverse: false,
+              inclusive: true,
             })
           } else {
             None
@@ -156,6 +161,7 @@ impl TripCount {
               step: SCEVExpr::Const(step),
               bound: SCEVExpr::Const(bound),
               reverse: true,
+              inclusive: true,
             });
           } else {
             return None;
@@ -178,7 +184,13 @@ impl TripCount {
       unreachable!()
     };
     if self.reverse {
-      (start - bound + (-step) - 1) / (-step)
+      if self.inclusive {
+        (start - bound) / (-step) + 1
+      } else {
+        (start - bound + (-step) - 1) / (-step)
+      }
+    } else if self.inclusive {
+      (bound - start) / step + 1
     } else {
       (bound - start + step - 1) / step
     }

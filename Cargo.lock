@@ -500,6 +500,7 @@ dependencies = [
  "clap_builder",
  "clap_derive",
  "clap_lex",
+ "kaguya",
  "lalrpop",
  "lalrpop-util",
  "libc",
@@ -546,6 +547,12 @@ dependencies = [
 [[package]]
 name = "kaguya"
 version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+ "yachiyo",
+]
 
 [[package]]
 name = "keccak"
