@@ -4,9 +4,9 @@
 use crate::analysis::{DomAnalysis, LoopAnalysis};
 
 use yachiyo::analysis::{analyze, DomTree, LoopData, LoopId, INVALID_LOOP_LEVEL, MAX_LOOP_LEVEL};
-use yachiyo::ir::mid::{OpData, Operand, PhiIncoming, IR, OpType};
+use yachiyo::ir::mid::{OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
-use yachiyo::utils::{Worklist, BitSet};
+use yachiyo::utils::{BitSet, Worklist};
 
 use rustc_hash::FxHashMap;
 
@@ -191,9 +191,10 @@ impl GCM<'_> {
         let Some(pos_bb_id) = candidate
           .into_iter()
           .max_by_key(|bb_id| dom_tree.get_depth(*bb_id))
-          .map(Operand::BB) else {
-            continue;
-          };
+          .map(Operand::BB)
+        else {
+          continue;
+        };
         self.position[pos_bb_id.get_bb_id()].push(inst_id);
       }
     }

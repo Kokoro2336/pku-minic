@@ -5,5 +5,10 @@ edition = "2021"
 
 [lib]
 path = "src/lib.rs"
+proc-macro = true
 
 [dependencies]
+yachiyo = { path = "../yachiyo" }
+syn = { version = "2.0.18", features = ["full"] }
+quote = "1.0.30"
+proc-macro2 = "1.0.66"

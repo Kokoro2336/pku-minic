@@ -13,6 +13,7 @@ lalrpop = "0.22.2"
 
 [dependencies]
 yachiyo = { path = "../yachiyo" }
+kaguya = { path = "../kaguya" }
 lalrpop-util = { version = "0.22.2", features = ["lexer"] }
 clap = { workspace = true }
 clap_builder = { workspace = true }

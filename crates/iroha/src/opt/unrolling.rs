@@ -26,7 +26,7 @@ struct Unroller<'cx, 'a> {
   value_map: FxHashMap<Operand, Operand>,
   bb_map: FxHashMap<Operand, Operand>,
   /// Continue ops
-  continues: Vec<Operand>,
+  continues: Vec<(Operand, Operand)>,
   old_phis: Vec<(Operand, Vec<PhiIncoming>)>,
   header_latch_values: Vec<(Operand, Operand)>,
   /// PhiId -> Incoming BBId -> Old Values
@@ -149,7 +149,7 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
     let mut handle_bb = |bb_id: Operand, new_inst_id: Operand, old_bb: Operand| {
       if let Operand::BB(_) = bb_id {
         if bb_id == loop_data.header {
-          self.continues.push(new_inst_id);
+          self.continues.push((new_inst_id, old_bb));
         } else if loop_data.exit_blocks.contains(bb_id.get_bb_id()) {
           let exit_phis = self.cx.get_all_ops_in_block(bb_id, OpType::Phi);
           for phi_id in exit_phis {
@@ -188,6 +188,17 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
     ) else {
       return false;
     };
+    if self
+      .cx
+      .get_bb(header_id)
+      .preds
+      .iter()
+      .filter(|(bb_id, _)| loop_data.blocks.contains(bb_id.get_bb_id()))
+      .count()
+      != 1
+    {
+      return false;
+    }
 
     if !self
       .cx
@@ -197,6 +208,13 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
       .any(|(bb_id, _)| loop_data.exit_blocks.contains(bb_id.get_bb_id()))
     {
       return false;
+    }
+    for exit_bb_id in loop_data.exit_blocks.iter() {
+      for (pred_id, _) in self.cx.get_bb(Operand::BB(exit_bb_id)).preds.iter() {
+        if loop_data.blocks.contains(pred_id.get_bb_id()) && *pred_id != header_id {
+          return false;
+        }
+      }
     }
 
     let header_phis = self.cx.get_all_ops_in_block(header_id, OpType::Phi);
@@ -212,6 +230,9 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
           unreachable!()
         };
         if *bb == pre_header_id {
+          if *value == Operand::Undefined {
+            return false;
+          }
           self.value_map.insert(phi_id, *value);
         } else if *bb == latch_id {
           self.header_latch_values.push((phi_id, *value));
@@ -238,6 +259,24 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
         .sum::<usize>();
       if cloned_ops.saturating_mul(self.unroll_count) > MAX_NESTED_UNROLL_OPS {
         return false;
+      }
+    }
+
+    for bb_id in loop_data.blocks.iter() {
+      let bb_id = Operand::BB(bb_id);
+      for inst_id in self.cx.get_bb(bb_id).cur.clone() {
+        for &(user, _) in self.cx.users(inst_id) {
+          let user_bb = self.cx.op_bb(user);
+          if loop_data.blocks.contains(user_bb.get_bb_id()) || bb_id == header_id {
+            continue;
+          }
+          if loop_data.exit_blocks.contains(user_bb.get_bb_id())
+            && matches!(self.cx.get_op_data(user), OpData::Phi { .. })
+          {
+            continue;
+          }
+          return false;
+        }
       }
     }
 
@@ -268,7 +307,7 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
 
     // Initialize continues to pre_header's terminator.
     let pre_header_term_id = self.cx.get_term(pre_header_id);
-    self.continues.push(pre_header_term_id);
+    self.continues.push((pre_header_term_id, pre_header_id));
 
     true
   }
@@ -313,7 +352,7 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
 
         // Redirect continues to the first block
         if idx == 0 {
-          for continue_op in std::mem::take(&mut self.continues) {
+          for (continue_op, _) in std::mem::take(&mut self.continues) {
             self
               .cx
               .redirect_bb(continue_op, loop_data.header, mapped_bb);
@@ -325,20 +364,20 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
         for inst_id in cur {
           self.clone_inst(inst_id);
         }
+      }
 
-        // Handle phi
-        for (phi_id, incomings) in std::mem::take(&mut self.old_phis) {
-          for incoming in incomings {
-            let PhiIncoming::Data { value, bb } = incoming else {
-              unreachable!()
-            };
-            let (mapped_value, mapped_bb) = (self.mapped_operand(value), self.mapped_operand(bb));
+      // Handle phi
+      for (phi_id, incomings) in std::mem::take(&mut self.old_phis) {
+        for incoming in incomings {
+          let PhiIncoming::Data { value, bb } = incoming else {
+            unreachable!()
+          };
+          let (mapped_value, mapped_bb) = (self.mapped_operand(value), self.mapped_operand(bb));
 
-            let mapped_phi_id = self.mapped_operand(phi_id);
-            self
-              .cx
-              .append_phi_incoming(mapped_phi_id, mapped_bb, mapped_value);
-          }
+          let mapped_phi_id = self.mapped_operand(phi_id);
+          self
+            .cx
+            .append_phi_incoming(mapped_phi_id, mapped_bb, mapped_value);
         }
       }
 
@@ -358,7 +397,17 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
       .find(|(bb_id, _)| loop_data.exit_blocks.contains(bb_id.get_bb_id()))
       .unwrap();
 
-    for continue_op in std::mem::take(&mut self.continues) {
+    for (continue_op, old_bb) in std::mem::take(&mut self.continues) {
+      let exit_phis = self.cx.get_all_ops_in_block(header_exit, OpType::Phi);
+      for phi_id in exit_phis {
+        if let Some(incoming_bb_to_op) = self.exit_phi_old_values.get(&phi_id) {
+          if let Some(&old_value) = incoming_bb_to_op.get(&loop_data.header) {
+            let (mapped_value, mapped_bb) =
+              (self.mapped_operand(old_value), self.mapped_operand(old_bb));
+            self.cx.append_phi_incoming(phi_id, mapped_bb, mapped_value);
+          }
+        }
+      }
       self
         .cx
         .redirect_bb(continue_op, loop_data.header, header_exit);

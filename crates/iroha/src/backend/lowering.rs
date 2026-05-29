@@ -346,6 +346,7 @@ impl Lowering {
         Attr::OldIdx(_)
         | Attr::Promotion
         | Attr::WeakType
+        | Attr::SLP
         | Attr::GlobalArray { .. }
         | Attr::Dead => None,
       })
