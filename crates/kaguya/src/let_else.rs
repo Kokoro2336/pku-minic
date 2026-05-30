@@ -37,6 +37,18 @@ impl GenLetElse {
         let _ = #value;
       }),
 
+      Pat::PhiIncoming(value_pat, bb_pat) => {
+        let tmp_value = self.mangled_tmp("value");
+        let tmp_bb = self.mangled_tmp("bb");
+
+        stmts.push(quote! {
+          let PhiIncoming::Data { value: #tmp_value, bb: #tmp_bb } = #value else #else_body;
+        });
+
+        self.gen_stmts(cx, quote!(#tmp_value), value_pat, else_body, stmts);
+        self.gen_stmts(cx, quote!(#tmp_bb), bb_pat, else_body, stmts);
+      }
+
       Pat::Operand { name, inner } => {
         if let Some(inner) = inner {
           let tmp = self.mangled_tmp("operand");
@@ -96,6 +108,10 @@ impl GenLetElse {
 
         "Alloca" => {
           self.gen_alloca(cx, value, name, operands, else_body, stmts);
+        }
+
+        "Phi" => {
+          self.gen_phi(cx, value, name, operands, else_body, stmts);
         }
 
         // TODO: For now we only match Ret with an explicit return value.
@@ -385,5 +401,27 @@ impl GenLetElse {
     });
 
     self.gen_stmts(cx, quote!(#tmp_target), &operands[0], else_body, stmts);
+  }
+
+  pub fn gen_phi(
+    &mut self,
+    cx: &Expr,
+    value: TokenStream2,
+    name: &Ident,
+    operands: &[Pat],
+    else_body: &Block,
+    stmts: &mut Vec<TokenStream2>,
+  ) {
+    assert!(operands.len() == 1);
+
+    let incomings_tmp = self.mangled_tmp("incomings");
+
+    stmts.push(quote! {
+      let op_data = #cx.get_op_data(#value).clone();
+
+      let OpData::#name { incomings: #incomings_tmp } = op_data else #else_body;
+    });
+
+    self.gen_stmts(cx, quote!(#incomings_tmp), &operands[0], else_body, stmts);
   }
 }

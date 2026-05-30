@@ -34,6 +34,20 @@ impl GenIfLet {
         #body
       },
 
+      Pat::PhiIncoming(value_pat, bb_pat) => {
+        let tmp_value = self.mangled_tmp("value");
+        let tmp_bb = self.mangled_tmp("bb");
+
+        let tmp_bb_block = self.gen_nested_ifs(cx, quote!(#tmp_bb), bb_pat, quote!(#body));
+        let tmp_value_block = self.gen_nested_ifs(cx, quote!(#tmp_value), value_pat, tmp_bb_block);
+
+        quote! {
+          if let PhiIncoming::Data { value: #tmp_value, bb: #tmp_bb } = #value {
+            #tmp_value_block
+          }
+        }
+      }
+
       Pat::Operand { name, inner } => {
         if let Some(inner) = inner {
           let tmp = self.mangled_tmp("operand");
@@ -87,6 +101,8 @@ impl GenIfLet {
         "Store" => self.gen_store(cx, value, name, operands, body),
 
         "Alloca" => self.gen_alloca(cx, value, name, operands, body),
+
+        "Phi" => self.gen_phi(cx, value, name, operands, body),
 
         // TODO: For now we only match Ret with an explicit return value.
         "Ret" => self.gen_ret(cx, value, name, operands, body),
@@ -377,6 +393,29 @@ impl GenIfLet {
       let op_data = #cx.get_op_data(#value).clone();
       if let OpData::#name { target_bb: #tmp_target } = op_data {
         #target_block
+      }
+    }
+  }
+
+  pub fn gen_phi(
+    &mut self,
+    cx: &Expr,
+    value: TokenStream2,
+    name: &Ident,
+    operands: &[Pat],
+    body: TokenStream2,
+  ) -> TokenStream2 {
+    assert!(operands.len() == 1);
+
+    let incomings_tmp = self.mangled_tmp("incomings");
+
+    let incomings_tmp_block =
+      self.gen_nested_ifs(cx, quote!(#incomings_tmp), &operands[0], quote!(#body));
+
+    quote! {
+      let op_data = #cx.get_op_data(#value).clone();
+      if let OpData::#name { incomings: #incomings_tmp } = op_data {
+        #incomings_tmp_block
       }
     }
   }

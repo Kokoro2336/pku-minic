@@ -1226,7 +1226,7 @@ impl IR {
     let phi_id = phi.get_op_id();
 
     let old_incoming = match &self.funcs[current_function].dfg[phi_id].data {
-      OpData::Phi { incomings } => incomings[idx].clone(),
+      OpData::Phi { incomings } => incomings[idx],
       _ => unreachable!(),
     };
 
@@ -1293,7 +1293,7 @@ impl IR {
           false
         }
       }) {
-        let PhiIncoming::Data { value, .. } = incomings[pos].clone() else {
+        let PhiIncoming::Data { value, .. } = incomings[pos] else {
           unreachable!("IR slay_phi_incoming: matched incoming must be data");
         };
         self.remove_use(Some(current_function), value, (phi, pos));

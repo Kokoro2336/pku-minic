@@ -1,6 +1,7 @@
 //! Canonicalized Expression View.
 
 use yachiyo::ir::mid::{OpData, Operand, PhiIncoming};
+use yachiyo::pass::PassContext;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CanonicalExpr {
@@ -27,6 +28,9 @@ pub enum CanonicalExpr {
   #[allow(clippy::upper_case_acronyms)]
   GEP(Operand, Vec<Operand>),
   Call(Operand, Vec<Operand>),
+
+  Load(Operand),
+  Store(Operand, Operand),
 
   // TODO: When we can determine whether a function has side effects, we can add Call here.
   /// For other operations that we don't consider, we represent then as None.
@@ -105,6 +109,26 @@ impl From<&OpData> for CanonicalExpr {
       | OpData::Br { .. }
       | OpData::Jump { .. }
       | OpData::GlobalAlloca(_) => CanonicalExpr::None,
+    }
+  }
+}
+
+impl CanonicalExpr {
+  // For deep pattern matching.
+  pub fn deep_canonicalize(&mut self, ctx: &mut PassContext) {
+    match self {
+      CanonicalExpr::Add(lhs @ Operand::Value(_), rhs @ Operand::Value(_))
+      | CanonicalExpr::Mul(lhs @ Operand::Value(_), rhs @ Operand::Value(_))
+      | CanonicalExpr::Xor(lhs @ Operand::Value(_), rhs @ Operand::Value(_))
+      | CanonicalExpr::Eq(lhs @ Operand::Value(_), rhs @ Operand::Value(_))
+      | CanonicalExpr::Ne(lhs @ Operand::Value(_), rhs @ Operand::Value(_)) => {
+        let lhs_data = ctx.get_op_data(*lhs);
+        let rhs_data = ctx.get_op_data(*rhs);
+        if lhs_data > rhs_data {
+          std::mem::swap(lhs, rhs);
+        }
+      }
+      _ => {/*Don't swap*/}
     }
   }
 }

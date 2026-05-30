@@ -183,6 +183,9 @@ pub enum Pat {
   },
   List(Vec<Pat>),
 
+  /// (Value, BB)
+  PhiIncoming(Box<Pat>, Box<Pat>),
+
   /// Operands
   Operand {
     name: Ident,
@@ -252,9 +255,10 @@ impl Parse for Pat {
       return Ok(Self::List(elems));
     }
 
-    // Match operator or Operand.
+    // Match operator/Operand/PhiIncoming.
     let name: Ident = input.parse()?;
 
+    // Match Operand::Undefined
     if is_unit_operand(&name) && !input.peek(syn::token::Paren) {
       return Ok(Self::Operand { name, inner: None });
     }
@@ -262,6 +266,7 @@ impl Parse for Pat {
     let content;
     parenthesized!(content in input);
 
+    // Match Operand.
     if is_operand(&name) {
       let inner = content.parse()?;
       if content.peek(Token![,]) {
@@ -276,6 +281,23 @@ impl Parse for Pat {
       });
     }
 
+    // Match PhiIncoming
+    if is_phi_incoming(&name) {
+      let value = content.parse()?;
+      if content.peek(Token![,]) {
+        content.parse::<Token![,]>()?;
+      } else {
+        return Err(content.error("PhiIncoming expects 2 inner pattern but found 1"));
+      }
+      let bb = content.parse()?;
+      if content.peek(Token![,]) {
+        return Err(content.error("Redundant PhiIncoming patterns"));
+      }
+
+      return Ok(Self::PhiIncoming(value, bb));
+    }
+
+    // Match operator.
     let mut operands = Vec::new();
     while !content.is_empty() {
       operands.push(content.parse()?);
@@ -299,4 +321,8 @@ fn is_operand(name: &Ident) -> bool {
 
 fn is_unit_operand(name: &Ident) -> bool {
   name == "Undefined"
+}
+
+fn is_phi_incoming(name: &Ident) -> bool {
+  name == "PhiIncoming"
 }

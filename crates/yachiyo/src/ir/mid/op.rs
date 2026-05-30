@@ -40,16 +40,11 @@ impl DerefMut for DFG {
 #[strum_discriminants(name(OpType))]
 #[strum_discriminants(derive(Hash, Ord, PartialOrd))]
 #[allow(clippy::upper_case_acronyms)]
+#[derive(PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum OpData {
   // customized instructions for convenience
   // TODO: Operand should be original type.
   GlobalAlloca(Type),
-  // getelementptr
-  GEP {
-    base: Operand,
-    // Vec<Index>
-    indices: Vec<Operand>,
-  },
   Declare {
     name: String,
     typ: Type,
@@ -189,6 +184,12 @@ pub enum OpData {
   }, // bool to int
 
   // SysY doesn't support bitwise shift for float
+  // getelementptr
+  GEP {
+    base: Operand,
+    // Vec<Index>
+    indices: Vec<Operand>,
+  },
   /// Memory operations
   Store {
     addr: Operand,
@@ -220,7 +221,7 @@ pub enum OpData {
   },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum PhiIncoming {
   Data { value: Operand, bb: Operand },
   None,
