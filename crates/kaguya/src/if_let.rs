@@ -29,10 +29,17 @@ impl GenIfLet {
     body: TokenStream2,
   ) -> TokenStream2 {
     match pat {
-      Pat::Bind(ident) => quote! {
-        let #ident = #value;
-        #body
-      },
+      Pat::Bind(ident, pattern) => {
+        let ident_quote = quote! {
+          let #ident = #value;
+          #body
+        };
+        if let Some(pattern) = pattern {
+          self.gen_nested_ifs(cx, quote!(#value), pattern, quote!(#ident_quote))
+        } else {
+          ident_quote
+        }
+      }
 
       Pat::PhiIncoming(value_pat, bb_pat) => {
         let tmp_value = self.mangled_tmp("value");

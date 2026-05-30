@@ -176,11 +176,17 @@ pub fn dispatch(input: KaguyaHimeInput) -> TokenStream {
 pub enum Pat {
   Wildcard,
   DotDot,
-  Bind(Ident),
+
+  /// - Some(Pat) for ident @ pattern.
+  /// - None for simple bind.
+  Bind(Ident, Option<Box<Pat>>),
+
   Op {
     name: Ident,
     operands: Vec<Pat>,
   },
+
+  /// [Pat, Pat, ...]
   List(Vec<Pat>),
 
   /// (Value, BB)
@@ -225,11 +231,20 @@ impl Parse for Pat {
       return Ok(Self::Wildcard);
     }
 
-    // Match single binded ident.
+    // Match Bindings.
     if input.peek(Token![$]) {
       input.parse::<Token![$]>()?;
       let ident: Ident = input.parse()?;
-      return Ok(Self::Bind(ident));
+
+      // Match ident @ pattern.
+      if input.peek(Token![@]) {
+        input.parse::<Token![@]>()?;
+        let inner = input.parse()?;
+        return Ok(Self::Bind(ident, Some(inner)));
+      }
+
+      // Single Binding
+      return Ok(Self::Bind(ident, None));
     }
 
     // Match .. as a dot-dot pattern.

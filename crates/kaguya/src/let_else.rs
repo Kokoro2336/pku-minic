@@ -29,9 +29,14 @@ impl GenLetElse {
     stmts: &mut Vec<TokenStream2>,
   ) {
     match pat {
-      Pat::Bind(ident) => stmts.push(quote! {
-        let #ident = #value;
-      }),
+      Pat::Bind(ident, pattern) => {
+        if let Some(pattern) = pattern {
+          self.gen_stmts(cx, quote!(#value), pattern, else_body, stmts);
+        }
+        stmts.push(quote! {
+          let #ident = #value;
+        });
+      },
 
       Pat::Wildcard => stmts.push(quote! {
         let _ = #value;
