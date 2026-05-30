@@ -182,8 +182,7 @@ impl GenIfLet {
     let tmp1_block = self.gen_nested_ifs(cx, quote!(#tmp1), &operands[0], tmp2_block);
 
     quote! {
-      let tmp1_op_data = #cx.get_op_data(#value).clone();
-      if let OpData::#name { lhs: #tmp1, rhs: #tmp2 } = tmp1_op_data {
+      if let &OpData::#name { lhs: #tmp1, rhs: #tmp2 } = #cx.get_op_data(#value) {
         #tmp1_block
       }
     }
@@ -204,8 +203,7 @@ impl GenIfLet {
     let tmp_block = self.gen_nested_ifs(cx, quote!(#tmp), &operands[0], quote!(#body));
 
     quote! {
-      let tmp_op_data = #cx.get_op_data(#value).clone();
-      if let OpData::#name { value: #tmp } = tmp_op_data {
+      if let &OpData::#name { value: #tmp } = #cx.get_op_data(#value) {
         #tmp_block
       }
     }
@@ -226,8 +224,7 @@ impl GenIfLet {
     let tmp_block = self.gen_nested_ifs(cx, quote!(#tmp), &operands[0], quote!(#body));
 
     quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-      if let OpData::#name { addr: #tmp } = op_data {
+      if let &OpData::#name { addr: #tmp } = #cx.get_op_data(#value) {
         #tmp_block
       }
     }
@@ -250,8 +247,7 @@ impl GenIfLet {
     let base_block = self.gen_nested_ifs(cx, quote!(#tmp_ptr), &operands[0], indices_block);
 
     quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-      if let OpData::#name { base: #tmp_ptr, indices: #tmp_indices } = op_data {
+      if let &OpData::#name { base: #tmp_ptr, indices: ref #tmp_indices } = #cx.get_op_data(#value) {
         #base_block
       }
     }
@@ -272,8 +268,7 @@ impl GenIfLet {
     let tmp_block = self.gen_nested_ifs(cx, quote!(#tmp), &operands[0], quote!(#body));
 
     quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-      if let OpData::#name(#tmp) = op_data {
+      if let &OpData::#name(ref #tmp) = #cx.get_op_data(#value) {
         #tmp_block
       }
     }
@@ -294,8 +289,7 @@ impl GenIfLet {
     let value_block = self.gen_nested_ifs(cx, quote!(#value_tmp), &operands[0], quote!(#body));
 
     quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-      if let OpData::#name { value: Some(#value_tmp) } = op_data {
+      if let &OpData::#name { value: Some(#value_tmp) } = #cx.get_op_data(#value) {
         #value_block
       }
     }
@@ -318,8 +312,7 @@ impl GenIfLet {
     let addr_block = self.gen_nested_ifs(cx, quote!(#tmp1), &operands[0], value_block);
 
     quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-      if let OpData::#name { addr: #tmp1, value: #tmp2 } = op_data {
+      if let &OpData::#name { addr: #tmp1, value: #tmp2 } = #cx.get_op_data(#value) {
         #addr_block
       }
     }
@@ -342,8 +335,7 @@ impl GenIfLet {
     let func_block = self.gen_nested_ifs(cx, quote!(#tmp1), &operands[0], args_block);
 
     quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-      if let OpData::#name { func: #tmp1, args: #tmp2 } = op_data {
+      if let &OpData::#name { func: #tmp1, args: ref #tmp2 } = #cx.get_op_data(#value) {
         #func_block
       }
     }
@@ -368,8 +360,7 @@ impl GenIfLet {
     let cond_block = self.gen_nested_ifs(cx, quote!(#tmp_cond), &operands[0], then_block);
 
     quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-      if let OpData::#name { cond: #tmp_cond, then_bb: #tmp_then, else_bb: #tmp_else } = op_data {
+      if let &OpData::#name { cond: #tmp_cond, then_bb: #tmp_then, else_bb: #tmp_else } = #cx.get_op_data(#value) {
         #cond_block
       }
     }
@@ -390,8 +381,7 @@ impl GenIfLet {
     let target_block = self.gen_nested_ifs(cx, quote!(#tmp_target), &operands[0], quote!(#body));
 
     quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-      if let OpData::#name { target_bb: #tmp_target } = op_data {
+      if let &OpData::#name { target_bb: #tmp_target } = #cx.get_op_data(#value) {
         #target_block
       }
     }
@@ -413,8 +403,7 @@ impl GenIfLet {
       self.gen_nested_ifs(cx, quote!(#incomings_tmp), &operands[0], quote!(#body));
 
     quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-      if let OpData::#name { incomings: #incomings_tmp } = op_data {
+      if let &OpData::#name { incomings: ref #incomings_tmp } = #cx.get_op_data(#value) {
         #incomings_tmp_block
       }
     }

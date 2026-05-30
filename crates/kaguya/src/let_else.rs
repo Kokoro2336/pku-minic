@@ -185,9 +185,7 @@ impl GenLetElse {
     let tmp = self.mangled_tmp("ty");
 
     stmts.push(quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-
-      let OpData::#name(#tmp) = op_data else #else_body;
+      let &OpData::#name(ref #tmp) = #cx.get_op_data(#value) else #else_body;
     });
 
     self.gen_stmts(cx, quote!(#tmp), &operands[0], else_body, stmts);
@@ -207,9 +205,7 @@ impl GenLetElse {
     let value_tmp = self.mangled_tmp("value");
 
     stmts.push(quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-
-      let OpData::#name { value: Some(#value_tmp) } = op_data else #else_body;
+      let &OpData::#name { value: Some(#value_tmp) } = #cx.get_op_data(#value) else #else_body;
     });
 
     self.gen_stmts(cx, quote!(#value_tmp), &operands[0], else_body, stmts);
@@ -230,9 +226,7 @@ impl GenLetElse {
     let tmp2 = self.mangled_tmp("value");
 
     stmts.push(quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-
-      let OpData::#name { addr: #tmp1, value: #tmp2 } = op_data else #else_body;
+      let &OpData::#name { addr: #tmp1, value: #tmp2 } = #cx.get_op_data(#value) else #else_body;
     });
 
     self.gen_stmts(cx, quote!(#tmp1), &operands[0], else_body, stmts);
@@ -254,9 +248,7 @@ impl GenLetElse {
     let tmp2 = self.mangled_tmp("args");
 
     stmts.push(quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-
-      let OpData::#name { func: #tmp1, args: #tmp2 } = op_data else #else_body;
+      let &OpData::#name { func: #tmp1, args: ref #tmp2 } = #cx.get_op_data(#value) else #else_body;
     });
 
     self.gen_stmts(cx, quote!(#tmp1), &operands[0], else_body, stmts);
@@ -278,9 +270,7 @@ impl GenLetElse {
     let tmp2 = self.mangled_tmp("rhs");
 
     stmts.push(quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-
-      let OpData::#name { lhs: #tmp1, rhs: #tmp2 } = op_data else #else_body;
+      let &OpData::#name { lhs: #tmp1, rhs: #tmp2 } = #cx.get_op_data(#value) else #else_body;
     });
 
     self.gen_stmts(cx, quote!(#tmp1), &operands[0], else_body, stmts);
@@ -301,9 +291,7 @@ impl GenLetElse {
     let tmp = self.mangled_tmp("value");
 
     stmts.push(quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-
-      let OpData::#name { value: #tmp } = op_data else #else_body;
+      let &OpData::#name { value: #tmp } = #cx.get_op_data(#value) else #else_body;
     });
 
     self.gen_stmts(cx, quote!(#tmp), &operands[0], else_body, stmts);
@@ -323,9 +311,7 @@ impl GenLetElse {
     let tmp = self.mangled_tmp("addr");
 
     stmts.push(quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-
-      let OpData::#name { addr: #tmp } = op_data else #else_body;
+      let &OpData::#name { addr: #tmp } = #cx.get_op_data(#value) else #else_body;
     });
 
     self.gen_stmts(cx, quote!(#tmp), &operands[0], else_body, stmts);
@@ -346,9 +332,7 @@ impl GenLetElse {
     let tmp_indices = self.mangled_tmp("indices");
 
     stmts.push(quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-
-      let OpData::#name { base: #tmp_base, indices: #tmp_indices } = op_data else #else_body;
+      let &OpData::#name { base: #tmp_base, indices: ref #tmp_indices } = #cx.get_op_data(#value) else #else_body;
     });
 
     self.gen_stmts(cx, quote!(#tmp_base), &operands[0], else_body, stmts);
@@ -371,9 +355,7 @@ impl GenLetElse {
     let tmp_else = self.mangled_tmp("else_bb");
 
     stmts.push(quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-
-      let OpData::#name { cond: #tmp_cond, then_block: #tmp_then, else_block: #tmp_else } = op_data else #else_body;
+      let &OpData::#name { cond: #tmp_cond, then_block: #tmp_then, else_block: #tmp_else } = #cx.get_op_data(#value) else #else_body;
     });
 
     self.gen_stmts(cx, quote!(#tmp_cond), &operands[0], else_body, stmts);
@@ -395,9 +377,7 @@ impl GenLetElse {
     let tmp_target = self.mangled_tmp("target");
 
     stmts.push(quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-
-      let OpData::#name { target: #tmp_target } = op_data else #else_body;
+      let &OpData::#name { target: #tmp_target } = #cx.get_op_data(#value) else #else_body;
     });
 
     self.gen_stmts(cx, quote!(#tmp_target), &operands[0], else_body, stmts);
@@ -417,9 +397,7 @@ impl GenLetElse {
     let incomings_tmp = self.mangled_tmp("incomings");
 
     stmts.push(quote! {
-      let op_data = #cx.get_op_data(#value).clone();
-
-      let OpData::#name { incomings: #incomings_tmp } = op_data else #else_body;
+      let &OpData::#name { incomings: ref #incomings_tmp } = #cx.get_op_data(#value) else #else_body;
     });
 
     self.gen_stmts(cx, quote!(#incomings_tmp), &operands[0], else_body, stmts);
