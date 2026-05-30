@@ -9,6 +9,11 @@ proc-macro = true
 
 [dependencies]
 yachiyo = { path = "../yachiyo" }
+
+# Generating enums
+strum = "0.28"
+strum_macros = "0.28"
+
 syn = { version = "2.0.18", features = ["full"] }
 quote = "1.0.30"
 proc-macro2 = "1.0.66"

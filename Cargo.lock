@@ -550,6 +550,8 @@ version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
+ "strum",
+ "strum_macros",
  "syn 2.0.117",
  "yachiyo",
 ]

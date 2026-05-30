@@ -1,13 +1,16 @@
 //! Kaguya crate root.
 
-mod matcher;
+mod core;
+mod if_let;
+mod let_else;
+mod r#match;
 
-use matcher::{expand, KaguyaHimeInput};
+use core::{dispatch, KaguyaHimeInput};
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
 
 #[proc_macro]
 pub fn kaguya_hime(input: TokenStream) -> TokenStream {
   let input = parse_macro_input!(input as KaguyaHimeInput);
-  expand(input)
+  dispatch(input)
 }

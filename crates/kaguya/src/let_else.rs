@@ -1,134 +1,15 @@
-use proc_macro::TokenStream;
+//! Let-else-like generation.
+
+use crate::core::Pat;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
-use syn::{
-  bracketed, parenthesized,
-  parse::{Parse, ParseStream, Result},
-  Block, Expr, Ident, Token,
-};
+use syn::{Block, Expr, Ident};
 
-pub struct KaguyaHimeInput {
-  cx: Expr,
-  value: Expr,
-  pattern: Pat,
-  body: Block,
-  else_body: Block,
-}
-
-impl Parse for KaguyaHimeInput {
-  fn parse(input: ParseStream) -> Result<Self> {
-    let cx = input.parse()?;
-    input.parse::<Token![,]>()?;
-    let value = input.parse()?;
-    input.parse::<Token![,]>()?;
-    let pattern = input.parse()?;
-    input.parse::<syn::token::FatArrow>()?;
-    let body = input.parse()?;
-    input.parse::<syn::token::Else>()?;
-    let else_body = input.parse()?;
-
-    Ok(Self {
-      cx,
-      value,
-      pattern,
-      body,
-      else_body,
-    })
-  }
-}
-
-pub fn expand(input: KaguyaHimeInput) -> TokenStream {
-  let KaguyaHimeInput {
-    cx,
-    value,
-    pattern,
-    body,
-    else_body,
-  } = input;
-
-  let mut gen = Gen::new();
-  let mut stmts = Vec::new();
-
-  gen.gen_stmts(&cx, quote!(#value), &pattern, &else_body, &mut stmts);
-
-  quote! {
-    #(#stmts)*
-    #body
-  }
-  .into()
-}
-
-enum Pat {
-  Wildcard,
-  DotDot,
-  Bind(Ident),
-  Op { name: Ident, operands: Vec<Pat> },
-  List(Vec<Pat>),
-}
-
-impl Parse for Pat {
-  fn parse(input: ParseStream) -> Result<Self> {
-    // Match _ as a wildcard.
-    if input.peek(Token![_]) {
-      input.parse::<Token![_]>()?;
-      return Ok(Self::Wildcard);
-    }
-
-    // Match single binded ident.
-    if input.peek(Token![$]) {
-      input.parse::<Token![$]>()?;
-      let ident: Ident = input.parse()?;
-      return Ok(Self::Bind(ident));
-    }
-
-    // Match .. as a dot-dot pattern.
-    if input.peek(Token![..]) {
-      input.parse::<Token![..]>()?;
-      return Ok(Self::DotDot);
-    }
-
-    // Match [] in GEP/Phi.
-    if input.peek(syn::token::Bracket) {
-      let content;
-      bracketed!(content in input);
-
-      let mut elems = Vec::new();
-      while !content.is_empty() {
-        elems.push(content.parse()?);
-        if content.peek(Token![,]) {
-          content.parse::<Token![,]>()?;
-        } else {
-          break;
-        }
-      }
-      return Ok(Self::List(elems));
-    }
-
-    // Match operator.
-    let name: Ident = input.parse()?;
-
-    let content;
-    parenthesized!(content in input);
-
-    let mut operands = Vec::new();
-    while !content.is_empty() {
-      operands.push(content.parse()?);
-      if content.peek(Token![,]) {
-        content.parse::<Token![,]>()?;
-      } else {
-        break;
-      }
-    }
-
-    Ok(Self::Op { name, operands })
-  }
-}
-
-struct Gen {
+pub struct GenLetElse {
   counter: usize,
 }
 
-impl Gen {
+impl GenLetElse {
   pub fn new() -> Self {
     Self { counter: 0 }
   }
@@ -154,6 +35,24 @@ impl Gen {
 
       Pat::Wildcard => stmts.push(quote! {
         let _ = #value;
+      }),
+
+      Pat::Operand { name, inner } => {
+        if let Some(inner) = inner {
+          let tmp = self.mangled_tmp("operand");
+          stmts.push(quote! {
+            let Operand::#name(#tmp) = #value else #else_body;
+          });
+          self.gen_stmts(cx, quote!(#tmp), inner, else_body, stmts);
+        } else {
+          stmts.push(quote! {
+            let Operand::#name = #value else #else_body;
+          });
+        }
+      }
+
+      Pat::Literal(lit) => stmts.push(quote! {
+        let #lit = #value else #else_body;
       }),
 
       Pat::DotDot => { /* Dot-Dot is handled inside gen_elems() */ }
