@@ -41,6 +41,16 @@ impl GenIfLet {
         }
       }
 
+      Pat::Or(pats) => {
+        let ifs = pats
+          .iter()
+          .map(|pat| self.gen_nested_ifs(cx, quote!(#value), pat, quote!(#body)));
+        // Generate if {} else if {} else if {} ...
+        quote! {
+          #(#ifs) else *
+        }
+      }
+
       Pat::PhiIncoming(value_pat, bb_pat) => {
         let tmp_value = self.mangled_tmp("value");
         let tmp_bb = self.mangled_tmp("bb");

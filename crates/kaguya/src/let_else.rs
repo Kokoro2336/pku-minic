@@ -36,7 +36,9 @@ impl GenLetElse {
         stmts.push(quote! {
           let #ident = #value;
         });
-      },
+      }
+
+      Pat::Or(_) => unimplemented!(),
 
       Pat::Wildcard => stmts.push(quote! {
         let _ = #value;

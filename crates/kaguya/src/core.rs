@@ -186,6 +186,9 @@ pub enum Pat {
     operands: Vec<Pat>,
   },
 
+  /// Pat | Pat | ...
+  Or(Vec<Pat>),
+
   /// [Pat, Pat, ...]
   List(Vec<Pat>),
 
@@ -215,115 +218,131 @@ impl ToTokens for Literal {
   }
 }
 
-impl Parse for Pat {
-  fn parse(input: ParseStream) -> Result<Self> {
-    if input.peek(LitInt) {
-      return Ok(Self::Literal(Literal::Int(input.parse()?)));
+fn parse_atom_pat(input: ParseStream) -> Result<Pat> {
+  if input.peek(LitInt) {
+    return Ok(Pat::Literal(Literal::Int(input.parse()?)));
+  }
+
+  if input.peek(LitBool) {
+    return Ok(Pat::Literal(Literal::Bool(input.parse()?)));
+  }
+
+  // Match _ as a wildcard.
+  if input.peek(Token![_]) {
+    input.parse::<Token![_]>()?;
+    return Ok(Pat::Wildcard);
+  }
+
+  // Match Bindings.
+  if input.peek(Token![$]) {
+    input.parse::<Token![$]>()?;
+    let ident: Ident = input.parse()?;
+
+    // Match ident @ pattern.
+    if input.peek(Token![@]) {
+      input.parse::<Token![@]>()?;
+      let inner = input.parse()?;
+      return Ok(Pat::Bind(ident, Some(inner)));
     }
 
-    if input.peek(LitBool) {
-      return Ok(Self::Literal(Literal::Bool(input.parse()?)));
-    }
+    // Single Binding
+    return Ok(Pat::Bind(ident, None));
+  }
 
-    // Match _ as a wildcard.
-    if input.peek(Token![_]) {
-      input.parse::<Token![_]>()?;
-      return Ok(Self::Wildcard);
-    }
+  // Match .. as a dot-dot pattern.
+  if input.peek(Token![..]) {
+    input.parse::<Token![..]>()?;
+    return Ok(Pat::DotDot);
+  }
 
-    // Match Bindings.
-    if input.peek(Token![$]) {
-      input.parse::<Token![$]>()?;
-      let ident: Ident = input.parse()?;
-
-      // Match ident @ pattern.
-      if input.peek(Token![@]) {
-        input.parse::<Token![@]>()?;
-        let inner = input.parse()?;
-        return Ok(Self::Bind(ident, Some(inner)));
-      }
-
-      // Single Binding
-      return Ok(Self::Bind(ident, None));
-    }
-
-    // Match .. as a dot-dot pattern.
-    if input.peek(Token![..]) {
-      input.parse::<Token![..]>()?;
-      return Ok(Self::DotDot);
-    }
-
-    // Match [] in GEP/Phi.
-    if input.peek(syn::token::Bracket) {
-      let content;
-      bracketed!(content in input);
-
-      let mut elems = Vec::new();
-      while !content.is_empty() {
-        elems.push(content.parse()?);
-        if content.peek(Token![,]) {
-          content.parse::<Token![,]>()?;
-        } else {
-          break;
-        }
-      }
-      return Ok(Self::List(elems));
-    }
-
-    // Match operator/Operand/PhiIncoming.
-    let name: Ident = input.parse()?;
-
-    // Match Operand::Undefined
-    if is_unit_operand(&name) && !input.peek(syn::token::Paren) {
-      return Ok(Self::Operand { name, inner: None });
-    }
-
+  // Match [] in GEP/Phi.
+  if input.peek(syn::token::Bracket) {
     let content;
-    parenthesized!(content in input);
+    bracketed!(content in input);
 
-    // Match Operand.
-    if is_operand(&name) {
-      let inner = content.parse()?;
-      if content.peek(Token![,]) {
-        content.parse::<Token![,]>()?;
-      }
-      if !content.is_empty() {
-        return Err(content.error("operand patterns take exactly one inner pattern"));
-      }
-      return Ok(Self::Operand {
-        name,
-        inner: Some(Box::new(inner)),
-      });
-    }
-
-    // Match PhiIncoming
-    if is_phi_incoming(&name) {
-      let value = content.parse()?;
-      if content.peek(Token![,]) {
-        content.parse::<Token![,]>()?;
-      } else {
-        return Err(content.error("PhiIncoming expects 2 inner pattern but found 1"));
-      }
-      let bb = content.parse()?;
-      if content.peek(Token![,]) {
-        return Err(content.error("Redundant PhiIncoming patterns"));
-      }
-
-      return Ok(Self::PhiIncoming(value, bb));
-    }
-
-    // Match operator.
-    let mut operands = Vec::new();
+    let mut elems = Vec::new();
     while !content.is_empty() {
-      operands.push(content.parse()?);
+      elems.push(content.parse()?);
       if content.peek(Token![,]) {
         content.parse::<Token![,]>()?;
       } else {
         break;
       }
     }
+    return Ok(Pat::List(elems));
+  }
 
-    Ok(Self::Op { name, operands })
+  // Match operator/Operand/PhiIncoming.
+  let name: Ident = input.parse()?;
+
+  // Match Operand::Undefined
+  if is_unit_operand(&name) && !input.peek(syn::token::Paren) {
+    return Ok(Pat::Operand { name, inner: None });
+  }
+
+  let content;
+  parenthesized!(content in input);
+
+  // Match Operand.
+  if is_operand(&name) {
+    let inner = content.parse()?;
+    if content.peek(Token![,]) {
+      content.parse::<Token![,]>()?;
+    }
+    if !content.is_empty() {
+      return Err(content.error("operand patterns take exactly one inner pattern"));
+    }
+    return Ok(Pat::Operand {
+      name,
+      inner: Some(Box::new(inner)),
+    });
+  }
+
+  // Match PhiIncoming
+  if is_phi_incoming(&name) {
+    let value = content.parse()?;
+    if content.peek(Token![,]) {
+      content.parse::<Token![,]>()?;
+    } else {
+      return Err(content.error("PhiIncoming expects 2 inner pattern but found 1"));
+    }
+    let bb = content.parse()?;
+    if content.peek(Token![,]) {
+      return Err(content.error("Redundant PhiIncoming patterns"));
+    }
+
+    return Ok(Pat::PhiIncoming(value, bb));
+  }
+
+  // Match operator.
+  let mut operands = Vec::new();
+  while !content.is_empty() {
+    operands.push(content.parse()?);
+    if content.peek(Token![,]) {
+      content.parse::<Token![,]>()?;
+    } else {
+      break;
+    }
+  }
+
+  Ok(Pat::Op { name, operands })
+}
+
+impl Parse for Pat {
+  fn parse(input: ParseStream) -> Result<Self> {
+    let atom_pat = parse_atom_pat(input)?;
+    let mut items = vec![atom_pat];
+
+    while input.peek(Token![|]) {
+      input.parse::<Token![|]>()?;
+      items.push(parse_atom_pat(input)?);
+    }
+
+    if items.len() == 1 {
+      Ok(items.pop().unwrap())
+    } else {
+      Ok(Self::Or(items))
+    }
   }
 }
 
