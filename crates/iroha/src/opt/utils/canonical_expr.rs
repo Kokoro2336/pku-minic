@@ -128,7 +128,7 @@ impl CanonicalExpr {
           std::mem::swap(lhs, rhs);
         }
       }
-      _ => {/*Don't swap*/}
+      _ => { /*Don't swap*/ }
     }
   }
 }

@@ -1,9 +1,10 @@
 //! Loop Unrolling.
 
-use super::TripCount;
+use super::{CanonicalExpr, TripCount};
 use crate::analysis::{DomAnalysis, LoopAnalysis, Reachability, SCEV};
 
-use yachiyo::analysis::{analyze, Analysis, LoopId};
+use yachiyo::analysis::{analyze, Analysis, LoopData, LoopId, SCEVExpr};
+use yachiyo::base::Type;
 use yachiyo::ir::mid::{Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::{match_src, Arena, BitSet};
@@ -12,6 +13,7 @@ use rustc_hash::FxHashMap;
 
 const MAX_UNROLL_COUNT: i64 = 64;
 const MAX_NESTED_UNROLL_OPS: usize = 256;
+const LANE_UNROLL_COUNT: usize = 4;
 
 #[derive(Default)]
 pub struct Unrolling<'a> {
@@ -21,10 +23,16 @@ pub struct Unrolling<'a> {
 struct Unroller<'cx, 'a> {
   cx: &'cx mut PassContext<'a>,
   unroll_count: usize,
+  mode: UnrollMode,
   scev: &'cx mut SCEV<'a>,
   loop_id: LoopId,
   value_map: FxHashMap<Operand, Operand>,
   bb_map: FxHashMap<Operand, Operand>,
+  pre_header: Option<Operand>,
+  first_unrolled_entry: Option<Operand>,
+  unroll_header: Option<Operand>,
+  lane_guard: Option<LaneGuard>,
+  lane_phis: FxHashMap<Operand, Operand>,
   /// Continue ops
   continues: Vec<(Operand, Operand)>,
   old_phis: Vec<(Operand, Vec<PhiIncoming>)>,
@@ -33,20 +41,125 @@ struct Unroller<'cx, 'a> {
   exit_phi_old_values: FxHashMap<Operand, FxHashMap<Operand, Operand>>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum UnrollMode {
+  Full,
+  Lane,
+}
+
+#[derive(Clone, Copy)]
+struct LaneGuard {
+  iv: Operand,
+  bound: Operand,
+  step: i64,
+  inclusive: bool,
+}
+
 impl<'cx, 'a> Unroller<'cx, 'a> {
   fn new(cx: &'cx mut PassContext<'a>, scev: &'cx mut SCEV<'a>, loop_id: LoopId) -> Self {
     Self {
       cx,
       unroll_count: 0,
+      mode: UnrollMode::Full,
       scev,
       loop_id,
       value_map: FxHashMap::default(),
       bb_map: FxHashMap::default(),
+      pre_header: None,
+      first_unrolled_entry: None,
+      unroll_header: None,
+      lane_guard: None,
+      lane_phis: FxHashMap::default(),
       continues: vec![],
       old_phis: vec![],
       header_latch_values: vec![],
       exit_phi_old_values: FxHashMap::default(),
     }
+  }
+
+  fn try_init_lane(&mut self, header_id: Operand, loop_data: &LoopData) -> bool {
+    let body_succs = self
+      .cx
+      .get_bb(header_id)
+      .succs
+      .iter()
+      .filter_map(|(bb_id, _)| {
+        if loop_data.blocks.contains(bb_id.get_bb_id()) && *bb_id != header_id {
+          Some(*bb_id)
+        } else {
+          None
+        }
+      })
+      .collect::<Vec<_>>();
+    if body_succs.len() != 1 {
+      return false;
+    }
+
+    let body_entry = body_succs[0];
+    let Some(lane_guard) = self.try_build_lane_guard(header_id, body_entry, loop_data) else {
+      return false;
+    };
+
+    self.mode = UnrollMode::Lane;
+    self.unroll_count = LANE_UNROLL_COUNT;
+    self.lane_guard = Some(lane_guard);
+
+    true
+  }
+
+  fn try_build_lane_guard(
+    &mut self,
+    header_id: Operand,
+    body_entry: Operand,
+    loop_data: &LoopData,
+  ) -> Option<LaneGuard> {
+    let header_term = self.cx.get_term(header_id);
+    let OpData::Br {
+      cond,
+      then_bb,
+      else_bb,
+    } = self.cx.get_op_data(header_term).clone()
+    else {
+      return None;
+    };
+
+    if then_bb != body_entry || !loop_data.exit_blocks.contains(else_bb.get_bb_id()) {
+      return None;
+    }
+
+    let cmp = CanonicalExpr::from(self.cx.get_op_data(cond));
+    let (lhs, rhs, inclusive) = match cmp {
+      CanonicalExpr::Lt(lhs, rhs) => (lhs, rhs, false),
+      CanonicalExpr::Le(lhs, rhs) => (lhs, rhs, true),
+      _ => return None,
+    };
+
+    let lhs_scev = self.scev.get_op_scev(lhs);
+    let rhs_scev = self.scev.get_op_scev(rhs);
+    let add_rec = self.scev.get_add_rec_for_loop(lhs_scev, self.loop_id)?;
+
+    if add_rec.iv != lhs || !self.scev.is_scev_loop_invariant(rhs_scev, self.loop_id) {
+      return None;
+    }
+
+    let step = self.scev[add_rec.step].as_const()?;
+    if step <= 0 {
+      return None;
+    }
+
+    let _ = i32::try_from(step.saturating_mul((LANE_UNROLL_COUNT - 1) as i64)).ok()?;
+    let bound = match self.scev[rhs_scev].clone() {
+      SCEVExpr::Const(bound) => Operand::Int(i32::try_from(bound).ok()?),
+      SCEVExpr::Unknown(bound) => bound,
+      _ => return None,
+    };
+
+    Some(LaneGuard {
+      iv: lhs,
+      bound,
+      step,
+      inclusive,
+    })
   }
 
   fn mapped_operand(&self, operand: Operand) -> Operand {
@@ -216,6 +329,7 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
         }
       }
     }
+    self.pre_header = Some(pre_header_id);
 
     let header_phis = self.cx.get_all_ops_in_block(header_id, OpType::Phi);
     for phi_id in header_phis {
@@ -240,15 +354,19 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
       }
     }
 
-    let Some(trip_count) = TripCount::try_build(self.cx, self.scev, self.loop_id) else {
-      return false;
-    };
-
-    let count = trip_count.get_trip_count();
-    if !(1..=MAX_UNROLL_COUNT).contains(&count) {
+    if let Some(trip_count) = TripCount::try_build(self.cx, self.scev, self.loop_id) {
+      let count = trip_count.get_trip_count();
+      if !(1..=MAX_UNROLL_COUNT).contains(&count) {
+        if !self.try_init_lane(header_id, &loop_data) {
+          return false;
+        }
+      } else {
+        self.mode = UnrollMode::Full;
+        self.unroll_count = count as usize;
+      }
+    } else if !self.try_init_lane(header_id, &loop_data) {
       return false;
     }
-    self.unroll_count = count as usize;
 
     if loop_data.parent.is_some() {
       let cloned_ops = loop_data
@@ -280,34 +398,38 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
       }
     }
 
-    // Reading exit blocks, record the old value in phis.
-    for exit_bb_id in loop_data.exit_blocks.iter() {
-      let exit_bb_id = Operand::BB(exit_bb_id);
-      let exit_bb_phis = self.cx.get_all_ops_in_block(exit_bb_id, OpType::Phi);
+    if self.mode == UnrollMode::Full {
+      // Reading exit blocks, record the old value in phis.
+      for exit_bb_id in loop_data.exit_blocks.iter() {
+        let exit_bb_id = Operand::BB(exit_bb_id);
+        let exit_bb_phis = self.cx.get_all_ops_in_block(exit_bb_id, OpType::Phi);
 
-      for phi_id in exit_bb_phis {
-        let phi_data = self.cx.get_op_data(phi_id).clone();
-        let OpData::Phi { incomings } = phi_data else {
-          unreachable!()
-        };
+        for phi_id in exit_bb_phis {
+          let phi_data = self.cx.get_op_data(phi_id).clone();
+          let OpData::Phi { incomings } = phi_data else {
+            unreachable!()
+          };
 
-        let incoming_bb_to_op = self.exit_phi_old_values.entry(phi_id).or_default();
-        for incoming in incomings {
-          if let PhiIncoming::Data { value, bb } = incoming {
-            if !loop_data.blocks.contains(bb.get_bb_id()) {
-              continue;
+          let incoming_bb_to_op = self.exit_phi_old_values.entry(phi_id).or_default();
+          for incoming in incomings {
+            if let PhiIncoming::Data { value, bb } = incoming {
+              if !loop_data.blocks.contains(bb.get_bb_id()) {
+                continue;
+              }
+              incoming_bb_to_op.insert(bb, value);
+              // Slay the old incoming
+              self.cx.slay_phi_incoming(phi_id, bb);
             }
-            incoming_bb_to_op.insert(bb, value);
-            // Slay the old incoming
-            self.cx.slay_phi_incoming(phi_id, bb);
           }
         }
       }
     }
 
-    // Initialize continues to pre_header's terminator.
-    let pre_header_term_id = self.cx.get_term(pre_header_id);
-    self.continues.push((pre_header_term_id, pre_header_id));
+    if self.mode == UnrollMode::Full {
+      // Initialize continues to pre_header's terminator.
+      let pre_header_term_id = self.cx.get_term(pre_header_id);
+      self.continues.push((pre_header_term_id, pre_header_id));
+    }
 
     true
   }
@@ -320,6 +442,10 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
     }
 
     let dpo = self.cx.get_cfg().dpo();
+
+    if self.mode == UnrollMode::Lane {
+      self.prepare_lane_unroll(&loop_data);
+    }
 
     let body_blocks = loop_data
       .blocks
@@ -352,6 +478,9 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
 
         // Redirect continues to the first block
         if idx == 0 {
+          if self.first_unrolled_entry.is_none() {
+            self.first_unrolled_entry = Some(mapped_bb);
+          }
           for (continue_op, _) in std::mem::take(&mut self.continues) {
             self
               .cx
@@ -385,6 +514,11 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
         let mapped_value = self.mapped_operand(latch_value);
         self.value_map.insert(phi_id, mapped_value);
       }
+    }
+
+    if self.mode == UnrollMode::Lane {
+      self.finish_lane_unroll(&loop_data);
+      return;
     }
 
     // Redirect continues in the last turn to exit_bb.
@@ -438,6 +572,121 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
         }
       }
     }
+  }
+
+  fn prepare_lane_unroll(&mut self, loop_data: &LoopData) {
+    let header_id = loop_data.header;
+    let pre_header = self
+      .pre_header
+      .expect("Lane unrolling should have a pre-header");
+    let pre_header_term = self.cx.get_term(pre_header);
+    let unroll_header = self.cx.create_new_block();
+    let header_phis = self.cx.get_all_ops_in_block(header_id, OpType::Phi);
+
+    self.unroll_header = Some(unroll_header);
+    self
+      .cx
+      .redirect_bb(pre_header_term, header_id, unroll_header);
+    self.cx.set_current_block(unroll_header);
+
+    for phi_id in header_phis {
+      let start_value = self.value_map.get(&phi_id).copied().unwrap_or(phi_id);
+      let phi_type = self.cx.get_op_type(phi_id);
+      let lane_phi = self.cx.create(Op::new(
+        phi_type,
+        vec![],
+        OpData::Phi {
+          incomings: vec![PhiIncoming::Data {
+            value: start_value,
+            bb: pre_header,
+          }],
+        },
+      ));
+      self.lane_phis.insert(phi_id, lane_phi);
+      self.value_map.insert(phi_id, lane_phi);
+    }
+  }
+
+  fn finish_lane_unroll(&mut self, loop_data: &LoopData) {
+    let header_id = loop_data.header;
+    let pre_header = self
+      .pre_header
+      .expect("Lane unrolling should have a pre-header");
+    let unroll_header = self
+      .unroll_header
+      .expect("Lane unrolling should have an unroll header");
+    let first_unrolled_entry = self
+      .first_unrolled_entry
+      .expect("Lane unrolling should have a cloned entry");
+    let final_continues = std::mem::take(&mut self.continues);
+    let final_continue_bbs = final_continues
+      .iter()
+      .map(|(continue_op, _)| self.cx.op_bb(*continue_op))
+      .collect::<Vec<_>>();
+
+    for (continue_op, _) in final_continues {
+      self.cx.redirect_bb(continue_op, header_id, unroll_header);
+    }
+
+    for (&phi_id, &lane_phi) in self.lane_phis.clone().iter() {
+      self.cx.slay_phi_incoming(phi_id, pre_header);
+      self.cx.append_phi_incoming(phi_id, unroll_header, lane_phi);
+
+      let mapped_value = self.value_map.get(&phi_id).copied().unwrap_or(lane_phi);
+
+      for incoming_bb in final_continue_bbs.iter().copied() {
+        self
+          .cx
+          .append_phi_incoming(lane_phi, incoming_bb, mapped_value);
+      }
+    }
+
+    self.cx.set_current_block(unroll_header);
+    let cond = self.materialize_lane_guard();
+    self.cx.create(Op::new(
+      Type::Void,
+      vec![],
+      OpData::Br {
+        cond,
+        then_bb: first_unrolled_entry,
+        else_bb: header_id,
+      },
+    ));
+  }
+
+  fn materialize_lane_guard(&mut self) -> Operand {
+    let lane_guard = self.lane_guard.expect("Lane unrolling should have a guard");
+    let iv = self
+      .lane_phis
+      .get(&lane_guard.iv)
+      .copied()
+      .unwrap_or(lane_guard.iv);
+    let stride = (LANE_UNROLL_COUNT - 1) as i64 * lane_guard.step;
+    let guard_lhs = if stride == 0 {
+      iv
+    } else {
+      self.cx.create(Op::new(
+        Type::Int,
+        vec![],
+        OpData::AddI {
+          lhs: iv,
+          rhs: Operand::Int(i32::try_from(stride).unwrap()),
+        },
+      ))
+    };
+    let guard_data = if lane_guard.inclusive {
+      OpData::SLe {
+        lhs: guard_lhs,
+        rhs: lane_guard.bound,
+      }
+    } else {
+      OpData::SLt {
+        lhs: guard_lhs,
+        rhs: lane_guard.bound,
+      }
+    };
+
+    self.cx.create(Op::new(Type::Bool, vec![], guard_data))
   }
 }
 

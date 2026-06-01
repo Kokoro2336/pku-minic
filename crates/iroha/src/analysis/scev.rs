@@ -132,6 +132,20 @@ impl SCEV<'_> {
     }
   }
 
+  pub fn get_main_iv_for_loop(&mut self, loop_id: LoopId) -> Option<Operand> {
+    let loop_data = &self.loops[loop_id];
+    let header_id = loop_data.header;
+    let header_term_id = self.cx.get_term(header_id);
+    let OpData::Br { cond, .. } = self.cx.get_op_data(header_term_id) else {
+      return None;
+    };
+    let scev_id = self.trace_op(*cond);
+    let SCEVExpr::AddRec { iv, .. } = self[scev_id] else {
+      return None;
+    };
+    Some(iv)
+  }
+
   fn add_add_rec(
     &mut self,
     terms: impl IntoIterator<Item = SCEVId>,
@@ -366,13 +380,6 @@ impl SCEV<'_> {
     self.affine_to_scev_expr(affine_expr)
   }
 
-  pub fn get_const(&self, scev_id: SCEVId) -> Option<i64> {
-    match &self[scev_id] {
-      SCEVExpr::Const(c) => Some(*c),
-      _ => None,
-    }
-  }
-
   /// For addr in Load/Store
   pub fn get_addr_offset_scev(&mut self, operand: Operand) -> SCEVId {
     let MemLoc { offset, .. } = self.cx.compute_mem_loc(operand);
@@ -432,6 +439,39 @@ impl SCEV<'_> {
 
   pub fn get_id(&mut self, scev_expr: SCEVExpr) -> SCEVId {
     self.arena.dedup(scev_expr)
+  }
+
+  // Normal Pattern Helper Function
+
+  // c
+  pub fn get_const(&self, scev_id: SCEVId) -> Option<i64> {
+    match &self[scev_id] {
+      SCEVExpr::Const(c) => Some(*c),
+      _ => None,
+    }
+  }
+
+  // i + c
+  pub fn get_iv_plus_const(&self, scev_id: SCEVId) -> Option<(Operand, i64)> {
+    match &self[scev_id] {
+      SCEVExpr::Add(operands) if operands.len() == 2 => {
+        let (mut iv, mut constant) = (None, 0);
+        for operand in operands {
+          match &self[*operand] {
+            SCEVExpr::AddRec { iv: op_iv, .. } => {
+              if iv.is_some() {
+                return None;
+              }
+              iv = Some(*op_iv);
+            }
+            SCEVExpr::Const(c) => constant += *c,
+            _ => return None,
+          }
+        }
+        iv.map(|iv| (iv, constant))
+      }
+      _ => None,
+    }
   }
 }
 

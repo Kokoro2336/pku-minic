@@ -1,8 +1,8 @@
 //! Loop Simplification (Canonicalization).
 //! Ensuring that every loop in the IR only has a single pre-header and a single latch, with dedicated exits.
 
-use crate::analysis::{DomAnalysis, DomTree, LoopAnalysis};
-use yachiyo::analysis::LoopData;
+use crate::analysis::{DomAnalysis, LoopAnalysis};
+use yachiyo::analysis::{analyze, LoopData};
 use yachiyo::base::Type;
 use yachiyo::ir::mid::{Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
@@ -259,11 +259,16 @@ impl LoopSimplify<'_> {
     loop_data.exit_blocks |= new_exits;
   }
 
-  fn run(&mut self, dom_tree: &DomTree, loops_data: &mut Vec<LoopData>) {
-    for loop_data in loops_data {
+  fn run(&mut self, loops_data: &mut Vec<LoopData>) {
+    for loop_data in loops_data.iter_mut() {
       // Ensure dedicated exits first.
       self.dedicated_exits(loop_data);
+    }
 
+    let graph = self.cx.extract_cfg();
+    let (dom_tree, _) = analyze::<DomAnalysis>(&graph);
+
+    for loop_data in loops_data {
       // Processing headers and latches.
       let header_id = loop_data.header;
       let header = self.cx.get_bb(header_id);
@@ -294,8 +299,7 @@ impl<'a> Pass<'a> for LoopSimplify<'a> {
       self.init(func_id);
       let graph = self.cx.extract_cfg();
       let (loops_data, _) = &mut *self.cx.analyze_mut::<LoopAnalysis>(&graph);
-      let (dom_tree, _) = &*self.cx.analyze::<DomAnalysis>(&graph);
-      self.run(dom_tree, loops_data);
+      self.run(loops_data);
     }
   }
 }
