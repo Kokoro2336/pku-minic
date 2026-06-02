@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use crate::config::{CALLER_SAVED_FREGS, CALLER_SAVED_XREGS, CALLER_SAVED_VREGS};
+use crate::config::{CALLER_SAVED_FREGS, CALLER_SAVED_VREGS, CALLER_SAVED_XREGS};
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -377,5 +377,8 @@ pub fn get_clobbered<S: FromIterator<Reg>>() -> S {
     .chain(std::iter::once(Reg::X(XReg::Ra)));
   let f_clobbered = CALLER_SAVED_FREGS.iter().copied().map(Reg::F);
   let v_clobbered = CALLER_SAVED_VREGS.iter().copied().map(Reg::V);
-  x_clobbered.chain(f_clobbered).chain(v_clobbered).collect::<S>()
+  x_clobbered
+    .chain(f_clobbered)
+    .chain(v_clobbered)
+    .collect::<S>()
 }

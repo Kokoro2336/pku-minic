@@ -214,6 +214,16 @@ impl<'a> PassContext<'a> {
       })
   }
 
+  pub fn get_pre_header_value(&self, header_id: Operand, dom_tree: &DomTree) -> Option<Operand> {
+    let pre_header_id = self.get_pre_header_id(header_id, dom_tree)?;
+    self.get_phi_incoming_value(header_id, pre_header_id)
+  }
+
+  pub fn get_latch_value(&self, header_id: Operand, dom_tree: &DomTree) -> Option<Operand> {
+    let latch_id = self.get_latch_id(header_id, dom_tree)?;
+    self.get_phi_incoming_value(header_id, latch_id)
+  }
+
   pub fn analyze<A>(&self, input: A::Input) -> AnalysisRef<A::Output>
   where
     A: Analysis,

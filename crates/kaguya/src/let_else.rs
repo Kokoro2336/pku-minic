@@ -84,9 +84,9 @@ impl GenLetElse {
         });
 
         match name.to_string().as_str() {
-          "AddI" | "SubI" | "MulI" | "DivI" | "ModI" | "AddF" | "SubF" | "MulF" | "DivF" | "SLe"
-          | "SLt" | "SGe" | "SGt" | "SEq" | "SNe" | "OLe" | "OLt" | "OGe" | "OGt" | "OEq" | "ONe"
-          | "Xor" | "Shl" | "Shr" | "Sar" => {
+          "AddI" | "SubI" | "MulI" | "DivI" | "ModI" | "AddF" | "SubF" | "MulF" | "DivF"
+          | "SLe" | "SLt" | "SGe" | "SGt" | "SEq" | "SNe" | "OLe" | "OLt" | "OGe" | "OGt"
+          | "OEq" | "ONe" | "Xor" | "Shl" | "Shr" | "Sar" => {
             self.gen_binop(cx, value, name, operands, else_body, stmts);
           }
 
@@ -135,7 +135,7 @@ impl GenLetElse {
             unimplemented!("unsupported pattern op: {other}");
           }
         }
-      },
+      }
     }
   }
 

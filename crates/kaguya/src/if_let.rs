@@ -100,11 +100,15 @@ impl GenIfLet {
 
       Pat::Op { name, operands } => {
         let op_quote = match name.to_string().as_str() {
-          "AddI" | "SubI" | "MulI" | "DivI" | "ModI" | "AddF" | "SubF" | "MulF" | "DivF" | "SLe"
-          | "SLt" | "SGe" | "SGt" | "SEq" | "SNe" | "OLe" | "OLt" | "OGe" | "OGt" | "OEq" | "ONe"
-          | "Xor" | "Shl" | "Shr" | "Sar" => self.gen_binop(cx, value.clone(), name, operands, body),
+          "AddI" | "SubI" | "MulI" | "DivI" | "ModI" | "AddF" | "SubF" | "MulF" | "DivF"
+          | "SLe" | "SLt" | "SGe" | "SGt" | "SEq" | "SNe" | "OLe" | "OLt" | "OGe" | "OGt"
+          | "OEq" | "ONe" | "Xor" | "Shl" | "Shr" | "Sar" => {
+            self.gen_binop(cx, value.clone(), name, operands, body)
+          }
 
-          "Sitofp" | "Fptosi" | "Zext" | "Uitofp" => self.gen_unop(cx, value.clone(), name, operands, body),
+          "Sitofp" | "Fptosi" | "Zext" | "Uitofp" => {
+            self.gen_unop(cx, value.clone(), name, operands, body)
+          }
 
           "Load" => self.gen_load(cx, value.clone(), name, operands, body),
 
@@ -135,7 +139,7 @@ impl GenIfLet {
             #op_quote
           }
         }
-      },
+      }
     }
   }
 

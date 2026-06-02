@@ -93,10 +93,7 @@ impl Hash for Type {
         base.hash(state);
         dims.hash(state);
       }
-      Type::Vector {
-        base,
-        elems,
-      } => {
+      Type::Vector { base, elems } => {
         base.hash(state);
         elems.hash(state);
       }

@@ -1,6 +1,6 @@
 //! Reassociate the instructions.
 
-use yachiyo::ir::mid::{IR, Operand, OpData, Op};
+use yachiyo::ir::mid::{Op, OpData, Operand, IR};
 use yachiyo::pass::{Pass, PassContext};
 
 use kaguya::kaguya_hime;
@@ -24,7 +24,7 @@ impl Reassociate<'_> {
         self.cx.set_before_inst(Some(inst_id));
 
         kaguya_hime!(
-          self.cx, 
+          self.cx,
           match inst_id {
             AddI(AddI($lhs, Int($c1)), Int($c2)) | AddI(Int($c1), AddI($lhs, Int($c2))) | AddI(AddI(Int($c1), $lhs), Int($c2)) | AddI(Int($c1), AddI(Int($c2), $lhs)) => {
               // Reassociate (a + c1) + c2 to a + (c1 + c2).
