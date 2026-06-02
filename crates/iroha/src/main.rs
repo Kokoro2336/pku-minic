@@ -148,6 +148,8 @@ fn main() -> Result<()> {
     .register::<LICM>()
     .register::<LSR>()
     .register::<DCE>()
+    // Vectorization
+    .register::<Reassociate>()
     // Post Loop Optimizations
     .register::<SimplifyCFG>()
     .register::<SCCP>()

@@ -1,23 +1,63 @@
 //! Vectorization via SLP.
 
 use yachiyo::analysis::{LoopId, Loops, SCEVExpr};
-use yachiyo::ir::mid::{OpData, Operand, PhiIncoming, IR};
+use yachiyo::ir::mid::{Attr, OpData, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
 
-use super::TripCount;
 use crate::analysis::SCEV;
 
 use kaguya::kaguya_hime;
 
-use rustc_hash::FxHashMap;
-
 #[derive(Default)]
 pub struct Vectorize<'a> {
   cx: PassContext<'a>,
-  slp_sets: FxHashMap<Operand, Vec<Operand>>,
+  groups: Vec<[Operand; 4]>,
+}
+
+/// SLP Tree Packing.
+pub enum Pack {
+  Store { addr: Operand, value: Box<Pack> },
+  Load { addr: Operand },
+  Add { lhs: Box<Pack>, rhs: Box<Pack> },
+  Sub { lhs: Box<Pack>, rhs: Box<Pack> },
+  Mul { lhs: Box<Pack>, rhs: Box<Pack> },
+  Phi { incomings: Vec<(Box<Pack>, Operand)> },
+  Build { lanes: [Operand; 4] },
 }
 
 impl Vectorize<'_> {
+  fn init(&mut self, func_id: Operand) {
+    self.cx.set_current_func(Some(func_id));
+    self.groups.clear();
+    self
+      .groups
+      .resize(self.cx.get_dfg().len(), [Operand::Undefined; 4]);
+  }
+
+  fn add_to_group(&mut self, group_id: Operand, lane: usize, inst_id: Operand) {
+    self.groups[group_id.get_op_id()][lane] = inst_id;
+  }
+
+  fn collect_groups(&mut self) {
+    let func_id = self.cx.get_current_func_id();
+    for bb_id in self.cx.bbs(func_id) {
+      for inst_id in self.cx.get_bb(bb_id).cur.clone() {
+        let Some(&Attr::Lane {
+          group_id,
+          lane,
+        }) = self
+          .cx
+          .get_op(inst_id)
+          .attrs
+          .iter()
+          .find(|attr| matches!(attr, Attr::Lane { .. }))
+        else {
+          continue;
+        };
+      }
+    }
+  }
+
   /// Mark SLP vectorizable Attr on instruction.
   fn try_slp(&self, inst_id: Operand, lp_id: LoopId, scev: &mut SCEV) {
     let Some(iv) = scev.get_main_iv_for_loop(lp_id) else {

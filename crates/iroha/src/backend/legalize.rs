@@ -397,6 +397,108 @@ impl Legalize<'_> {
                 new_lop_data.into(),
               ));
             }
+            LOpData::Splat { rd, value } => {
+              let new_lop_data = LOpData::Splat {
+                rd,
+                value: self.legalize(value, LegalizeOption::ForceImmLoad),
+              };
+              self.cx.replace_op_no_rauw(inst_id, BOp::new(
+                typ,
+                attrs,
+                new_lop_data.into(),
+              ));
+            }
+            LOpData::VBuild { rd, values } => {
+              let values = values.map(|value| self.legalize(value, LegalizeOption::ForceImmLoad));
+              let new_lop_data = LOpData::VBuild { rd, values };
+              self.cx.replace_op_no_rauw(inst_id, BOp::new(
+                typ,
+                attrs,
+                new_lop_data.into(),
+              ));
+            }
+            LOpData::VAdd { vd, vs1, vs2 } => {
+              let new_lop_data = LOpData::VAdd {
+                vd,
+                vs1: self.legalize(vs1, LegalizeOption::Default),
+                vs2: self.legalize(vs2, LegalizeOption::Default),
+              };
+              self.cx.replace_op_no_rauw(inst_id, BOp::new(
+                typ,
+                attrs,
+                new_lop_data.into(),
+              ));
+            }
+            LOpData::VMul { vd, vs1, vs2 } => {
+              let new_lop_data = LOpData::VMul {
+                vd,
+                vs1: self.legalize(vs1, LegalizeOption::Default),
+                vs2: self.legalize(vs2, LegalizeOption::Default),
+              };
+              self.cx.replace_op_no_rauw(inst_id, BOp::new(
+                typ,
+                attrs,
+                new_lop_data.into(),
+              ));
+            }
+            LOpData::VFAdd { vd, vs1, vs2 } => {
+              let new_lop_data = LOpData::VFAdd {
+                vd,
+                vs1: self.legalize(vs1, LegalizeOption::Default),
+                vs2: self.legalize(vs2, LegalizeOption::Default),
+              };
+              self.cx.replace_op_no_rauw(inst_id, BOp::new(
+                typ,
+                attrs,
+                new_lop_data.into(),
+              ));
+            }
+            LOpData::VFMul { vd, vs1, vs2 } => {
+              let new_lop_data = LOpData::VFMul {
+                vd,
+                vs1: self.legalize(vs1, LegalizeOption::Default),
+                vs2: self.legalize(vs2, LegalizeOption::Default),
+              };
+              self.cx.replace_op_no_rauw(inst_id, BOp::new(
+                typ,
+                attrs,
+                new_lop_data.into(),
+              ));
+            }
+            LOpData::VLoad { rd, addr } => {
+              let new_lop_data = LOpData::VLoad {
+                rd,
+                addr: self.legalize(addr, LegalizeOption::NoLoad),
+              };
+              self.cx.replace_op_no_rauw(inst_id, BOp::new(
+                typ,
+                attrs,
+                new_lop_data.into(),
+              ));
+            }
+            LOpData::VStore { addr, value } => {
+              let new_lop_data = LOpData::VStore {
+                addr: self.legalize(addr, LegalizeOption::NoLoad),
+                value: self.legalize(value, LegalizeOption::Default),
+              };
+              self.cx.replace_op_no_rauw(inst_id, BOp::new(
+                typ,
+                attrs,
+                new_lop_data.into(),
+              ));
+            }
+            LOpData::VReduceAdd { vd, vs2, init } => {
+              let new_lop_data = LOpData::VReduceAdd {
+                vd,
+                vs2: self.legalize(vs2, LegalizeOption::Default),
+                init: self.legalize(init, LegalizeOption::ForceImmLoad),
+              };
+              self.cx.replace_op_no_rauw(inst_id, BOp::new(
+                typ,
+                attrs,
+                new_lop_data.into(),
+              ));
+            }
             LOpData::Br { cond, then_bb, else_bb } => {
               let new_lop_data = LOpData::Br {
                 cond: self.legalize(cond, LegalizeOption::ForceImmLoad),

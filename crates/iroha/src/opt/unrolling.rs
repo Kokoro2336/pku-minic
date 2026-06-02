@@ -5,7 +5,7 @@ use crate::analysis::{DomAnalysis, LoopAnalysis, Reachability, SCEV};
 
 use yachiyo::analysis::{analyze, Analysis, LoopData, LoopId, SCEVExpr};
 use yachiyo::base::Type;
-use yachiyo::ir::mid::{Op, OpData, OpType, Operand, PhiIncoming, IR};
+use yachiyo::ir::mid::{Attr, Op, OpData, OpType, Operand, PhiIncoming, IR};
 use yachiyo::pass::{Pass, PassContext};
 use yachiyo::utils::{match_src, Arena, BitSet};
 
@@ -18,6 +18,7 @@ const LANE_UNROLL_COUNT: usize = 4;
 #[derive(Default)]
 pub struct Unrolling<'a> {
   cx: PassContext<'a>,
+  next_lane_group_id: i32,
 }
 
 struct Unroller<'cx, 'a> {
@@ -33,6 +34,8 @@ struct Unroller<'cx, 'a> {
   unroll_header: Option<Operand>,
   lane_guard: Option<LaneGuard>,
   lane_phis: FxHashMap<Operand, Operand>,
+  lane_group_ids: FxHashMap<Operand, Operand>,
+  next_lane_group_id: &'cx mut i32,
   /// Continue ops
   continues: Vec<(Operand, Operand)>,
   old_phis: Vec<(Operand, Vec<PhiIncoming>)>,
@@ -56,7 +59,12 @@ struct LaneGuard {
 }
 
 impl<'cx, 'a> Unroller<'cx, 'a> {
-  fn new(cx: &'cx mut PassContext<'a>, scev: &'cx mut SCEV<'a>, loop_id: LoopId) -> Self {
+  fn new(
+    cx: &'cx mut PassContext<'a>,
+    scev: &'cx mut SCEV<'a>,
+    loop_id: LoopId,
+    next_lane_group_id: &'cx mut i32,
+  ) -> Self {
     Self {
       cx,
       unroll_count: 0,
@@ -70,6 +78,8 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
       unroll_header: None,
       lane_guard: None,
       lane_phis: FxHashMap::default(),
+      lane_group_ids: FxHashMap::default(),
+      next_lane_group_id,
       continues: vec![],
       old_phis: vec![],
       header_latch_values: vec![],
@@ -170,10 +180,38 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
     }
   }
 
-  fn clone_inst(&mut self, inst_id: Operand) {
+  fn lane_attr_for(&mut self, inst_id: Operand, lane: Option<usize>) -> Option<Attr> {
+    let lane = lane?;
+    let lane = lane % LANE_UNROLL_COUNT;
+
+    if lane == 0 {
+      let group_id = Operand::Int(*self.next_lane_group_id);
+      *self.next_lane_group_id += 1;
+      self.lane_group_ids.insert(inst_id, group_id);
+    }
+
+    let group_id = self
+      .lane_group_ids
+      .get(&inst_id)
+      .copied()
+      .expect("lane group should be created by lane 0");
+
+    if lane + 1 == LANE_UNROLL_COUNT {
+      self.lane_group_ids.remove(&inst_id);
+    }
+
+    Some(Attr::Lane { group_id, lane })
+  }
+
+  fn clone_inst(&mut self, inst_id: Operand, lane: Option<usize>) {
     let loop_data = self.scev.loops[self.loop_id].clone();
     let op = self.cx.get_op(inst_id);
-    let (typ, attrs, mut op_data) = (op.typ.clone(), op.attrs.clone(), op.data.clone());
+    let (typ, mut attrs, mut op_data) = (op.typ.clone(), op.attrs.clone(), op.data.clone());
+
+    if let Some(lane_attr) = self.lane_attr_for(inst_id, lane) {
+      attrs.retain(|attr| !matches!(attr, Attr::Lane { .. }));
+      attrs.push(lane_attr);
+    }
 
     let remap = |operand: &mut Operand| *operand = self.mapped_operand(*operand);
 
@@ -237,6 +275,21 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
             if let Some(value) = value.as_mut() {
               remap(value);
             }
+          }
+
+          OpData::Splat { value } => {
+            remap(value);
+          }
+
+          OpData::VBuild4 { lanes } => {
+            for lane in lanes.iter_mut() {
+              remap(lane);
+            }
+          }
+
+          OpData::VReduceAddI { vector, init } | OpData::VReduceAddF { vector, init } => {
+            remap(vector);
+            remap(init);
           }
 
           OpData::Phi {..} => unreachable!(),
@@ -463,7 +516,9 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
       res
     };
 
-    for _ in 0..self.unroll_count {
+    for unroll_idx in 0..self.unroll_count {
+      let lane = (self.mode == UnrollMode::Lane).then_some(unroll_idx % LANE_UNROLL_COUNT);
+
       // Create and map the blocks, sort the blocks in RPO order.
       for bb_id in body_blocks.iter().copied() {
         let bb_id = Operand::BB(bb_id);
@@ -491,7 +546,7 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
         self.cx.set_current_block(mapped_bb);
         let cur = self.cx.get_bb(*bb_id).cur.clone();
         for inst_id in cur {
-          self.clone_inst(inst_id);
+          self.clone_inst(inst_id, lane);
         }
       }
 
@@ -515,6 +570,11 @@ impl<'cx, 'a> Unroller<'cx, 'a> {
         self.value_map.insert(phi_id, mapped_value);
       }
     }
+
+    debug_assert!(
+      self.lane_group_ids.is_empty(),
+      "lane unrolling should only create complete 4-lane groups"
+    );
 
     if self.mode == UnrollMode::Lane {
       self.finish_lane_unroll(&loop_data);
@@ -784,7 +844,8 @@ impl<'a> Unrolling<'a> {
       {
         continue;
       }
-      let mut unroller = Unroller::new(&mut self.cx, &mut scev, lp_id);
+      let mut unroller =
+        Unroller::new(&mut self.cx, &mut scev, lp_id, &mut self.next_lane_group_id);
       if unroller.init() {
         unroller.run();
       }

@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use crate::config::{CALLER_SAVED_FREGS, CALLER_SAVED_XREGS};
+use crate::config::{CALLER_SAVED_FREGS, CALLER_SAVED_XREGS, CALLER_SAVED_VREGS};
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -257,11 +257,79 @@ impl From<FReg> for u8 {
   }
 }
 
+/// Vector Register
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum VReg {
+  V0 = 64,
+  V1 = 65,
+  V2 = 66,
+  V3 = 67,
+  V4 = 68,
+  V5 = 69,
+  V6 = 70,
+  V7 = 71,
+  V8 = 72,
+  V9 = 73,
+  V10 = 74,
+  V11 = 75,
+  V12 = 76,
+  V13 = 77,
+  V14 = 78,
+  V15 = 79,
+  V16 = 80,
+  V17 = 81,
+  V18 = 82,
+  V19 = 83,
+  V20 = 84,
+  V21 = 85,
+  V22 = 86,
+  V23 = 87,
+  V24 = 88,
+  V25 = 89,
+  V26 = 90,
+  V27 = 91,
+  V28 = 92,
+  V29 = 93,
+  V30 = 94,
+  V31 = 95,
+}
+
+impl std::fmt::Display for VReg {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "v{}", u8::from(*self) - 64)
+  }
+}
+
+impl VReg {
+  #[inline(always)]
+  pub fn nums() -> Range<u8> {
+    64..96
+  }
+}
+
+impl From<VReg> for u8 {
+  fn from(reg: VReg) -> Self {
+    reg as u8
+  }
+}
+
+impl From<u8> for VReg {
+  fn from(id: u8) -> Self {
+    if (64..96).contains(&id) {
+      unsafe { std::mem::transmute::<u8, VReg>(id) }
+    } else {
+      panic!("Invalid vector register ID: {id}");
+    }
+  }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Reg {
   Virt(usize),
   X(XReg),
   F(FReg),
+  V(VReg),
 }
 
 impl std::fmt::Display for Reg {
@@ -270,6 +338,7 @@ impl std::fmt::Display for Reg {
       Reg::Virt(id) => write!(f, "v{id}"),
       Reg::X(xreg) => write!(f, "{xreg}"),
       Reg::F(freg) => write!(f, "{freg}"),
+      Reg::V(vreg) => write!(f, "{vreg}"),
     }
   }
 }
@@ -280,6 +349,7 @@ impl From<Reg> for u8 {
       Reg::Virt(id) => id as u8,
       Reg::X(xreg) => xreg.into(),
       Reg::F(freg) => freg.into(),
+      Reg::V(vreg) => vreg.into(),
     }
   }
 }
@@ -290,6 +360,8 @@ impl From<u8> for Reg {
       Reg::X(unsafe { std::mem::transmute::<u8, XReg>(id) })
     } else if id < 64 {
       Reg::F(unsafe { std::mem::transmute::<u8, FReg>(id) })
+    } else if id < 96 {
+      Reg::V(VReg::from(id))
     } else {
       panic!("Invalid register ID: {id}");
     }
@@ -304,5 +376,6 @@ pub fn get_clobbered<S: FromIterator<Reg>>() -> S {
     // RA should be included.
     .chain(std::iter::once(Reg::X(XReg::Ra)));
   let f_clobbered = CALLER_SAVED_FREGS.iter().copied().map(Reg::F);
-  x_clobbered.chain(f_clobbered).collect::<S>()
+  let v_clobbered = CALLER_SAVED_VREGS.iter().copied().map(Reg::V);
+  x_clobbered.chain(f_clobbered).chain(v_clobbered).collect::<S>()
 }

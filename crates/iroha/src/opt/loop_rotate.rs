@@ -302,7 +302,7 @@ impl LoopRotate<'_> {
             }
           }
         },
-        uni_ops: [GlobalAlloca, Alloca, Load, Store, Call, Ret, AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, Phi, GEP, Declare, Xor, Shl, Sar, Shr, Sitofp, Fptosi, Uitofp, Zext, SNe, SEq, SLe, SLt, SGe, SGt, OEq, OLt, OLe, ONe, OGe, OGt],
+        uni_ops: [GlobalAlloca, Alloca, Load, Store, Call, Ret, AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, Phi, GEP, Declare, Xor, Shl, Sar, Shr, Sitofp, Fptosi, Uitofp, Zext, SNe, SEq, SLe, SLt, SGe, SGt, OEq, OLt, OLe, ONe, OGe, OGt, Splat, VBuild4, VReduceAddI, VReduceAddF],
         uni_arm: {
           unreachable!("Unexpected terminator op: {:?}", pre_header_term_data);
         }

@@ -20,6 +20,7 @@ mod sccp;
 mod simplify_cfg;
 mod unrolling;
 mod vectorize;
+mod reassociate;
 
 pub use idiom::*;
 pub use pre::*;
@@ -41,3 +42,4 @@ pub use sccp::*;
 pub use simplify_cfg::*;
 pub use unrolling::*;
 pub use vectorize::*;
+pub use reassociate::*;

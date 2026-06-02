@@ -181,10 +181,12 @@ impl Allocator<'_> {
                 let vreg = &self.get_func(func_id).vregs[vreg_id];
                 match &vreg.typ {
                   BType::I32 | BType::U64 | BType::Array { .. } => self.typ == AllocatorType::Int,
-                    BType::F32 | BType::F64 => self.typ == AllocatorType::Float,
-                    BType::Void => false,
+                  BType::V4F32 | BType::V4I32 => self.typ == AllocatorType::Vector,
+                  BType::F32 | BType::F64 => self.typ == AllocatorType::Float,
+                  BType::Void => false,
                 }
             }
+            BOperand::Reg(Reg::V(_)) => self.typ == AllocatorType::Vector,
             BOperand::Reg(Reg::F(_)) => self.typ == AllocatorType::Float,
             BOperand::Reg(Reg::X(_)) => self.typ == AllocatorType::Int,
         },
@@ -1236,6 +1238,53 @@ impl RegAlloc<'_> {
           )
         }
       }
+      BType::V4I32 | BType::V4F32 => {
+        if let Some(offset) = offset {
+          if offset.is_literal() {
+            BOp::new(
+              BType::Void,
+              attrs,
+              match typ {
+                BType::V4I32 | BType::V4F32 => MOpData::VSe32V {
+                  vs3: rs,
+                  base,
+                  offset,
+                }
+                .into(),
+                _ => unreachable!(),
+              },
+            )
+          } else {
+            BOp::new(
+              BType::Void,
+              attrs,
+              match typ {
+                BType::V4I32 | BType::V4F32 => MOpData::VSe32V {
+                  vs3: rs,
+                  base: RESERVED_REG_BOPRD,
+                  offset: BOperand::IntImm(0),
+                }
+                .into(),
+                _ => unreachable!(),
+              },
+            )
+          }
+        } else {
+          BOp::new(
+            BType::Void,
+            attrs,
+            match typ {
+              BType::V4I32 | BType::V4F32 => MOpData::VSe32V {
+                vs3: rs,
+                base,
+                offset: BOperand::IntImm(0),
+              }
+              .into(),
+              _ => unreachable!(),
+            },
+          )
+        }
+      }
       BType::F32 | BType::F64 => {
         if let Some(offset) = offset {
           if offset.is_literal() {
@@ -1366,6 +1415,53 @@ impl RegAlloc<'_> {
               .into(),
               BType::U64 | BType::Array { .. } => MOpData::Ld {
                 rd,
+                base,
+                offset: BOperand::IntImm(0),
+              }
+              .into(),
+              _ => unreachable!(),
+            },
+          )
+        }
+      }
+      BType::V4I32 | BType::V4F32 => {
+        if let Some(offset) = offset {
+          if offset.is_literal() {
+            BOp::new(
+              BType::Void,
+              attrs,
+              match typ {
+                BType::V4I32 | BType::V4F32 => MOpData::VLe32V {
+                  vd: rd,
+                  base,
+                  offset,
+                }
+                .into(),
+                _ => unreachable!(),
+              },
+            )
+          } else {
+            BOp::new(
+              BType::Void,
+              attrs,
+              match typ {
+                BType::V4I32 | BType::V4F32 => MOpData::VLe32V {
+                  vd: rd,
+                  base: RESERVED_REG_BOPRD,
+                  offset: BOperand::IntImm(0),
+                }
+                .into(),
+                _ => unreachable!(),
+              },
+            )
+          }
+        } else {
+          BOp::new(
+            BType::Void,
+            attrs,
+            match typ {
+              BType::V4I32 | BType::V4F32 => MOpData::VLe32V {
+                vd: rd,
                 base,
                 offset: BOperand::IntImm(0),
               }
@@ -1682,6 +1778,7 @@ impl RegAlloc<'_> {
                 let typ = match reg {
                     Reg::X(_) => BType::U64,
                     Reg::F(_) => BType::F64,
+                    Reg::V(_) => BType::V4I32,
                     Reg::Virt(_) => unreachable!(),
                 };
                 self.select_store(typ, vec![], value, SP_BOPRD, Some(offset))
@@ -1730,6 +1827,7 @@ impl RegAlloc<'_> {
               let typ = match reg {
                   Reg::X(_) => BType::U64,
                   Reg::F(_) => BType::F64,
+                  Reg::V(_) => BType::V4I32,
                   Reg::Virt(_) => unreachable!(),
               };
               self.select_load(typ, vec![], rd, SP_BOPRD, Some(offset))
@@ -1917,11 +2015,118 @@ impl RegAlloc<'_> {
               }
           };
           self.cx.replace_op(inst_id, store_op);
+        } else if let BOpData::L(LOpData::VStore { addr, value }) = op_data {
+          self.cx.set_before_inst(Some(inst_id));
+
+          #[cfg(feature = "debug")]
+          yachiyo::debug::info!(
+            "Lowering vector store instruction. inst_id: {:?}, addr: {:?}, value: {:?}",
+            inst_id,
+            addr,
+            value
+          );
+
+          let val_typ = self.cx.get_operand_type(value);
+          let store_op = match_some! {
+              target: addr,
+              enu: BOperand,
+              minor_arms: {
+                  BOperand::Slot(_) => {
+                      let offset = self.legalize_offset(self.get_offset(addr));
+                      match_some! {
+                          target: offset,
+                          enu: BOperand,
+                          minor_arms: {
+                              BOperand::IntImm(_) | BOperand::Reg(_) => {
+                                  self.select_store(val_typ, attrs, value, SP_BOPRD, Some(offset))
+                              }
+                          },
+                          uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
+                          uni_arm: {
+                              unreachable!("Expected integer immediate, found {:?}", offset);
+                          }
+                      }
+                  }
+                  BOperand::Data(_)
+                  | BOperand::RoData(_)
+                  | BOperand::Bss(_) => {
+                      self.cx.create(BOp::new(
+                          BType::U64,
+                          vec![],
+                          MOpData::La {
+                              rd: RESERVED_REG_BOPRD,
+                              target: addr,
+                          }.into()
+                      ));
+                      self.select_store(val_typ, attrs, value, RESERVED_REG_BOPRD, None)
+                  },
+                  BOperand::Reg(_) => {
+                      self.select_store(val_typ, attrs, value, addr, None)
+                  }
+              },
+              uni_ops: [IntImm, FloatImm, Func, BB, Inst, Undef],
+              uni_arm: {
+                  unreachable!("Expected memory enetities, found {:?}", addr);
+              }
+          };
+          self.cx.replace_op(inst_id, store_op);
         } else if let BOpData::L(LOpData::Load { rd, addr }) = op_data {
           self.cx.set_before_inst(Some(inst_id));
           #[cfg(feature = "debug")]
           yachiyo::debug::info!(
             "Lowering load instruction. inst_id: {:?}, rd: {:?}, addr: {:?}",
+            inst_id,
+            rd,
+            addr
+          );
+          let load_op = match_some! {
+              target: addr,
+              enu: BOperand,
+              minor_arms: {
+                  BOperand::Slot(_) => {
+                      let offset = self.legalize_offset(self.get_offset(addr));
+                      match_some! {
+                          target: offset,
+                          enu: BOperand,
+                          minor_arms: {
+                              BOperand::IntImm(_) | BOperand::Reg(_) => {
+                                  self.select_load(rd_typ, attrs, rd, SP_BOPRD, Some(offset))
+                              }
+                          },
+                          uni_ops: [Reg, Func, BB, Inst, Slot, Undef, FloatImm, Data, RoData, Bss],
+                          uni_arm: {
+                              unreachable!("Expected integer immediate, found {:?}", offset);
+                          }
+                      }
+                  }
+                  BOperand::Data(_)
+                  | BOperand::RoData(_)
+                  | BOperand::Bss(_) => {
+                      self.cx.create(BOp::new(
+                          BType::U64,
+                          vec![],
+                          MOpData::La {
+                              rd: RESERVED_REG_BOPRD,
+                              target: addr,
+                          }.into()
+                      ));
+                      self.select_load(rd_typ, attrs, rd, RESERVED_REG_BOPRD, None)
+                  },
+                  BOperand::Reg(_) => {
+                      self.select_load(rd_typ, attrs, rd, addr, None)
+                  }
+              },
+              uni_ops: [IntImm, FloatImm, Func, BB, Inst, Undef],
+              uni_arm: {
+                  unreachable!("Expected memory enetities, found {:?}", addr);
+              }
+          };
+          self.cx.replace_op(inst_id, load_op);
+        } else if let BOpData::L(LOpData::VLoad { rd, addr }) = op_data {
+          self.cx.set_before_inst(Some(inst_id));
+          #[cfg(feature = "debug")]
+          yachiyo::debug::info!(
+            "Lowering vector load instruction. inst_id: {:?}, rd: {:?}, addr: {:?}",
             inst_id,
             rd,
             addr

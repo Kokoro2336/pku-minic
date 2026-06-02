@@ -180,7 +180,13 @@ impl LinearExpr {
           };
           (step_size, next_typ)
         }
-        Type::Int | Type::Float | Type::Bool | Type::Char | Type::Void | Type::Function { .. } => {
+        Type::Int
+        | Type::Float
+        | Type::Bool
+        | Type::Char
+        | Type::Void
+        | Type::Function { .. }
+        | Type::Vector { .. } => {
           panic!("GEP index out of bounds for type: {:?}", cur_typ)
         }
       };

@@ -126,7 +126,7 @@ impl Canonicalize<'_> {
         LOpData::OGe { lhs, rhs, .. } => Self::fold_float_cmp(lhs, rhs, |l, r| l >= r),
         LOpData::OLe { lhs, rhs, .. } => Self::fold_float_cmp(lhs, rhs, |l, r| l <= r),
       },
-      uni_ops: [Sitofp, Fptosi, Store, Load, Move, LoadIntImm, LoadFloatImm, LoadAddress, Call, Br, Jump, Ret],
+      uni_ops: [Sitofp, Fptosi, Store, Load, Move, LoadIntImm, LoadFloatImm, LoadAddress, Splat, VBuild, VAdd, VMul, VFAdd, VFMul, VLoad, VStore, VReduceAdd, Call, Br, Jump, Ret],
       uni_arm: { None }
     }
   }
@@ -155,7 +155,7 @@ impl Canonicalize<'_> {
         LOpData::OLt { rd, lhs, rhs } if Self::should_swap(lhs, rhs) => Some(LOpData::OGt { rd, lhs: rhs, rhs: lhs }),
         LOpData::OLe { rd, lhs, rhs } if Self::should_swap(lhs, rhs) => Some(LOpData::OGe { rd, lhs: rhs, rhs: lhs }),
       },
-      uni_ops: [AddI, SubI, MulI, DivI, ModI, Xor, And, SNe, SEq, SGt, SLt, SGe, SLe, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, LoadIntImm, LoadFloatImm, LoadAddress, Call, Br, Jump, Ret],
+      uni_ops: [AddI, SubI, MulI, DivI, ModI, Xor, And, SNe, SEq, SGt, SLt, SGe, SLe, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, LoadIntImm, LoadFloatImm, LoadAddress, Splat, VBuild, VAdd, VMul, VFAdd, VFMul, VLoad, VStore, VReduceAdd, Call, Br, Jump, Ret],
       uni_arm: { None }
     }
   }

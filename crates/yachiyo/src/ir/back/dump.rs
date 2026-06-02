@@ -548,6 +548,118 @@ impl AsmFormatCtx<'_> {
           self.format_operand(rs2),
           self.format_operand(offset)
         ),
+        MOpData::VSetVLi { rd, rs1 } => format!(
+          "vsetvli {}, {}, e32, m1, ta, ma",
+          self.format_operand(rd),
+          self.format_operand(rs1)
+        ),
+        MOpData::VAddVV { vd, vs2, vs1 } => format!(
+          "vadd.vv {}, {}, {}",
+          self.format_operand(vd),
+          self.format_operand(vs2),
+          self.format_operand(vs1)
+        ),
+        MOpData::VMulVV { vd, vs2, vs1 } => format!(
+          "vmul.vv {}, {}, {}",
+          self.format_operand(vd),
+          self.format_operand(vs2),
+          self.format_operand(vs1)
+        ),
+        MOpData::VFAddVV { vd, vs2, vs1 } => format!(
+          "vfadd.vv {}, {}, {}",
+          self.format_operand(vd),
+          self.format_operand(vs2),
+          self.format_operand(vs1)
+        ),
+        MOpData::VFMulVV { vd, vs2, vs1 } => format!(
+          "vfmul.vv {}, {}, {}",
+          self.format_operand(vd),
+          self.format_operand(vs2),
+          self.format_operand(vs1)
+        ),
+        MOpData::VMvVX { vd, rs1 } => format!(
+          "vmv.v.x {}, {}",
+          self.format_operand(vd),
+          self.format_operand(rs1)
+        ),
+        MOpData::VMvVV { rd, rs } => format!(
+          "vmv.v.v {}, {}",
+          self.format_operand(rd),
+          self.format_operand(rs)
+        ),
+        MOpData::VFMvVF { vd, fs1 } => format!(
+          "vfmv.v.f {}, {}",
+          self.format_operand(vd),
+          self.format_operand(fs1)
+        ),
+        MOpData::VMulVX { vd, vs2, rs1 } => format!(
+          "vmul.vx {}, {}, {}",
+          self.format_operand(vd),
+          self.format_operand(vs2),
+          self.format_operand(rs1)
+        ),
+        MOpData::VAddVX { vd, vs2, rs1 } => format!(
+          "vadd.vx {}, {}, {}",
+          self.format_operand(vd),
+          self.format_operand(vs2),
+          self.format_operand(rs1)
+        ),
+        MOpData::VFMulVF { vd, vs2, fs1 } => format!(
+          "vfmul.vf {}, {}, {}",
+          self.format_operand(vd),
+          self.format_operand(vs2),
+          self.format_operand(fs1)
+        ),
+        MOpData::VFAddVF { vd, vs2, fs1 } => format!(
+          "vfadd.vf {}, {}, {}",
+          self.format_operand(vd),
+          self.format_operand(vs2),
+          self.format_operand(fs1)
+        ),
+        MOpData::VAddVI { vd, vs2, imm } => format!(
+          "vadd.vi {}, {}, {}",
+          self.format_operand(vd),
+          self.format_operand(vs2),
+          self.format_operand(imm)
+        ),
+        MOpData::VLe32V { vd, base, offset } => format!(
+          "vle32.v {}, {}({})",
+          self.format_operand(vd),
+          self.format_operand(offset),
+          self.format_operand(base)
+        ),
+        MOpData::VSe32V { vs3, base, offset } => format!(
+          "vse32.v {}, {}({})",
+          self.format_operand(vs3),
+          self.format_operand(offset),
+          self.format_operand(base)
+        ),
+        MOpData::VMvSX { vd, rs1 } => format!(
+          "vmv.s.x {}, {}",
+          self.format_operand(vd),
+          self.format_operand(rs1)
+        ),
+        MOpData::VMvSF { vd, fs1 } => format!(
+          "vfmv.s.f {}, {}",
+          self.format_operand(vd),
+          self.format_operand(fs1)
+        ),
+        MOpData::VMvXS { rd, vs2 } => format!(
+          "vmv.x.s {}, {}",
+          self.format_operand(rd),
+          self.format_operand(vs2)
+        ),
+        MOpData::VMvFS { fd, vs2 } => format!(
+          "vfmv.f.s {}, {}",
+          self.format_operand(fd),
+          self.format_operand(vs2)
+        ),
+        MOpData::VRedSumVS { vd, vs2, vs1 } => format!(
+          "vredsum.vs {}, {}, {}",
+          self.format_operand(vd),
+          self.format_operand(vs2),
+          self.format_operand(vs1)
+        ),
       },
       BOpData::L(lop) => format!("{lop}"),
     }

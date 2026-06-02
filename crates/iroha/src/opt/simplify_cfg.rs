@@ -237,7 +237,7 @@ impl SimplifyCFG<'_> {
               }
             }
           },
-          uni_ops: [Call, Ret, GEP, Load, Store, GlobalAlloca, Alloca, Declare, Sitofp, Fptosi, Zext, Uitofp, AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Phi],
+          uni_ops: [Call, Ret, GEP, Load, Store, GlobalAlloca, Alloca, Declare, Sitofp, Fptosi, Zext, Uitofp, AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Phi, Splat, VBuild4, VReduceAddI, VReduceAddF],
           uni_arm: {
             unreachable!()
           }

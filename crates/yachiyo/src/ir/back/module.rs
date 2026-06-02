@@ -88,8 +88,7 @@ impl BackIR {
         Some(rd) => match rd {
           BOperand::Reg(Reg::Virt(_)) => *rd,
           // RAUW only works for SSA form values.
-          BOperand::Reg(Reg::X(_))
-          | BOperand::Reg(Reg::F(_))
+          BOperand::Reg(_)
           | BOperand::Data(_)
           | BOperand::Bss(_)
           | BOperand::IntImm(_)
@@ -190,8 +189,7 @@ impl BackIR {
         Some(rd) => match rd {
           BOperand::Reg(Reg::Virt(_)) => *rd,
           // RAUW only works for SSA form values.
-          BOperand::Reg(Reg::X(_))
-          | BOperand::Reg(Reg::F(_))
+          BOperand::Reg(_)
           | BOperand::Data(_)
           | BOperand::Bss(_)
           | BOperand::IntImm(_)
@@ -286,7 +284,7 @@ impl BackIR {
                     cfg.add_succ(bb, (target_bb, op));
                 }
             },
-            uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, Call, LoadIntImm, LoadFloatImm, LoadAddress, Ret],
+            uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, Call, LoadIntImm, LoadFloatImm, LoadAddress, Splat, VBuild, VAdd, VMul, VFAdd, VFMul, VLoad, VStore, VReduceAdd, Ret],
             uni_arm: {}
         }
       }
@@ -313,7 +311,7 @@ impl BackIR {
                     cfg.add_succ(bb, (offset, op));
                 }
             },
-            uni_ops: [Li, La, Mv, FmvS, Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw, Addiw, Slliw, Srliw, Sraiw, Sllw, Srlw, Sraw, Slt, Slti, Sltu, Sltiu, Xor, Xori, And, Andi, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FcvtWS, FcvtSW, FmvDX, FmvXD, Lw, Sw, Flw, Fsw, Ld, Sd, Fld, Fsd, Call, Ret],
+            uni_ops: [Li, La, Mv, FmvS, Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw, Addiw, Slliw, Srliw, Sraiw, Sllw, Srlw, Sraw, Slt, Slti, Sltu, Sltiu, Xor, Xori, And, Andi, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FcvtWS, FcvtSW, FmvDX, FmvXD, Lw, Sw, Flw, Fsw, Ld, Sd, Fld, Fsd, VSetVLi, VAddVV, VMulVV, VFAddVV, VFMulVV, VMvVX, VMvVV, VFMvVF, VMulVX, VAddVX, VFMulVF, VFAddVF, VAddVI, VLe32V, VSe32V, VMvSX, VMvSF, VMvXS, VMvFS, VRedSumVS, Call, Ret],
             uni_arm: {}
         }
       }
@@ -351,7 +349,7 @@ impl BackIR {
                     cfg.remove_succ(bb, (target_bb, op));
                 }
             },
-            uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, Call, LoadIntImm, LoadFloatImm, LoadAddress, Ret],
+            uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Store, Load, Move, Call, LoadIntImm, LoadFloatImm, LoadAddress, Splat, VBuild, VAdd, VMul, VFAdd, VFMul, VLoad, VStore, VReduceAdd, Ret],
             uni_arm: {}
         }
       }
@@ -378,7 +376,7 @@ impl BackIR {
                     cfg.remove_succ(bb, (offset, op));
                 }
             },
-            uni_ops: [Li, La, Mv, FmvS, Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw, Addiw, Slliw, Srliw, Sraiw, Sllw, Srlw, Sraw, Slt, Slti, Sltu, Sltiu, Xor, Xori, And, Andi, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FcvtWS, FcvtSW, FmvDX, FmvXD, Lw, Sw, Flw, Fsw, Ld, Sd, Fld, Fsd, Call, Ret],
+            uni_ops: [Li, La, Mv, FmvS, Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw, Addiw, Slliw, Srliw, Sraiw, Sllw, Srlw, Sraw, Slt, Slti, Sltu, Sltiu, Xor, Xori, And, Andi, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FcvtWS, FcvtSW, FmvDX, FmvXD, Lw, Sw, Flw, Fsw, Ld, Sd, Fld, Fsd, VSetVLi, VAddVV, VMulVV, VFAddVV, VFMulVV, VMvVX, VMvVV, VFMvVF, VMulVX, VAddVX, VFMulVF, VFAddVF, VAddVI, VLe32V, VSe32V, VMvSX, VMvSF, VMvXS, VMvFS, VRedSumVS, Call, Ret],
             uni_arm: {}
         }
       }
@@ -448,7 +446,7 @@ impl BackIR {
     match data {
       BOpData::L(lop_data) => match_rd! {
           target: lop_data,
-          op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, Move, LoadFloatImm, LoadIntImm, LoadAddress],
+          op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, Move, LoadFloatImm, LoadIntImm, LoadAddress, Splat, VBuild, VLoad],
           rd_arm: LOpData(rd) => {
               match rd {
                   BOperand::Reg(_) => {
@@ -483,8 +481,34 @@ impl BackIR {
               LOpData::Br {..}
               | LOpData::Jump {..}
               | LOpData::Store {..}
+              | LOpData::VStore {..}
               | LOpData::Call {..}
               | LOpData::Ret => {/*do nothing*/},
+              LOpData::VAdd { vd, .. }
+              | LOpData::VMul { vd, .. }
+              | LOpData::VFAdd { vd, .. }
+              | LOpData::VFMul { vd, .. }
+              | LOpData::VReduceAdd { vd, .. } => {
+                  match vd {
+                      BOperand::Reg(_) => {
+                          vregs.add_def(*vd, op_id);
+                      }
+                      BOperand::Undef => {
+                          let new_vreg = vregs.alloc(VirtReg::new(typ.clone()));
+                          *vd = BOperand::Reg(Reg::Virt(new_vreg));
+                          vregs.add_def(BOperand::Reg(Reg::Virt(new_vreg)), op_id);
+                      }
+                      BOperand::Data(_)
+                      | BOperand::RoData(_)
+                      | BOperand::Bss(_)
+                      | BOperand::BB(_)
+                      | BOperand::Slot(_)
+                      | BOperand::IntImm(_)
+                      | BOperand::FloatImm(_)
+                      | BOperand::Func(_)
+                      | BOperand::Inst(_) => unreachable!("Invalid vd operand {:?} in LOpData", vd),
+                  }
+              },
           }
       },
 
@@ -543,7 +567,87 @@ impl BackIR {
               | MOpData::Blt { .. }
               | MOpData::Bge { .. }
               | MOpData::Bltu { .. }
-              | MOpData::Bgeu { .. } => {/*do nothing*/},
+              | MOpData::Bgeu { .. }
+              | MOpData::VSe32V { .. } => {/*do nothing*/},
+              MOpData::VSetVLi { rd, .. }
+              | MOpData::VMvVV { rd, .. }
+              | MOpData::VMvXS { rd, .. } => {
+                  match rd {
+                      BOperand::Reg(_) => {
+                          vregs.add_def(*rd, op_id);
+                      }
+                      BOperand::Undef => {
+                          let new_vreg = vregs.alloc(VirtReg::new(typ.clone()));
+                          *rd = BOperand::Reg(Reg::Virt(new_vreg));
+                          vregs.add_def(BOperand::Reg(Reg::Virt(new_vreg)), op_id);
+                      }
+                      BOperand::Data(_)
+                      | BOperand::RoData(_)
+                      | BOperand::Bss(_)
+                      | BOperand::BB(_)
+                      | BOperand::Slot(_)
+                      | BOperand::IntImm(_)
+                      | BOperand::FloatImm(_)
+                      | BOperand::Func(_)
+                      | BOperand::Inst(_) => unreachable!("Invalid rd operand {:?} in MOpData", rd),
+                  }
+              }
+              MOpData::VMvFS { fd, .. } => {
+                  match fd {
+                      BOperand::Reg(_) => {
+                          vregs.add_def(*fd, op_id);
+                      }
+                      BOperand::Undef => {
+                          let new_vreg = vregs.alloc(VirtReg::new(typ.clone()));
+                          *fd = BOperand::Reg(Reg::Virt(new_vreg));
+                          vregs.add_def(BOperand::Reg(Reg::Virt(new_vreg)), op_id);
+                      }
+                      BOperand::Data(_)
+                      | BOperand::RoData(_)
+                      | BOperand::Bss(_)
+                      | BOperand::BB(_)
+                      | BOperand::Slot(_)
+                      | BOperand::IntImm(_)
+                      | BOperand::FloatImm(_)
+                      | BOperand::Func(_)
+                      | BOperand::Inst(_) => unreachable!("Invalid fd operand {:?} in MOpData", fd),
+                  }
+              }
+              MOpData::VAddVV { vd, .. }
+              | MOpData::VMulVV { vd, .. }
+              | MOpData::VFAddVV { vd, .. }
+              | MOpData::VFMulVV { vd, .. }
+              | MOpData::VMvVX { vd, .. }
+              | MOpData::VFMvVF { vd, .. }
+              | MOpData::VMulVX { vd, .. }
+              | MOpData::VAddVX { vd, .. }
+              | MOpData::VFMulVF { vd, .. }
+              | MOpData::VFAddVF { vd, .. }
+              | MOpData::VAddVI { vd, .. }
+              | MOpData::VLe32V { vd, .. }
+              | MOpData::VMvSX { vd, .. }
+              | MOpData::VMvSF { vd, .. }
+              | MOpData::VRedSumVS { vd, .. } => {
+                  match vd {
+                      BOperand::Reg(_) => {
+                          vregs.add_def(*vd, op_id);
+                      }
+                      BOperand::Undef => {
+                          let new_vreg = vregs.alloc(VirtReg::new(typ.clone()));
+                          *vd = BOperand::Reg(Reg::Virt(new_vreg));
+                          vregs.add_def(BOperand::Reg(Reg::Virt(new_vreg)), op_id);
+                      }
+                      BOperand::Data(_)
+                      | BOperand::RoData(_)
+                      | BOperand::Bss(_)
+                      | BOperand::BB(_)
+                      | BOperand::Slot(_)
+                      | BOperand::IntImm(_)
+                      | BOperand::FloatImm(_)
+                      | BOperand::Func(_)
+                      | BOperand::Inst(_) => unreachable!("Invalid vd operand {:?} in MOpData", vd),
+                  }
+              }
           }
       },
     };

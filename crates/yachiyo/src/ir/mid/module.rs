@@ -578,7 +578,7 @@ impl IR {
                 cfg.add_succ(bb, (target_bb, op));
             }
         },
-        uni_ops: [AddF, SubF, MulF, DivF, AddI, SubI, MulI, DivI, ModI, Load, Store, Alloca, Phi, GlobalAlloca, Call, GEP, Sitofp, Fptosi, Uitofp, Zext, Ret, Shl, Shr, Sar, SNe, SEq, Xor, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Declare],
+        uni_ops: [AddF, SubF, MulF, DivF, AddI, SubI, MulI, DivI, ModI, Load, Store, Alloca, Phi, GlobalAlloca, Call, GEP, Sitofp, Fptosi, Uitofp, Zext, Splat, VBuild4, VReduceAddI, VReduceAddF, Ret, Shl, Shr, Sar, SNe, SEq, Xor, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Declare],
         uni_arm: {}
     }
   }
@@ -612,7 +612,7 @@ impl IR {
                 cfg.remove_succ(bb, (target_bb, op));
             }
         },
-        uni_ops: [AddF, SubF, MulF, DivF, AddI, SubI, MulI, DivI, ModI, Load, Store, Alloca, Phi, GlobalAlloca, Call, GEP, Sitofp, Fptosi, Uitofp, Zext, Ret, Shl, Shr, Sar, SNe, SEq, Xor, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Declare],
+        uni_ops: [AddF, SubF, MulF, DivF, AddI, SubI, MulI, DivI, ModI, Load, Store, Alloca, Phi, GlobalAlloca, Call, GEP, Sitofp, Fptosi, Uitofp, Zext, Splat, VBuild4, VReduceAddI, VReduceAddF, Ret, Shl, Shr, Sar, SNe, SEq, Xor, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Declare],
         uni_arm: {}
     }
   }
@@ -632,7 +632,7 @@ impl IR {
                 Operand::Global(op_id)
             }
         },
-        uni_ops: [AddF, SubF, MulF, DivF, AddI, SubI, MulI, DivI, ModI, Load, Store, Alloca, Phi, Call, GEP, Sitofp, Fptosi, Uitofp, Zext, Ret, Shl, Shr, Sar, SNe, SEq, Xor, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Jump, Br],
+        uni_ops: [AddF, SubF, MulF, DivF, AddI, SubI, MulI, DivI, ModI, Load, Store, Alloca, Phi, Call, GEP, Sitofp, Fptosi, Uitofp, Zext, Splat, VBuild4, VReduceAddI, VReduceAddF, Ret, Shl, Shr, Sar, SNe, SEq, Xor, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Jump, Br],
         uni_arm: {
           let current_function =
             current_function.unwrap();
@@ -665,9 +665,9 @@ impl IR {
             op_id
           };
 
-            self.add_uses(Some(current_function), op_id);
-            self.add_control_flow(Some(current_function), op_id, current_block);
-            op_id
+          self.add_uses(Some(current_function), op_id);
+          self.add_control_flow(Some(current_function), op_id, current_block);
+          op_id
         }
     }
   }

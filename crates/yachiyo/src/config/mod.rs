@@ -1,6 +1,6 @@
 //! Configuration for the compiler.
 
-use crate::ir::back::{FReg, XReg};
+use crate::ir::back::{FReg, VReg, XReg};
 
 pub const STK_FRM_ALIGN: u32 = 16; // 16 bytes for minimum
 pub const RISCV_BITS: u32 = 64;
@@ -75,6 +75,43 @@ pub const CALLEE_SAVED_FREGS: &[FReg] = &[
   FReg::Fs10,
   FReg::Fs11,
 ];
+pub const CALLEE_SAVED_VREGS: &[VReg] = &[];
+pub const CALLER_SAVED_VREGS: &[VReg] = &[
+  VReg::V0,
+  VReg::V1,
+  VReg::V2,
+  VReg::V3,
+  VReg::V4,
+  VReg::V5,
+  VReg::V6,
+  VReg::V7,
+  VReg::V8,
+  VReg::V9,
+  VReg::V10,
+  VReg::V11,
+  VReg::V12,
+  VReg::V13,
+  VReg::V14,
+  VReg::V15,
+  VReg::V16,
+  VReg::V17,
+  VReg::V18,
+  VReg::V19,
+  VReg::V20,
+  VReg::V21,
+  VReg::V22,
+  VReg::V23,
+  VReg::V24,
+  VReg::V25,
+  VReg::V26,
+  VReg::V27,
+  VReg::V28,
+  VReg::V29,
+  VReg::V30,
+  VReg::V31,
+];
+
 pub const COLOR_XREGS: usize = CALLER_SAVED_XREGS.len() + CALLEE_SAVED_XREGS.len();
 pub const COLOR_FREGS: usize = CALLER_SAVED_FREGS.len() + CALLEE_SAVED_FREGS.len();
-pub const REGS_NUM: usize = 64;
+pub const COLOR_VREGS: usize = CALLER_SAVED_VREGS.len() + CALLEE_SAVED_VREGS.len();
+pub const REGS_NUM: usize = 96;

@@ -33,14 +33,14 @@ impl BDCE<'_> {
                     enu: BOperand,
                     minor_arms: {
                         BOperand::Reg(Reg::Virt(_)) => vregs[*rd].uses.is_empty(),
-                        BOperand::Reg(Reg::X(_) | Reg::F(_)) => false,
+                        BOperand::Reg(Reg::X(_) | Reg::F(_) | Reg::V(_)) => false,
                     },
                     uni_ops: [Undef, BB, IntImm, FloatImm, Inst, Func, Data, RoData, Bss, Slot],
                     uni_arm: false
                 }
             }
             BOperand::Reg(Reg::Virt(_)) => vregs[operand].uses.is_empty(),
-            BOperand::Reg(Reg::X(_) | Reg::F(_)) => false,
+            BOperand::Reg(Reg::X(_) | Reg::F(_) | Reg::V(_)) => false,
         },
         uni_ops: [Undef, BB, IntImm, FloatImm, Inst, Func, Data, RoData, Bss, Slot],
         uni_arm: false
@@ -152,6 +152,32 @@ impl<'a> BPass<'a> for BDCE<'a> {
                   LOpData::Move { src, .. } => {
                       check(self, src);
                   }
+                  LOpData::Splat { value, .. } => {
+                      check(self, value);
+                  }
+                  LOpData::VBuild { values, .. } => {
+                      for value in values {
+                          check(self, value);
+                      }
+                  }
+                  LOpData::VAdd { vs1, vs2, .. }
+                  | LOpData::VMul { vs1, vs2, .. }
+                  | LOpData::VFAdd { vs1, vs2, .. }
+                  | LOpData::VFMul { vs1, vs2, .. } => {
+                      check(self, vs1);
+                      check(self, vs2);
+                  }
+                  LOpData::VLoad { addr, .. } => {
+                      check(self, addr);
+                  }
+                  LOpData::VStore { addr, value } => {
+                      check(self, addr);
+                      check(self, value);
+                  }
+                  LOpData::VReduceAdd { vs2, init, .. } => {
+                      check(self, vs2);
+                      check(self, init);
+                  }
                   LOpData::Br { cond, .. } => {
                       check(self, cond);
                   }
@@ -211,6 +237,7 @@ impl<'a> BPass<'a> for BDCE<'a> {
                       check(self, offset);
                   }
 
+
                   MOpData::Beq { rs1, rs2, offset }
                   | MOpData::Bne { rs1, rs2, offset }
                   | MOpData::Blt { rs1, rs2, offset }
@@ -226,6 +253,51 @@ impl<'a> BPass<'a> for BDCE<'a> {
                   }
                   MOpData::J { target } => {
                       check(self, target);
+                  }
+                  MOpData::VSetVLi { rs1, .. } => {
+                      check(self, rs1);
+                  }
+                  MOpData::VAddVV { vs2, vs1, .. }
+                  | MOpData::VMulVV { vs2, vs1, .. }
+                  | MOpData::VFAddVV { vs2, vs1, .. }
+                  | MOpData::VFMulVV { vs2, vs1, .. }
+                  | MOpData::VRedSumVS { vs2, vs1, .. } => {
+                      check(self, vs2);
+                      check(self, vs1);
+                  }
+                  MOpData::VMvVV { rd, rs } => {
+                      check(self, rd);
+                      check(self, rs);
+                  }
+                  MOpData::VMvVX { rs1, .. } | MOpData::VMvSX { rs1, .. } => {
+                      check(self, rs1);
+                  }
+                  MOpData::VFMvVF { fs1, .. } | MOpData::VMvSF { fs1, .. } => {
+                      check(self, fs1);
+                  }
+                  MOpData::VMulVX { vs2, rs1, .. } | MOpData::VAddVX { vs2, rs1, .. } => {
+                      check(self, vs2);
+                      check(self, rs1);
+                  }
+                  MOpData::VFMulVF { vs2, fs1, .. } | MOpData::VFAddVF { vs2, fs1, .. } => {
+                      check(self, vs2);
+                      check(self, fs1);
+                  }
+                  MOpData::VAddVI { vs2, imm, .. } => {
+                      check(self, vs2);
+                      check(self, imm);
+                  }
+                  MOpData::VLe32V { base, offset, .. } => {
+                      check(self, base);
+                      check(self, offset);
+                  }
+                  MOpData::VSe32V { vs3, base, offset } => {
+                      check(self, vs3);
+                      check(self, base);
+                      check(self, offset);
+                  }
+                  MOpData::VMvXS { vs2, .. } | MOpData::VMvFS { vs2, .. } => {
+                      check(self, vs2);
                   }
                   MOpData::Li { .. }
                   | MOpData::La { .. }

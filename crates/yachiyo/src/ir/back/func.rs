@@ -153,7 +153,7 @@ impl VRegs {
         enu: BOperand,
         minor_arms: {
             BOperand::Reg(Reg::Virt(id)) => id,
-            BOperand::Reg(Reg::X(_) | Reg::F(_)) => return,
+            BOperand::Reg(Reg::X(_) | Reg::F(_) | Reg::V(_)) => return,
         },
         uni_ops: [IntImm, FloatImm, Func, Inst, Slot, Data, RoData, Bss, BB, Undef],
         uni_arm: return
@@ -171,7 +171,7 @@ impl VRegs {
         enu: BOperand,
         minor_arms: {
             BOperand::Reg(Reg::Virt(id)) => id,
-            BOperand::Reg(Reg::X(_) | Reg::F(_)) => return,
+            BOperand::Reg(Reg::X(_) | Reg::F(_) | Reg::V(_)) => return,
         },
         uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, Bss, BB, Undef],
         uni_arm: return
@@ -193,7 +193,7 @@ impl VRegs {
         enu: BOperand,
         minor_arms: {
             BOperand::Reg(Reg::Virt(id)) => id,
-            BOperand::Reg(Reg::X(_) | Reg::F(_)) => return,
+            BOperand::Reg(Reg::X(_) | Reg::F(_) | Reg::V(_)) => return,
         },
         uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, Bss, BB, Undef],
         uni_arm: return
@@ -214,8 +214,7 @@ impl VRegs {
         enu: BOperand,
         minor_arms: {
             BOperand::Reg(Reg::Virt(id)) => id,
-            BOperand::Reg(Reg::X(_))
-            | BOperand::Reg(Reg::F(_)) => return,
+            BOperand::Reg(Reg::X(_) | Reg::F(_) | Reg::V(_)) => return,
         },
         uni_ops: [IntImm, FloatImm, Inst, Func, Slot, Data, RoData, Bss, BB, Undef],
         uni_arm: return
@@ -462,6 +461,65 @@ impl Arena<BFunction> for BCG {
                                             remap_with_vregs(src, &old_arena_vregs);
                                         }
                                     },
+                                    LOpData::Splat { rd, value } => {
+                                        if rd.is_virt() {
+                                            remap_with_vregs(rd, &old_arena_vregs);
+                                        }
+                                        if value.is_virt() {
+                                            remap_with_vregs(value, &old_arena_vregs);
+                                        }
+                                    }
+                                    LOpData::VBuild { rd, values } => {
+                                        if rd.is_virt() {
+                                            remap_with_vregs(rd, &old_arena_vregs);
+                                        }
+                                        for value in values {
+                                            if value.is_virt() {
+                                                remap_with_vregs(value, &old_arena_vregs);
+                                            }
+                                        }
+                                    }
+                                    LOpData::VAdd { vd, vs1, vs2 }
+                                    | LOpData::VMul { vd, vs1, vs2 }
+                                    | LOpData::VFAdd { vd, vs1, vs2 }
+                                    | LOpData::VFMul { vd, vs1, vs2 } => {
+                                        if vd.is_virt() {
+                                            remap_with_vregs(vd, &old_arena_vregs);
+                                        }
+                                        if vs1.is_virt() {
+                                            remap_with_vregs(vs1, &old_arena_vregs);
+                                        }
+                                        if vs2.is_virt() {
+                                            remap_with_vregs(vs2, &old_arena_vregs);
+                                        }
+                                    }
+                                    LOpData::VLoad { rd, addr } => {
+                                        if rd.is_virt() {
+                                            remap_with_vregs(rd, &old_arena_vregs);
+                                        }
+                                        if addr.is_virt() {
+                                            remap_with_vregs(addr, &old_arena_vregs);
+                                        }
+                                    }
+                                    LOpData::VStore { addr, value } => {
+                                        if addr.is_virt() {
+                                            remap_with_vregs(addr, &old_arena_vregs);
+                                        }
+                                        if value.is_virt() {
+                                            remap_with_vregs(value, &old_arena_vregs);
+                                        }
+                                    }
+                                    LOpData::VReduceAdd { vd, vs2, init } => {
+                                        if vd.is_virt() {
+                                            remap_with_vregs(vd, &old_arena_vregs);
+                                        }
+                                        if vs2.is_virt() {
+                                            remap_with_vregs(vs2, &old_arena_vregs);
+                                        }
+                                        if init.is_virt() {
+                                            remap_with_vregs(init, &old_arena_vregs);
+                                        }
+                                    }
                                     LOpData::Jump { target_bb } => {
                                         remap_with_cfg(target_bb, &old_arena_cfg);
                                     }
@@ -579,6 +637,128 @@ impl Arena<BFunction> for BCG {
                                         }
                                         if offset.is_virt() {
                                           remap_with_vregs(offset, &old_arena_vregs);
+                                        }
+                                    }
+                                    MOpData::VSetVLi { rd, rs1 } => {
+                                        if rd.is_virt() {
+                                            remap_with_vregs(rd, &old_arena_vregs);
+                                        }
+                                        if rs1.is_virt() {
+                                            remap_with_vregs(rs1, &old_arena_vregs);
+                                        }
+                                    }
+                                    MOpData::VMvVV { rd, rs } => {
+                                        if rd.is_virt() {
+                                            remap_with_vregs(rd, &old_arena_vregs);
+                                        }
+                                        if rs.is_virt() {
+                                            remap_with_vregs(rs, &old_arena_vregs);
+                                        }
+                                    }
+                                    MOpData::VAddVV { vd, vs2, vs1 }
+                                    | MOpData::VMulVV { vd, vs2, vs1 }
+                                    | MOpData::VFAddVV { vd, vs2, vs1 }
+                                    | MOpData::VFMulVV { vd, vs2, vs1 }
+                                    | MOpData::VRedSumVS { vd, vs2, vs1 } => {
+                                        if vd.is_virt() {
+                                            remap_with_vregs(vd, &old_arena_vregs);
+                                        }
+                                        if vs2.is_virt() {
+                                            remap_with_vregs(vs2, &old_arena_vregs);
+                                        }
+                                        if vs1.is_virt() {
+                                            remap_with_vregs(vs1, &old_arena_vregs);
+                                        }
+                                    }
+                                    MOpData::VMvVX { vd, rs1 }
+                                    | MOpData::VMvSX { vd, rs1 } => {
+                                        if vd.is_virt() {
+                                            remap_with_vregs(vd, &old_arena_vregs);
+                                        }
+                                        if rs1.is_virt() {
+                                            remap_with_vregs(rs1, &old_arena_vregs);
+                                        }
+                                    }
+                                    MOpData::VFMvVF { vd, fs1 }
+                                    | MOpData::VMvSF { vd, fs1 } => {
+                                        if vd.is_virt() {
+                                            remap_with_vregs(vd, &old_arena_vregs);
+                                        }
+                                        if fs1.is_virt() {
+                                            remap_with_vregs(fs1, &old_arena_vregs);
+                                        }
+                                    }
+                                    MOpData::VMulVX { vd, vs2, rs1 }
+                                    | MOpData::VAddVX { vd, vs2, rs1 } => {
+                                        if vd.is_virt() {
+                                            remap_with_vregs(vd, &old_arena_vregs);
+                                        }
+                                        if vs2.is_virt() {
+                                            remap_with_vregs(vs2, &old_arena_vregs);
+                                        }
+                                        if rs1.is_virt() {
+                                            remap_with_vregs(rs1, &old_arena_vregs);
+                                        }
+                                    }
+                                    MOpData::VFMulVF { vd, vs2, fs1 }
+                                    | MOpData::VFAddVF { vd, vs2, fs1 } => {
+                                        if vd.is_virt() {
+                                            remap_with_vregs(vd, &old_arena_vregs);
+                                        }
+                                        if vs2.is_virt() {
+                                            remap_with_vregs(vs2, &old_arena_vregs);
+                                        }
+                                        if fs1.is_virt() {
+                                            remap_with_vregs(fs1, &old_arena_vregs);
+                                        }
+                                    }
+                                    MOpData::VAddVI { vd, vs2, imm } => {
+                                        if vd.is_virt() {
+                                            remap_with_vregs(vd, &old_arena_vregs);
+                                        }
+                                        if vs2.is_virt() {
+                                            remap_with_vregs(vs2, &old_arena_vregs);
+                                        }
+                                        if imm.is_virt() {
+                                            remap_with_vregs(imm, &old_arena_vregs);
+                                        }
+                                    }
+                                    MOpData::VLe32V { vd, base, offset } => {
+                                        if vd.is_virt() {
+                                            remap_with_vregs(vd, &old_arena_vregs);
+                                        }
+                                        if base.is_virt() {
+                                            remap_with_vregs(base, &old_arena_vregs);
+                                        }
+                                        if offset.is_virt() {
+                                            remap_with_vregs(offset, &old_arena_vregs);
+                                        }
+                                    }
+                                    MOpData::VSe32V { vs3, base, offset } => {
+                                        if vs3.is_virt() {
+                                            remap_with_vregs(vs3, &old_arena_vregs);
+                                        }
+                                        if base.is_virt() {
+                                            remap_with_vregs(base, &old_arena_vregs);
+                                        }
+                                        if offset.is_virt() {
+                                            remap_with_vregs(offset, &old_arena_vregs);
+                                        }
+                                    }
+                                    MOpData::VMvXS { rd, vs2 } => {
+                                        if rd.is_virt() {
+                                            remap_with_vregs(rd, &old_arena_vregs);
+                                        }
+                                        if vs2.is_virt() {
+                                            remap_with_vregs(vs2, &old_arena_vregs);
+                                        }
+                                    }
+                                    MOpData::VMvFS { fd, vs2 } => {
+                                        if fd.is_virt() {
+                                            remap_with_vregs(fd, &old_arena_vregs);
+                                        }
+                                        if vs2.is_virt() {
+                                            remap_with_vregs(vs2, &old_arena_vregs);
                                         }
                                     }
                                     MOpData::Ret => {}

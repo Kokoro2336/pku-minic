@@ -78,6 +78,7 @@ fn type_alignment(typ: &Type) -> u32 {
     Type::Int | Type::Float => 4,
     Type::Pointer { .. } => Type::Int.with_ptr().size(),
     Type::Array { base, .. } => type_alignment(base),
+    Type::Vector { .. } => typ.align(),
     Type::Function { .. } => 1,
   }
 }
@@ -99,6 +100,7 @@ impl Dump for Type {
           }
           write!(s, "{}", current)?;
         }
+        Type::Vector { base, elems } => write!(s, "<{} x {}>", elems, dump_type(base)?)?,
         Type::Char => write!(s, "i8")?,
         Type::Function { .. } => todo!("dump type {:?}", typ),
       }
@@ -668,6 +670,76 @@ impl Dump for Op {
             }
           }
         }
+      }
+      OpData::Splat { value } => {
+        let elem_ty = match &self.typ {
+          Type::Vector { base, .. } => (**base).clone(),
+          _ => operand_type(value, ctx, Type::Int),
+        };
+        write!(
+          s,
+          "vector.splat {} {} to {}",
+          elem_ty.dump_to_llvm(ctx)?,
+          value.dump_to_llvm(ctx)?,
+          self.typ.dump_to_llvm(ctx)?
+        )?
+      }
+      OpData::VBuild4 { lanes } => {
+        let elem_ty = match &self.typ {
+          Type::Vector { base, .. } => (**base).clone(),
+          _ => Type::Int,
+        };
+        write!(s, "vector.build {} [", self.typ.dump_to_llvm(ctx)?)?;
+        for (i, lane) in lanes.iter().enumerate() {
+          write!(
+            s,
+            "{} {}",
+            elem_ty.dump_to_llvm(ctx)?,
+            lane.dump_to_llvm(ctx)?
+          )?;
+          if i < lanes.len() - 1 {
+            write!(s, ", ")?;
+          }
+        }
+        write!(s, "]")?;
+      }
+      OpData::VReduceAddI { vector, init } => {
+        let vector_ty = operand_type(
+          vector,
+          ctx,
+          Type::Vector {
+            base: Box::new(Type::Int),
+            elems: 4,
+          },
+        );
+        let init_ty = operand_type(init, ctx, Type::Int);
+        write!(
+          s,
+          "vector.reduce.add.i {} {}, {} {}",
+          vector_ty.dump_to_llvm(ctx)?,
+          vector.dump_to_llvm(ctx)?,
+          init_ty.dump_to_llvm(ctx)?,
+          init.dump_to_llvm(ctx)?
+        )?
+      }
+      OpData::VReduceAddF { vector, init } => {
+        let vector_ty = operand_type(
+          vector,
+          ctx,
+          Type::Vector {
+            base: Box::new(Type::Float),
+            elems: 4,
+          },
+        );
+        let init_ty = operand_type(init, ctx, Type::Float);
+        write!(
+          s,
+          "vector.reduce.add.f {} {}, {} {}",
+          vector_ty.dump_to_llvm(ctx)?,
+          vector.dump_to_llvm(ctx)?,
+          init_ty.dump_to_llvm(ctx)?,
+          init.dump_to_llvm(ctx)?
+        )?
       }
       OpData::Xor { lhs, rhs } => write!(
         s,

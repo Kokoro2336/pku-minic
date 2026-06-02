@@ -108,6 +108,10 @@ impl From<&OpData> for CanonicalExpr {
       | OpData::Ret { .. }
       | OpData::Br { .. }
       | OpData::Jump { .. }
+      | OpData::Splat { .. }
+      | OpData::VBuild4 { .. }
+      | OpData::VReduceAddI { .. }
+      | OpData::VReduceAddF { .. }
       | OpData::GlobalAlloca(_) => CanonicalExpr::None,
     }
   }

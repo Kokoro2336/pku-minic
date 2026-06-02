@@ -98,7 +98,9 @@ impl BOperand {
   #[inline(always)]
   pub fn get_phys_reg(&self) -> Reg {
     match self {
-      BOperand::Reg(reg @ Reg::X(_)) | BOperand::Reg(reg @ Reg::F(_)) => *reg,
+      BOperand::Reg(reg @ Reg::X(_))
+      | BOperand::Reg(reg @ Reg::F(_))
+      | BOperand::Reg(reg @ Reg::V(_)) => *reg,
       _ => panic!("Not a physical register operand: {:?}", self),
     }
   }
@@ -145,7 +147,10 @@ impl BOperand {
   }
   #[inline(always)]
   pub fn is_phys(&self) -> bool {
-    matches!(self, BOperand::Reg(Reg::X(_)) | BOperand::Reg(Reg::F(_)))
+    matches!(
+      self,
+      BOperand::Reg(Reg::X(_)) | BOperand::Reg(Reg::F(_)) | BOperand::Reg(Reg::V(_))
+    )
   }
   #[inline(always)]
   pub fn is_virt(&self) -> bool {
@@ -317,17 +322,23 @@ impl BDFG {
     match &bop.data {
       BOpData::L(lop_data) => match_rd! {
           target: lop_data,
-          op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, LoadAddress, Move],
+          op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, LoadAddress, Move, Splat, VBuild, VLoad],
           rd_arm: LOpData(rd) => {
               Some((rd, 0))
           },
           fallback: {
               // For other LOpData which doesn't have rd field (e.g. Call and Store), we return Undef.
               LOpData::Store {..}
+              | LOpData::VStore {..}
               | LOpData::Call {..}
               | LOpData::Br {..}
               | LOpData::Jump {..}
               | LOpData::Ret => None,
+              LOpData::VAdd { vd, .. }
+              | LOpData::VMul { vd, .. }
+              | LOpData::VFAdd { vd, .. }
+              | LOpData::VFMul { vd, .. }
+              | LOpData::VReduceAdd { vd, .. } => Some((vd, 0)),
           }
       },
       BOpData::M(mop_data) => match_rd! {
@@ -364,7 +375,27 @@ impl BDFG {
               | MOpData::Blt {..}
               | MOpData::Bge {..}
               | MOpData::Bltu {..}
-              | MOpData::Bgeu {..} => None,
+              | MOpData::Bgeu {..}
+              | MOpData::VSe32V { .. } => None,
+              MOpData::VSetVLi { rd, .. }
+              | MOpData::VMvVV { rd, .. }
+              | MOpData::VMvXS { rd, .. } => Some((rd, 0)),
+              MOpData::VMvFS { fd, .. } => Some((fd, 0)),
+              MOpData::VAddVV { vd, .. }
+              | MOpData::VMulVV { vd, .. }
+              | MOpData::VFAddVV { vd, .. }
+              | MOpData::VFMulVV { vd, .. }
+              | MOpData::VMvVX { vd, .. }
+              | MOpData::VFMvVF { vd, .. }
+              | MOpData::VMulVX { vd, .. }
+              | MOpData::VAddVX { vd, .. }
+              | MOpData::VFMulVF { vd, .. }
+              | MOpData::VFAddVF { vd, .. }
+              | MOpData::VAddVI { vd, .. }
+              | MOpData::VLe32V { vd, .. }
+              | MOpData::VMvSX { vd, .. }
+              | MOpData::VMvSF { vd, .. }
+              | MOpData::VRedSumVS { vd, .. } => Some((vd, 0)),
           }
       },
     }
@@ -380,17 +411,23 @@ impl BDFG {
     match &mut bop.data {
       BOpData::L(lop_data) => match_rd! {
           target: lop_data,
-          op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, LoadAddress, Move],
+          op_with_rds: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe, Sitofp, Fptosi, Load, LoadFloatImm, LoadIntImm, LoadAddress, Move, Splat, VBuild, VLoad],
           rd_arm: LOpData(rd) => {
               Some((rd, 0))
           },
           fallback: {
               // For other LOpData which doesn't have rd field (e.g. Call and Store), we return Undef.
               LOpData::Store {..}
+              | LOpData::VStore {..}
               | LOpData::Call {..}
               | LOpData::Br {..}
               | LOpData::Jump {..}
               | LOpData::Ret => None,
+              LOpData::VAdd { vd, .. }
+              | LOpData::VMul { vd, .. }
+              | LOpData::VFAdd { vd, .. }
+              | LOpData::VFMul { vd, .. }
+              | LOpData::VReduceAdd { vd, .. } => Some((vd, 0)),
           }
       },
       BOpData::M(mop_data) => match_rd! {
@@ -427,7 +464,27 @@ impl BDFG {
               | MOpData::Blt {..}
               | MOpData::Bge {..}
               | MOpData::Bltu {..}
-              | MOpData::Bgeu {..} => None,
+              | MOpData::Bgeu {..}
+              | MOpData::VSe32V { .. } => None,
+              MOpData::VSetVLi { rd, .. }
+              | MOpData::VMvVV { rd, .. }
+              | MOpData::VMvXS { rd, .. } => Some((rd, 0)),
+              MOpData::VMvFS { fd, .. } => Some((fd, 0)),
+              MOpData::VAddVV { vd, .. }
+              | MOpData::VMulVV { vd, .. }
+              | MOpData::VFAddVV { vd, .. }
+              | MOpData::VFMulVV { vd, .. }
+              | MOpData::VMvVX { vd, .. }
+              | MOpData::VFMvVF { vd, .. }
+              | MOpData::VMulVX { vd, .. }
+              | MOpData::VAddVX { vd, .. }
+              | MOpData::VFMulVF { vd, .. }
+              | MOpData::VFAddVF { vd, .. }
+              | MOpData::VAddVI { vd, .. }
+              | MOpData::VLe32V { vd, .. }
+              | MOpData::VMvSX { vd, .. }
+              | MOpData::VMvSF { vd, .. }
+              | MOpData::VRedSumVS { vd, .. } => Some((vd, 0)),
           }
       },
     }
@@ -461,6 +518,19 @@ impl BDFG {
               LOpData::Store { addr, value, .. } => vec![(addr, 0), (value, 1)],
               LOpData::Load { addr, .. } => vec![(addr, 1)],
               LOpData::Move { src, .. } => vec![(src, 1)],
+              LOpData::Splat { value, .. } => vec![(value, 1)],
+              LOpData::VBuild { values, .. } => values
+                .iter()
+                .enumerate()
+                .map(|(idx, value)| (value, idx + 1))
+                .collect(),
+              LOpData::VAdd { vs1, vs2, .. }
+              | LOpData::VMul { vs1, vs2, .. }
+              | LOpData::VFAdd { vs1, vs2, .. }
+              | LOpData::VFMul { vs1, vs2, .. } => vec![(vs1, 1), (vs2, 2)],
+              LOpData::VLoad { addr, .. } => vec![(addr, 1)],
+              LOpData::VStore { addr, value } => vec![(addr, 0), (value, 1)],
+              LOpData::VReduceAdd { vs2, init, .. } => vec![(vs2, 1), (init, 2)],
               LOpData::Br { cond, .. } => vec![(cond, 0)],
               LOpData::Call { .. }
               | LOpData::Jump { .. }
@@ -521,6 +591,25 @@ impl BDFG {
               | MOpData::Call { .. }
               | MOpData::Ret
               | MOpData::J { .. } => vec![],
+              MOpData::VSetVLi { rs1, .. } => vec![(rs1, 1)],
+              MOpData::VMvVV { rs, .. } => vec![(rs, 1)],
+              MOpData::VAddVV { vs2, vs1, .. }
+              | MOpData::VMulVV { vs2, vs1, .. }
+              | MOpData::VFAddVV { vs2, vs1, .. }
+              | MOpData::VFMulVV { vs2, vs1, .. }
+              | MOpData::VRedSumVS { vs2, vs1, .. } => vec![(vs2, 1), (vs1, 2)],
+              MOpData::VMvVX { rs1, .. } | MOpData::VMvSX { rs1, .. } => vec![(rs1, 1)],
+              MOpData::VFMvVF { fs1, .. } | MOpData::VMvSF { fs1, .. } => vec![(fs1, 1)],
+              MOpData::VMulVX { vs2, rs1, .. } | MOpData::VAddVX { vs2, rs1, .. } => {
+                vec![(vs2, 1), (rs1, 2)]
+              }
+              MOpData::VFMulVF { vs2, fs1, .. } | MOpData::VFAddVF { vs2, fs1, .. } => {
+                vec![(vs2, 1), (fs1, 2)]
+              }
+              MOpData::VAddVI { vs2, imm, .. } => vec![(vs2, 1), (imm, 2)],
+              MOpData::VLe32V { base, offset, .. } => vec![(base, 1), (offset, 2)],
+              MOpData::VSe32V { vs3, base, offset } => vec![(vs3, 0), (base, 1), (offset, 2)],
+              MOpData::VMvXS { vs2, .. } | MOpData::VMvFS { vs2, .. } => vec![(vs2, 1)],
           }
       },
     }
@@ -558,6 +647,19 @@ impl BDFG {
               LOpData::Store { addr, value, .. } => vec![(addr, 0), (value, 1)],
               LOpData::Load { addr, .. } => vec![(addr, 1)],
               LOpData::Move { src, .. } => vec![(src, 1)],
+              LOpData::Splat { value, .. } => vec![(value, 1)],
+              LOpData::VBuild { values, .. } => values
+                .iter_mut()
+                .enumerate()
+                .map(|(idx, value)| (value, idx + 1))
+                .collect(),
+              LOpData::VAdd { vs1, vs2, .. }
+              | LOpData::VMul { vs1, vs2, .. }
+              | LOpData::VFAdd { vs1, vs2, .. }
+              | LOpData::VFMul { vs1, vs2, .. } => vec![(vs1, 1), (vs2, 2)],
+              LOpData::VLoad { addr, .. } => vec![(addr, 1)],
+              LOpData::VStore { addr, value } => vec![(addr, 0), (value, 1)],
+              LOpData::VReduceAdd { vs2, init, .. } => vec![(vs2, 1), (init, 2)],
               LOpData::Br { cond, .. } => vec![(cond, 0)],
 
               LOpData::Call { .. }
@@ -619,6 +721,25 @@ impl BDFG {
               MOpData::Call { .. }
               | MOpData::Ret
               | MOpData::J { .. } => vec![],
+              MOpData::VSetVLi { rs1, .. } => vec![(rs1, 1)],
+              MOpData::VMvVV { rs, .. } => vec![(rs, 1)],
+              MOpData::VAddVV { vs2, vs1, .. }
+              | MOpData::VMulVV { vs2, vs1, .. }
+              | MOpData::VFAddVV { vs2, vs1, .. }
+              | MOpData::VFMulVV { vs2, vs1, .. }
+              | MOpData::VRedSumVS { vs2, vs1, .. } => vec![(vs2, 1), (vs1, 2)],
+              MOpData::VMvVX { rs1, .. } | MOpData::VMvSX { rs1, .. } => vec![(rs1, 1)],
+              MOpData::VFMvVF { fs1, .. } | MOpData::VMvSF { fs1, .. } => vec![(fs1, 1)],
+              MOpData::VMulVX { vs2, rs1, .. } | MOpData::VAddVX { vs2, rs1, .. } => {
+                vec![(vs2, 1), (rs1, 2)]
+              }
+              MOpData::VFMulVF { vs2, fs1, .. } | MOpData::VFAddVF { vs2, fs1, .. } => {
+                vec![(vs2, 1), (fs1, 2)]
+              }
+              MOpData::VAddVI { vs2, imm, .. } => vec![(vs2, 1), (imm, 2)],
+              MOpData::VLe32V { base, offset, .. } => vec![(base, 1), (offset, 2)],
+              MOpData::VSe32V { vs3, base, offset } => vec![(vs3, 0), (base, 1), (offset, 2)],
+              MOpData::VMvXS { vs2, .. } | MOpData::VMvFS { vs2, .. } => vec![(vs2, 1)],
           }
       },
     }

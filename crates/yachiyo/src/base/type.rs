@@ -24,6 +24,10 @@ pub enum Type {
     return_type: Box<Type>,
     param_types: Vec<Type>,
   },
+  Vector {
+    base: Box<Type>,
+    elems: usize,
+  },
   // only occurs in SysY lib function
   Char, /*u8*/
 }
@@ -89,6 +93,13 @@ impl Hash for Type {
         base.hash(state);
         dims.hash(state);
       }
+      Type::Vector {
+        base,
+        elems,
+      } => {
+        base.hash(state);
+        elems.hash(state);
+      }
       Type::Function {
         return_type,
         param_types,
@@ -116,6 +127,7 @@ impl std::fmt::Display for Type {
       Type::Float => write!(f, "float"),
       Type::Void => write!(f, "void"),
       Type::Bool => write!(f, "bool"),
+      Type::Vector { base, elems } => write!(f, "<{elems} x {base}>"),
       Type::Array { base, dims } => {
         write!(f, "{}", base)?;
         for dim in dims {
@@ -155,6 +167,7 @@ impl Type {
       Type::Float => 4,
       Type::Void => 0,
       Type::Array { base, dims } => base.size() * dims.iter().product::<u32>(),
+      Type::Vector { base, elems } => base.size() * *elems as u32,
       Type::Pointer { .. } => RISCV_BITS / 8,
       Type::Function { .. } => panic!("Function type has no size"),
       Type::Char => 1,
@@ -168,6 +181,7 @@ impl Type {
       Type::Float => 4,
       Type::Void => 1, // align to 1 byte for void type
       Type::Array { base, .. } => base.align(),
+      Type::Vector { base, elems } => base.align() * *elems as u32,
       Type::Pointer { .. } => RISCV_BITS / 8,
       Type::Function { .. } => panic!("Function type has no alignment"),
       Type::Char => 1,

@@ -467,6 +467,8 @@ impl<'a> BPassContext<'a> {
       BOperand::Reg(reg) => match reg {
         Reg::X(_) => BType::I32,
         Reg::F(_) => BType::F32,
+        // FIXME: Is it correct?
+        Reg::V(_) => BType::V4I32,
         Reg::Virt(_) => self.get_func(func_id).vregs[operand].typ.clone(),
       },
       BOperand::IntImm(_) => BType::I32,

@@ -312,6 +312,141 @@ pub enum MOpData {
     rs2: BOperand,
     offset: BOperand,
   },
+
+  // ==========================================
+  // 6. Vector Instrucitons
+  // ==========================================
+  /// vsetvli rd, rs1, e32, m1, ta, ma
+  VSetVLi {
+    rd: BOperand,
+    rs1: BOperand,
+  },
+
+  /// vadd.vv vd, vs2, vs1
+  VAddVV {
+    vd: BOperand,
+    vs2: BOperand,
+    vs1: BOperand,
+  },
+
+  /// vmul.vv vd, vs2, vs1
+  VMulVV {
+    vd: BOperand,
+    vs2: BOperand,
+    vs1: BOperand,
+  },
+
+  /// vfadd.vv vd, vs2, vs1
+  VFAddVV {
+    vd: BOperand,
+    vs2: BOperand,
+    vs1: BOperand,
+  },
+
+  /// vfmul.vv vd, vs2, vs1
+  VFMulVV {
+    vd: BOperand,
+    vs2: BOperand,
+    vs1: BOperand,
+  },
+
+  /// vmv.v.x vd, rs1
+  VMvVX {
+    vd: BOperand,
+    rs1: BOperand,
+  },
+
+  /// Move between vector register
+  VMvVV {
+    rd: BOperand,
+    rs: BOperand,
+  },
+
+  /// vfmv.v.f vd, fs1
+  VFMvVF {
+    vd: BOperand,
+    fs1: BOperand,
+  },
+
+  /// vmul.vx vd, vs2, rs1
+  VMulVX {
+    vd: BOperand,
+    vs2: BOperand,
+    rs1: BOperand,
+  },
+
+  /// vadd.vx vd, vs2, rs1
+  VAddVX {
+    vd: BOperand,
+    vs2: BOperand,
+    rs1: BOperand,
+  },
+
+  /// vfmul.vf vd, vs2, fs1
+  VFMulVF {
+    vd: BOperand,
+    vs2: BOperand,
+    fs1: BOperand,
+  },
+
+  /// vfadd.vf vd, vs2, fs1
+  VFAddVF {
+    vd: BOperand,
+    vs2: BOperand,
+    fs1: BOperand,
+  },
+
+  /// vadd.vi vd, vs2, imm
+  VAddVI {
+    vd: BOperand,
+    vs2: BOperand,
+    imm: BOperand,
+  },
+
+  /// vle32.v vd, (base)
+  VLe32V {
+    vd: BOperand,
+    base: BOperand,
+    offset: BOperand,
+  },
+
+  /// vse32.v vs3, (base)
+  VSe32V {
+    vs3: BOperand,
+    base: BOperand,
+    offset: BOperand,
+  },
+
+  /// vmv.s.x vd, rs1
+  VMvSX {
+    vd: BOperand,
+    rs1: BOperand,
+  },
+
+  /// vfmv.s.f vd, fs1
+  VMvSF {
+    vd: BOperand,
+    fs1: BOperand,
+  },
+
+  /// vmv.x.s rd, vs2
+  VMvXS {
+    rd: BOperand,
+    vs2: BOperand,
+  },
+
+  /// vfmv.f.s fd, vs2
+  VMvFS {
+    fd: BOperand,
+    vs2: BOperand,
+  },
+
+  /// vredsum.vs vd, vs2, vs1
+  VRedSumVS {
+    vd: BOperand,
+    vs2: BOperand,
+    vs1: BOperand,
+  },
 }
 
 impl MOpData {
@@ -322,6 +457,8 @@ impl MOpData {
         | MOpData::Fsw { .. }
         | MOpData::Sd { .. }
         | MOpData::Fsd { .. }
+        | MOpData::VSetVLi { .. }
+        | MOpData::VSe32V { .. }
         | MOpData::J { .. }
         | MOpData::Call { .. }
         | MOpData::Bnez { .. }

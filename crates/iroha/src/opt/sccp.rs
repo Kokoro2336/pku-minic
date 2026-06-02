@@ -308,7 +308,13 @@ impl SCCP<'_> {
             }
         },
         fallback: {
-            OpData::GEP { .. } | OpData::Load { .. } | OpData::Call { .. } => {
+            OpData::GEP { .. }
+            | OpData::Load { .. }
+            | OpData::Call { .. }
+            | OpData::Splat { .. }
+            | OpData::VBuild4 { .. }
+            | OpData::VReduceAddI { .. }
+            | OpData::VReduceAddF { .. } => {
                 // TODO: We are not able to fold these instructions for now.
                 self.lattices[op_id.get_op_id()] = Lattice::Bottom;
 

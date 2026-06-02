@@ -78,56 +78,62 @@ impl GenLetElse {
 
       Pat::List(elems) => self.gen_elems(cx, value, elems, else_body, stmts),
 
-      Pat::Op { name, operands } => match name.to_string().as_str() {
-        "AddI" | "SubI" | "MulI" | "DivI" | "ModI" | "AddF" | "SubF" | "MulF" | "DivF" | "SLe"
-        | "SLt" | "SGe" | "SGt" | "SEq" | "SNe" | "OLe" | "OLt" | "OGe" | "OGt" | "OEq" | "ONe"
-        | "Xor" | "Shl" | "Shr" | "Sar" => {
-          self.gen_binop(cx, value, name, operands, else_body, stmts);
-        }
+      Pat::Op { name, operands } => {
+        stmts.push(quote! {
+          let Operand::Value(_) = #value else #else_body;
+        });
 
-        "Sitofp" | "Fptosi" | "Zext" | "Uitofp" => {
-          self.gen_unop(cx, value, name, operands, else_body, stmts);
-        }
+        match name.to_string().as_str() {
+          "AddI" | "SubI" | "MulI" | "DivI" | "ModI" | "AddF" | "SubF" | "MulF" | "DivF" | "SLe"
+          | "SLt" | "SGe" | "SGt" | "SEq" | "SNe" | "OLe" | "OLt" | "OGe" | "OGt" | "OEq" | "ONe"
+          | "Xor" | "Shl" | "Shr" | "Sar" => {
+            self.gen_binop(cx, value, name, operands, else_body, stmts);
+          }
 
-        "Load" => {
-          self.gen_load(cx, value, name, operands, else_body, stmts);
-        }
+          "Sitofp" | "Fptosi" | "Zext" | "Uitofp" => {
+            self.gen_unop(cx, value, name, operands, else_body, stmts);
+          }
 
-        "GEP" => {
-          self.gen_gep(cx, value, name, operands, else_body, stmts);
-        }
+          "Load" => {
+            self.gen_load(cx, value, name, operands, else_body, stmts);
+          }
 
-        "Br" => {
-          self.gen_br(cx, value, name, operands, else_body, stmts);
-        }
+          "GEP" => {
+            self.gen_gep(cx, value, name, operands, else_body, stmts);
+          }
 
-        "Jump" => {
-          self.gen_jump(cx, value, name, operands, else_body, stmts);
-        }
+          "Br" => {
+            self.gen_br(cx, value, name, operands, else_body, stmts);
+          }
 
-        "Call" => {
-          self.gen_call(cx, value, name, operands, else_body, stmts);
-        }
+          "Jump" => {
+            self.gen_jump(cx, value, name, operands, else_body, stmts);
+          }
 
-        "Store" => {
-          self.gen_store(cx, value, name, operands, else_body, stmts);
-        }
+          "Call" => {
+            self.gen_call(cx, value, name, operands, else_body, stmts);
+          }
 
-        "Alloca" => {
-          self.gen_alloca(cx, value, name, operands, else_body, stmts);
-        }
+          "Store" => {
+            self.gen_store(cx, value, name, operands, else_body, stmts);
+          }
 
-        "Phi" => {
-          self.gen_phi(cx, value, name, operands, else_body, stmts);
-        }
+          "Alloca" => {
+            self.gen_alloca(cx, value, name, operands, else_body, stmts);
+          }
 
-        // TODO: For now we only match Ret with an explicit return value.
-        "Ret" => {
-          self.gen_ret(cx, value, name, operands, else_body, stmts);
-        }
+          "Phi" => {
+            self.gen_phi(cx, value, name, operands, else_body, stmts);
+          }
 
-        other => {
-          unimplemented!("unsupported pattern op: {other}");
+          // TODO: For now we only match Ret with an explicit return value.
+          "Ret" => {
+            self.gen_ret(cx, value, name, operands, else_body, stmts);
+          }
+
+          other => {
+            unimplemented!("unsupported pattern op: {other}");
+          }
         }
       },
     }

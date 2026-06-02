@@ -270,6 +270,20 @@ impl Inlining<'_> {
 
           OpData::Alloca(_) => {/*do nothing*/}
 
+          OpData::VBuild4 { lanes } => {
+            lanes.iter_mut().for_each(remap);
+          }
+
+          OpData::Splat { value } => {
+            remap(value);
+          }
+
+          OpData::VReduceAddF { vector, init }
+          | OpData::VReduceAddI { vector, init } => {
+            remap(vector);
+            remap(init);
+          }
+
           | OpData::GlobalAlloca(_)
           | OpData::Declare { .. } => {
               unreachable!();

@@ -98,34 +98,42 @@ impl GenIfLet {
 
       Pat::List(elems) => self.gen_elems(cx, value, elems, body),
 
-      Pat::Op { name, operands } => match name.to_string().as_str() {
-        "AddI" | "SubI" | "MulI" | "DivI" | "ModI" | "AddF" | "SubF" | "MulF" | "DivF" | "SLe"
-        | "SLt" | "SGe" | "SGt" | "SEq" | "SNe" | "OLe" | "OLt" | "OGe" | "OGt" | "OEq" | "ONe"
-        | "Xor" | "Shl" | "Shr" | "Sar" => self.gen_binop(cx, value, name, operands, body),
+      Pat::Op { name, operands } => {
+        let op_quote = match name.to_string().as_str() {
+          "AddI" | "SubI" | "MulI" | "DivI" | "ModI" | "AddF" | "SubF" | "MulF" | "DivF" | "SLe"
+          | "SLt" | "SGe" | "SGt" | "SEq" | "SNe" | "OLe" | "OLt" | "OGe" | "OGt" | "OEq" | "ONe"
+          | "Xor" | "Shl" | "Shr" | "Sar" => self.gen_binop(cx, value.clone(), name, operands, body),
 
-        "Sitofp" | "Fptosi" | "Zext" | "Uitofp" => self.gen_unop(cx, value, name, operands, body),
+          "Sitofp" | "Fptosi" | "Zext" | "Uitofp" => self.gen_unop(cx, value.clone(), name, operands, body),
 
-        "Load" => self.gen_load(cx, value, name, operands, body),
+          "Load" => self.gen_load(cx, value.clone(), name, operands, body),
 
-        "GEP" => self.gen_gep(cx, value, name, operands, body),
+          "GEP" => self.gen_gep(cx, value.clone(), name, operands, body),
 
-        "Br" => self.gen_br(cx, value, name, operands, body),
+          "Br" => self.gen_br(cx, value.clone(), name, operands, body),
 
-        "Jump" => self.gen_jump(cx, value, name, operands, body),
+          "Jump" => self.gen_jump(cx, value.clone(), name, operands, body),
 
-        "Call" => self.gen_call(cx, value, name, operands, body),
+          "Call" => self.gen_call(cx, value.clone(), name, operands, body),
 
-        "Store" => self.gen_store(cx, value, name, operands, body),
+          "Store" => self.gen_store(cx, value.clone(), name, operands, body),
 
-        "Alloca" => self.gen_alloca(cx, value, name, operands, body),
+          "Alloca" => self.gen_alloca(cx, value.clone(), name, operands, body),
 
-        "Phi" => self.gen_phi(cx, value, name, operands, body),
+          "Phi" => self.gen_phi(cx, value.clone(), name, operands, body),
 
-        // TODO: For now we only match Ret with an explicit return value.
-        "Ret" => self.gen_ret(cx, value, name, operands, body),
+          // TODO: For now we only match Ret with an explicit return value.
+          "Ret" => self.gen_ret(cx, value.clone(), name, operands, body),
 
-        other => {
-          unimplemented!("unsupported pattern op: {other}");
+          other => {
+            unimplemented!("unsupported pattern op: {other}");
+          }
+        };
+
+        quote! {
+          if let Operand::Value(_) = #value {
+            #op_quote
+          }
         }
       },
     }

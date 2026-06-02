@@ -203,6 +203,22 @@ pub enum OpData {
   },
   Alloca(Type),
 
+  /// Vector Instructions
+  Splat {
+    value: Operand,
+  },
+  VBuild4 {
+    lanes: [Operand; 4],
+  },
+  VReduceAddI {
+    vector: Operand,
+    init: Operand,
+  },
+  VReduceAddF {
+    vector: Operand,
+    init: Operand,
+  },
+
   /// Control flow
   Call {
     func: Operand,
@@ -366,6 +382,16 @@ impl std::fmt::Display for Op {
       } => write!(f, "br {}, {}, {}", cond, then_bb, else_bb),
       OpData::Jump { target_bb } => write!(f, "jump {}", target_bb),
       OpData::Ret { value } => write!(f, "ret {:?}", value),
+      OpData::Splat { value } => write!(f, "splat {}", value),
+      OpData::VBuild4 { lanes } => {
+        write!(
+          f,
+          "vbuild4 {}, {}, {}, {}",
+          lanes[0], lanes[1], lanes[2], lanes[3]
+        )
+      }
+      OpData::VReduceAddI { vector, init } => write!(f, "vreduce.add.i {}, {}", vector, init),
+      OpData::VReduceAddF { vector, init } => write!(f, "vreduce.add.f {}, {}", vector, init),
     }
   }
 }
@@ -489,6 +515,11 @@ impl DFG {
         | OpData::Alloca(_)
         | OpData::Jump { .. }
         | OpData::Declare { .. } => vec![],
+        OpData::Splat { value } => vec![(value, 0)],
+        OpData::VBuild4 { lanes } => lanes.iter().enumerate().map(|(i, lane)| (lane, i)).collect(),
+        OpData::VReduceAddI { vector, init } | OpData::VReduceAddF { vector, init } => {
+          vec![(vector, 0), (init, 1)]
+        }
       }
     }
   }
@@ -577,6 +608,15 @@ impl DFG {
         | OpData::Alloca(_)
         | OpData::Jump { .. }
         | OpData::Declare { .. } => vec![],
+        OpData::Splat { value } => vec![(value, 0)],
+        OpData::VBuild4 { lanes } => lanes
+          .iter_mut()
+          .enumerate()
+          .map(|(i, lane)| (lane, i))
+          .collect(),
+        OpData::VReduceAddI { vector, init } | OpData::VReduceAddF { vector, init } => {
+          vec![(vector, 0), (init, 1)]
+        }
       }
     }
   }
@@ -757,7 +797,10 @@ pub enum Attr {
   Dead,
   /// For SLP Vectorization.
   #[allow(clippy::upper_case_acronyms)]
-  SLP,
+  Lane {
+    group_id: Operand,
+    lane: usize,
+  },
 }
 
 impl std::fmt::Display for Attr {
@@ -770,7 +813,7 @@ impl std::fmt::Display for Attr {
       Attr::FuncName(name) => write!(f, "<func name: {}>", name),
       Attr::WeakType => write!(f, "<weak>"),
       Attr::Dead => write!(f, "<dead>"),
-      Attr::SLP => write!(f, "<slp>"),
+      Attr::Lane { group_id, lane } => write!(f, "<{}, {}>", group_id, lane),
     }
   }
 }
@@ -856,13 +899,13 @@ impl Arena<Op> for DFG {
         node.attrs.iter_mut().for_each(|attr| {
           match attr {
             Attr::OldIdx(op) => remap_value(op, &old_arena),
+            Attr::Lane { group_id, .. } => remap_value(group_id, &old_arena),
             Attr::GlobalArray { .. }
             | Attr::Name(_)
             | Attr::Promotion
             | Attr::FuncName(_)
             | Attr::WeakType
-            | Attr::Dead
-            | Attr::SLP => { /* no idx to rewrite */ }
+            | Attr::Dead => { /* no idx to rewrite */ }
           }
         });
 
@@ -919,6 +962,18 @@ impl Arena<Op> for DFG {
                             remap_value(value, &old_arena);
                         }
                     }
+                }
+                OpData::Splat { value } => {
+                    remap_value(value, &old_arena);
+                }
+                OpData::VBuild4 { lanes } => {
+                    for lane in lanes.iter_mut() {
+                        remap_value(lane, &old_arena);
+                    }
+                }
+                OpData::VReduceAddI { vector, init } | OpData::VReduceAddF { vector, init } => {
+                    remap_value(vector, &old_arena);
+                    remap_value(init, &old_arena);
                 }
 
                 OpData::GlobalAlloca(_)

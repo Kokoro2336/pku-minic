@@ -229,6 +229,7 @@ impl StrengthReduct<'_> {
             ONe, OEq, OGt, OLt, OGe, OLe,
             Sitofp, Fptosi, Store, Load, Move,
             LoadIntImm, LoadFloatImm, LoadAddress,
+            Splat, VBuild, VAdd, VMul, VFAdd, VFMul, VLoad, VStore, VReduceAdd,
             Call, Br, Jump, Ret
           ],
           uni_arm: {}

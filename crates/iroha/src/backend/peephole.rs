@@ -34,7 +34,7 @@ impl Peephole<'_> {
                       }
                   }
               },
-              uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Store, Xor, And, Shl, Sar, Shr, AddF, SubF, MulF, DivF, Sitofp, Fptosi, Load, LoadIntImm, LoadFloatImm, LoadAddress, Call, Br, Jump, Ret],
+              uni_ops: [AddI, SubI, MulI, DivI, ModI, SNe, SEq, SGt, SLt, SGe, SLe, ONe, OEq, OGt, OLt, OGe, OLe, Store, Xor, And, Shl, Sar, Shr, AddF, SubF, MulF, DivF, Sitofp, Fptosi, Load, LoadIntImm, LoadFloatImm, LoadAddress, Splat, VBuild, VAdd, VMul, VFAdd, VFMul, VLoad, VStore, VReduceAdd, Call, Br, Jump, Ret],
               uni_arm: {}
           },
           BOpData::M(mop_data) => match_some! {
@@ -51,8 +51,13 @@ impl Peephole<'_> {
                           self.cx.remove_op(inst_id);
                       }
                   }
+                  MOpData::VMvVV { rd, rs } => {
+                      if rd == rs {
+                          self.cx.remove_op(inst_id);
+                      }
+                  }
               },
-              uni_ops: [Li, La, Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw, Sllw, Sraw, Srlw, Slt, Slti, Sltu, Sltiu, Addiw, Slliw, Srliw, Sraiw, Xor, Xori, And, Andi, FmvS, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FcvtSW, FcvtWS, FmvDX, FmvXD, Lw, Sw, Flw, Ld, Sd, Fld, Fsd, Fsw, J, Bnez, Beqz, Ret, Bne, Beq, Blt, Bge, Bltu, Bgeu, Call],
+              uni_ops: [Li, La, Add, Sub, Addi, Addw, Subw, Mulw, Divw, Remw, Sllw, Sraw, Srlw, Slt, Slti, Sltu, Sltiu, Addiw, Slliw, Srliw, Sraiw, Xor, Xori, And, Andi, FmvS, FaddS, FsubS, FmulS, FdivS, FeqS, FltS, FleS, FcvtSW, FcvtWS, FmvDX, FmvXD, Lw, Sw, Flw, Ld, Sd, Fld, Fsd, Fsw, J, Bnez, Beqz, Ret, Bne, Beq, Blt, Bge, Bltu, Bgeu, Call, VSetVLi, VAddVV, VMulVV, VFAddVV, VFMulVV, VMvVX, VFMvVF, VMulVX, VAddVX, VFMulVF, VFAddVF, VAddVI, VLe32V, VSe32V, VMvSX, VMvSF, VMvXS, VMvFS, VRedSumVS],
               uni_arm: {}
           },
         }

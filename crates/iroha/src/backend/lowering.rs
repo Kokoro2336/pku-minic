@@ -316,7 +316,11 @@ impl Lowering {
       .map(|param_type| match param_type {
         Type::Float => Reg::F(f_params.remove(0)),
         Type::Bool | Type::Int | Type::Pointer { .. } => Reg::X(x_params.remove(0)),
-        Type::Array { .. } | Type::Function { .. } | Type::Void | Type::Char => {
+        Type::Array { .. }
+        | Type::Function { .. }
+        | Type::Void
+        | Type::Char
+        | Type::Vector { .. } => {
           unreachable!("Unexpected type: {:?}", param_type)
         }
       })
@@ -346,73 +350,188 @@ impl Lowering {
         Attr::OldIdx(_)
         | Attr::Promotion
         | Attr::WeakType
-        | Attr::SLP
+        | Attr::Lane { .. }
         | Attr::GlobalArray { .. }
         | Attr::Dead => None,
       })
       .collect();
 
     macro_rules! lower_ops_match {
-            (
-                // target to match
-                target: $target:expr,
+      (
+          // target to match
+          target: $target:expr,
 
-                // list of bin op
-                bin_ops: [ $($bin_op:ident),* $(,)? ],
+          // list of bin op
+          bin_ops: [ $($bin_op:ident),* $(,)? ],
 
-                // list of un op
-                un_ops: [ $($un_op:ident),* $(,)? ],
+          // list of un op
+          un_ops: [ $($un_op:ident),* $(,)? ],
 
-                // other handwritten branches
-                fallback: { $($rest:tt)* }
-            ) => {
-                match $target {
-                    $(
-                        OpData::$bin_op { lhs, rhs } => {
-                            let lhs = self.get(
-                            lhs.clone(),
-                            );
-                            let rhs = self.get(
-                            rhs.clone(),
-                            );
-                            self.create_and_map_lop(op_id.clone(), BOp::new(
-                                typ.clone().into(),
-                                lattr,
-                                LOpData::$bin_op {
-                                    rd: BOperand::Undef,
-                                    lhs,
-                                    rhs,
-                                }
-                                .into(),
-                            ));
-                        },
-                    )*
-                    $(
-                        OpData::$un_op { value } => {
-                            let value = self.get(
-                            value.clone(),
-                            );
-                            self.create_and_map_lop(op_id.clone(), BOp::new(
-                                typ.clone().into(),
-                                lattr,
-                                LOpData::$un_op {
-                                    rd: BOperand::Undef,
-                                    value,
-                                }
-                                .into(),
-                            ));
-                        },
-                    )*
-                    $($rest)*
-                }
-            };
+          // other handwritten branches
+          fallback: { $($rest:tt)* }
+      ) => {
+          match $target {
+              $(
+                  OpData::$bin_op { lhs, rhs } => {
+                      let lhs = self.get(
+                      lhs.clone(),
+                      );
+                      let rhs = self.get(
+                      rhs.clone(),
+                      );
+                      self.create_and_map_lop(op_id.clone(), BOp::new(
+                          typ.clone().into(),
+                          lattr,
+                          LOpData::$bin_op {
+                              rd: BOperand::Undef,
+                              lhs,
+                              rhs,
+                          }
+                          .into(),
+                      ));
+                  },
+              )*
+              $(
+                  OpData::$un_op { value } => {
+                      let value = self.get(
+                      value.clone(),
+                      );
+                      self.create_and_map_lop(op_id.clone(), BOp::new(
+                          typ.clone().into(),
+                          lattr,
+                          LOpData::$un_op {
+                              rd: BOperand::Undef,
+                              value,
+                          }
+                          .into(),
+                      ));
+                  },
+              )*
+              $($rest)*
+          }
+      };
+    }
+
+    if matches!(typ, Type::Vector { .. }) {
+      match &data {
+        OpData::AddI { lhs, rhs } | OpData::AddF { lhs, rhs } => {
+          let lhs = self.get(*lhs);
+          let rhs = self.get(*rhs);
+          let lop_data = match &data {
+            OpData::AddI { .. } => LOpData::VAdd {
+              vd: BOperand::Undef,
+              vs1: lhs,
+              vs2: rhs,
+            },
+            OpData::AddF { .. } => LOpData::VFAdd {
+              vd: BOperand::Undef,
+              vs1: lhs,
+              vs2: rhs,
+            },
+            _ => unreachable!(),
+          };
+          self.create_and_map_lop(op_id, BOp::new(typ.clone().into(), lattr, lop_data.into()));
+          return;
         }
+        OpData::MulI { lhs, rhs } | OpData::MulF { lhs, rhs } => {
+          let lhs = self.get(*lhs);
+          let rhs = self.get(*rhs);
+          let lop_data = match &data {
+            OpData::MulI { .. } => LOpData::VMul {
+              vd: BOperand::Undef,
+              vs1: lhs,
+              vs2: rhs,
+            },
+            OpData::MulF { .. } => LOpData::VFMul {
+              vd: BOperand::Undef,
+              vs1: lhs,
+              vs2: rhs,
+            },
+            _ => unreachable!(),
+          };
+          self.create_and_map_lop(op_id, BOp::new(typ.clone().into(), lattr, lop_data.into()));
+          return;
+        }
+        OpData::Load { addr } => {
+          let addr = self.get(*addr);
+          self.create_and_map_lop(
+            op_id,
+            BOp::new(
+              typ.clone().into(),
+              lattr,
+              LOpData::VLoad {
+                rd: BOperand::Undef,
+                addr,
+              }
+              .into(),
+            ),
+          );
+          return;
+        }
+        _ => {}
+      }
+    }
+
+    if let OpData::Store { addr, value } = &data {
+      if matches!(self.get_op_type(*value), Type::Vector { .. }) {
+        let addr = self.get(*addr);
+        let value = self.get(*value);
+        self.create_and_map_lop(
+          op_id,
+          BOp::new(
+            Type::Void.into(),
+            lattr,
+            LOpData::VStore { addr, value }.into(),
+          ),
+        );
+        return;
+      }
+    }
 
     lower_ops_match! {
         target: data,
         bin_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, Shl, Shr, Sar, ONe, OEq, OGt, OLt, OGe, OLe],
         un_ops: [Sitofp, Fptosi],
         fallback: {
+            OpData::Splat { value } => {
+                let value = self.get(value);
+                self.create_and_map_lop(op_id, BOp::new(
+                    typ.clone().into(),
+                    lattr,
+                    LOpData::Splat {
+                        rd: BOperand::Undef,
+                        value,
+                    }
+                    .into(),
+                ));
+            },
+            OpData::VBuild4 { lanes } => {
+                let values = lanes.map(|lane| self.get(lane));
+                self.create_and_map_lop(op_id, BOp::new(
+                    typ.clone().into(),
+                    lattr,
+                    LOpData::VBuild {
+                        rd: BOperand::Undef,
+                        values,
+                    }
+                    .into(),
+                ));
+            },
+            OpData::VReduceAddI { vector, init }
+            | OpData::VReduceAddF { vector, init } => {
+                let vector = self.get(vector);
+                let init = self.get(init);
+                self.create_and_map_lop(op_id, BOp::new(
+                    typ.clone().into(),
+                    lattr,
+                    LOpData::VReduceAdd {
+                        vd: BOperand::Undef,
+                        vs2: vector,
+                        init,
+                    }
+                    .into(),
+                ));
+            },
             // For bool -> float, we replace it with int -> float.
             OpData::Uitofp { value } => {
                 let value = self.get(value);
@@ -513,13 +632,13 @@ impl Lowering {
                 let implicit_use = BAttr::ImplicitUse(param_regs.iter().map(|reg| match reg {
                     Reg::X(xreg) => BOperand::Reg(Reg::X(*xreg)),
                     Reg::F(freg) => BOperand::Reg(Reg::F(*freg)),
-                    Reg::Virt(_) => unreachable!(),
+                    Reg::Virt(_) | Reg::V(_) => unreachable!(),
                 }).collect());
                 let implicit_def = match ret_typ {
                     Type::Float => Some(BAttr::ImplicitDef(BOperand::Reg(Reg::F(FReg::Fa0)))),
                     Type::Bool | Type::Int | Type::Pointer { .. } => Some(BAttr::ImplicitDef(BOperand::Reg(Reg::X(XReg::A0)))),
                     Type::Void => None,
-                    Type::Array { .. } | Type::Function { .. } | Type::Char => {
+                    Type::Array { .. } | Type::Function { .. } | Type::Char | Type::Vector {..} => {
                         unreachable!("Unexpected return type: {:?}", ret_typ)
                     }
                 };
@@ -585,7 +704,7 @@ impl Lowering {
                     let phys_reg = match ret_typ {
                         Type::Float => Reg::F(FReg::Fa0),
                         Type::Bool | Type::Int | Type::Pointer { .. } => Reg::X(XReg::A0),
-                        Type::Array { .. } | Type::Function { .. } | Type::Void | Type::Char => {
+                        Type::Array { .. } | Type::Function { .. } | Type::Void | Type::Char | Type::Vector {..} => {
                             unreachable!("Unexpected return type: {:?}", ret_typ)
                         }
                     };
@@ -704,7 +823,7 @@ impl Lowering {
                     let rd = match move_typ {
                         Type::Float => Reg::F(FReg::Fa0),
                         Type::Bool | Type::Int | Type::Pointer { .. } => Reg::X(XReg::A0),
-                        Type::Array { .. } | Type::Function { .. } | Type::Void | Type::Char => {
+                        Type::Array { .. } | Type::Function { .. } | Type::Void | Type::Char | Type::Vector {..} => {
                             unreachable!("Unexpected return type: {:?}", move_typ)
                         }
                     };
@@ -1030,7 +1149,7 @@ impl Lowering {
                 let typ = match typ {
                   Type::Bool => Type::Int,
                   Type::Array { .. } | Type::Int | Type::Float | Type::Pointer { .. } => typ,
-                  Type::Function { .. } | Type::Void | Type::Char => {
+                  Type::Function { .. } | Type::Void | Type::Char | Type::Vector { .. } => {
                     unreachable!("Function, Void and Char type should not be in the global array")
                   }
                 };
@@ -1059,8 +1178,8 @@ impl Lowering {
                 Type::Pointer { .. } => {
                   unimplemented!("Uninitialized global pointer is not supported yet")
                 }
-                Type::Function { .. } | Type::Void | Type::Char => {
-                  unreachable!("Function type should not be in the global array")
+                Type::Function { .. } | Type::Void | Type::Char | Type::Vector { .. } => {
+                  unreachable!("{:?} should not be in the global array", typ)
                 }
               },
             };
@@ -1101,14 +1220,14 @@ impl Lowering {
                     Type::Array { .. } => unimplemented!(
                       "Multi-dimensional array without initializer is not supported yet"
                     ),
-                    Type::Function { .. } | Type::Void | Type::Char => {
-                      unreachable!("Function, Void and Char type should not be in the global array")
+                    Type::Function { .. } | Type::Void | Type::Char | Type::Vector { .. } => {
+                      unreachable!("{:?} type should not be in the global array", base)
                     }
                   };
                   vec![base_value; dims.iter().product::<u32>() as usize]
                 }
-                Type::Function { .. } | Type::Void | Type::Char => {
-                  unreachable!("Function type should not be in the global array")
+                Type::Function { .. } | Type::Void | Type::Char | Type::Vector { .. } => {
+                  unreachable!("{:?} should not be in the global array", typ)
                 }
               };
               let rodata = RoData::new(typ, values);

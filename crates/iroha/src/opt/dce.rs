@@ -170,6 +170,20 @@ impl<'a> Pass<'a> for DCE<'a> {
                   }
                 }
 
+                OpData::Splat { value } => {
+                  check(self, &value);
+                }
+
+                OpData::VBuild4 { lanes } => {
+                  lanes.iter().for_each(|lane| check(self, lane));
+                }
+
+                OpData::VReduceAddF { vector, init }
+                | OpData::VReduceAddI { vector, init } => {
+                  check(self, &vector);
+                  check(self, &init);
+                }
+
                 OpData::Call { args, .. } => {
                   for arg in args.iter() {
                     check(self, arg);

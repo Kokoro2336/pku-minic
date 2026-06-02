@@ -200,6 +200,49 @@ pub enum LOpData {
     addr: BOperand,
   },
 
+  /// Vector Instruction
+  Splat {
+    rd: BOperand,
+    value: BOperand,
+  },
+  VBuild {
+    rd: BOperand,
+    values: [BOperand; 4],
+  },
+  VAdd {
+    vd: BOperand,
+    vs1: BOperand,
+    vs2: BOperand,
+  },
+  VMul {
+    vd: BOperand,
+    vs1: BOperand,
+    vs2: BOperand,
+  },
+  VFAdd {
+    vd: BOperand,
+    vs1: BOperand,
+    vs2: BOperand,
+  },
+  VFMul {
+    vd: BOperand,
+    vs1: BOperand,
+    vs2: BOperand,
+  },
+  VLoad {
+    rd: BOperand,
+    addr: BOperand,
+  },
+  VStore {
+    addr: BOperand,
+    value: BOperand,
+  },
+  VReduceAdd {
+    vd: BOperand,
+    vs2: BOperand,
+    init: BOperand,
+  },
+
   /// Control flow
   /// Call has no return value in Lower IR.
   Call {
@@ -239,6 +282,7 @@ impl LOpData {
     matches!(
       self,
       LOpData::Store { .. }
+        | LOpData::VStore { .. }
         | LOpData::Call { .. }
         | LOpData::Br { .. }
         | LOpData::Jump { .. }
@@ -284,6 +328,21 @@ impl std::fmt::Display for LOpData {
       LOpData::LoadIntImm { rd, imm } => write!(f, "loadIntImm {rd}, {imm}"),
       LOpData::LoadFloatImm { rd, imm } => write!(f, "loadFloatImm {rd}, {imm}"),
       LOpData::LoadAddress { rd, addr } => write!(f, "loadAddress {rd}, {addr}"),
+      LOpData::Splat { rd, value } => write!(f, "splat {rd}, {value}"),
+      LOpData::VBuild { rd, values } => write!(
+        f,
+        "vbuild {rd}, [{}, {}, {}, {}]",
+        values[0], values[1], values[2], values[3]
+      ),
+      LOpData::VAdd { vd, vs1, vs2 } => write!(f, "vadd {vd}, {vs1}, {vs2}"),
+      LOpData::VMul { vd, vs1, vs2 } => write!(f, "vmul {vd}, {vs1}, {vs2}"),
+      LOpData::VFAdd { vd, vs1, vs2 } => write!(f, "vfadd {vd}, {vs1}, {vs2}"),
+      LOpData::VFMul { vd, vs1, vs2 } => write!(f, "vfmul {vd}, {vs1}, {vs2}"),
+      LOpData::VLoad { rd, addr } => write!(f, "vload {rd}, {addr}"),
+      LOpData::VStore { addr, value } => write!(f, "vstore {addr}, {value}"),
+      LOpData::VReduceAdd { vd, vs2, init } => {
+        write!(f, "vreduceadd {vd}, {vs2}, {init}")
+      }
       LOpData::Call { func } => write!(f, "call {func}"),
       LOpData::Br {
         cond,

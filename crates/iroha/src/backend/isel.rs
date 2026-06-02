@@ -9,11 +9,13 @@ use yachiyo::utils::{match_full_ops, match_some};
 #[derive(Default)]
 pub struct ISel<'a> {
   cx: BPassContext<'a>,
+  has_vector: bool,
 }
 
 impl ISel<'_> {
   pub fn init(&mut self, func_id: usize) {
     self.cx.set_current_func(BOperand::Func(func_id));
+    self.has_vector = false;
   }
 
   // ======== Atomic Operations ========
@@ -21,6 +23,37 @@ impl ISel<'_> {
   #[inline(always)]
   fn alloc_rodata(&mut self, rodata: RoData) -> BOperand {
     BOperand::RoData(self.cx.ir_mut().rodata_info.alloc(rodata))
+  }
+
+  fn mark_vector(&mut self) {
+    self.has_vector = true;
+  }
+
+  fn emit_entry_vsetvli4(&mut self) {
+    let entry = self.cx.get_cfg().entry.unwrap();
+    self.cx.set_current_block(BOperand::BB(entry));
+    self.cx.set_at_head();
+
+    let avl_op = self.cx.create(BOp::new(
+      BType::I32,
+      vec![],
+      MOpData::Li {
+        rd: BOperand::Undef,
+        imm: 4,
+      }
+      .into(),
+    ));
+    let avl = *self.cx.get_rd(avl_op).unwrap();
+    self.cx.set_after_inst(Some(avl_op));
+    self.cx.create(BOp::new(
+      BType::I32,
+      vec![],
+      MOpData::VSetVLi {
+        rd: BOperand::Reg(Reg::X(XReg::Zero)),
+        rs1: avl,
+      }
+      .into(),
+    ));
   }
 
   pub fn select(&mut self, lop_id: BOperand) {
@@ -196,7 +229,7 @@ impl ISel<'_> {
                             }
                         },
                         // Since we've legalized float immediates in lowering, lhs and rhs can't be literals.
-                        uni_ops: [Sitofp, Fptosi, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, LoadAddress, Ret, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe],
+                        uni_ops: [Sitofp, Fptosi, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, LoadAddress, Splat, VBuild, VAdd, VMul, VFAdd, VFMul, VLoad, VStore, VReduceAdd, Ret, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe],
                         uni_arm: {
                             unreachable!("{:?} should have been legalized in legalization", lop_data)
                         }
@@ -381,7 +414,7 @@ impl ISel<'_> {
                             LOpData::OLt { .. } => MOpData::FltS { rd: BOperand::Undef, rs1, rs2 },
                             LOpData::OLe { .. } => MOpData::FleS { rd: BOperand::Undef, rs1, rs2 },
                         },
-                        uni_ops: [Sitofp, Fptosi, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, LoadAddress, Ret],
+                        uni_ops: [Sitofp, Fptosi, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, LoadAddress, Splat, VBuild, VAdd, VMul, VFAdd, VFMul, VLoad, VStore, VReduceAdd, Ret],
                         uni_arm: {
                             unreachable!("{:?} should have been legalized in legalization", lop_data)
                         }
@@ -400,7 +433,7 @@ impl ISel<'_> {
                     LOpData::Sitofp { .. } => MOpData::FcvtSW { rd: BOperand::Undef, rs: *value },
                     LOpData::Fptosi { .. } => MOpData::FcvtWS { rd: BOperand::Undef, rs: *value },
                 },
-                uni_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, Ret, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, LoadAddress],
+                uni_ops: [AddI, SubI, MulI, DivI, ModI, AddF, SubF, MulF, DivF, SNe, SEq, SGt, SLt, SGe, SLe, Xor, And, Shl, Shr, Sar, Store, Load, Call, Br, Jump, Move, LoadFloatImm, LoadIntImm, Splat, VBuild, VAdd, VMul, VFAdd, VFMul, VLoad, VStore, VReduceAdd, Ret, AddF, SubF, MulF, DivF, ONe, OEq, OGt, OLt, OGe, OLe, LoadAddress],
                 uni_arm: {
                     unreachable!("{:?} should have been legalized in legalization", lop_data)
                 }
@@ -409,6 +442,191 @@ impl ISel<'_> {
             self.cx.replace_op_rauw(lop_id, BOp::new(typ.clone(), attrs, mop_data.into()));
         },
         fallback: {
+            LOpData::Splat { value, .. } => {
+                self.mark_vector();
+                let mop_data = match &typ {
+                    BType::V4I32 => MOpData::VMvVX {
+                        vd: BOperand::Undef,
+                        rs1: *value,
+                    },
+                    BType::V4F32 => MOpData::VFMvVF {
+                        vd: BOperand::Undef,
+                        fs1: *value,
+                    },
+                    _ => unreachable!("Unexpected splat type: {:?}", typ),
+                };
+                self.cx.replace_op_rauw(lop_id, BOp::new(typ.clone(), attrs, mop_data.into()));
+            }
+
+            LOpData::VBuild { values, .. } => {
+                self.mark_vector();
+                let elem_typ = match &typ {
+                    BType::V4I32 => BType::I32,
+                    BType::V4F32 => BType::F32,
+                    _ => unreachable!("Unexpected vbuild type: {:?}", typ),
+                };
+                let slot = self.cx.alloc_slot(Slot::Local {
+                    typ: typ.clone(),
+                    offset: 0,
+                });
+                for (idx, value) in values.iter().enumerate() {
+                    let addr = if idx == 0 {
+                        slot
+                    } else {
+                        let addr_op = self.cx.create(BOp::new(
+                            BType::U64,
+                            vec![BAttr::PtrArith],
+                            LOpData::AddI {
+                                rd: BOperand::Undef,
+                                lhs: BOperand::IntImm((idx * 4) as i32),
+                                rhs: slot,
+                            }
+                            .into(),
+                        ));
+                        *self.cx.get_rd(addr_op).unwrap()
+                    };
+                    self.cx.create(BOp::new(
+                        BType::Void,
+                        vec![],
+                        LOpData::Store {
+                            addr,
+                            value: *value,
+                            val_typ: elem_typ.clone(),
+                        }
+                        .into(),
+                    ));
+                }
+                self.cx.replace_op_rauw(
+                    lop_id,
+                    BOp::new(
+                        typ.clone(),
+                        attrs,
+                        LOpData::VLoad {
+                            rd: BOperand::Undef,
+                            addr: slot,
+                        }
+                        .into(),
+                    ),
+                );
+            }
+
+            LOpData::VAdd { vs1, vs2, .. } => {
+                self.mark_vector();
+                self.cx.replace_op_rauw(lop_id, BOp::new(
+                        typ.clone(),
+                        attrs,
+                        MOpData::VAddVV {
+                            vd: BOperand::Undef,
+                            vs2: *vs2,
+                            vs1: *vs1,
+                        }
+                        .into(),
+                    ),
+                );
+            }
+
+            LOpData::VMul { vs1, vs2, .. } => {
+                self.mark_vector();
+                self.cx.replace_op_rauw(lop_id, BOp::new(
+                        typ.clone(),
+                        attrs,
+                        MOpData::VMulVV {
+                            vd: BOperand::Undef,
+                            vs2: *vs2,
+                            vs1: *vs1,
+                        }
+                        .into(),
+                    ),
+                );
+            }
+
+            LOpData::VFAdd { vs1, vs2, .. } => {
+                self.mark_vector();
+                self.cx.replace_op_rauw(lop_id, BOp::new(
+                        typ.clone(),
+                        attrs,
+                        MOpData::VFAddVV {
+                            vd: BOperand::Undef,
+                            vs2: *vs2,
+                            vs1: *vs1,
+                        }
+                        .into(),
+                    ),
+                );
+            }
+
+            LOpData::VFMul { vs1, vs2, .. } => {
+                self.mark_vector();
+                self.cx.replace_op_rauw(lop_id, BOp::new(
+                        typ.clone(),
+                        attrs,
+                        MOpData::VFMulVV {
+                            vd: BOperand::Undef,
+                            vs2: *vs2,
+                            vs1: *vs1,
+                        }
+                        .into(),
+                    ),
+                );
+            }
+
+            LOpData::VLoad { .. }
+            | LOpData::VStore { .. } => {
+                self.mark_vector();
+            }
+
+            LOpData::VReduceAdd { vs2, init, .. } => {
+                self.mark_vector();
+                let (vec_typ, init_vec_op, extract_op) = match &typ {
+                    BType::I32 => {
+                        let init_vec_op = MOpData::VMvSX {
+                            vd: BOperand::Undef,
+                            rs1: *init,
+                        };
+                        let extract = |red_vec| MOpData::VMvXS {
+                            rd: BOperand::Undef,
+                            vs2: red_vec,
+                        };
+                        (BType::V4I32, init_vec_op, extract as fn(BOperand) -> MOpData)
+                    }
+                    BType::F32 => {
+                        let init_vec_op = MOpData::VMvSF {
+                            vd: BOperand::Undef,
+                            fs1: *init,
+                        };
+                        let extract = |red_vec| MOpData::VMvFS {
+                            fd: BOperand::Undef,
+                            vs2: red_vec,
+                        };
+                        (BType::V4F32, init_vec_op, extract as fn(BOperand) -> MOpData)
+                    }
+                    _ => unreachable!("Unexpected vector reduction result type: {:?}", typ),
+                };
+                let init_vec_op = self.cx.create(BOp::new(
+                    vec_typ.clone(),
+                    vec![],
+                    init_vec_op.into(),
+                ));
+                let init_vec = *self.cx.get_rd(init_vec_op).unwrap();
+                let red_op = self.cx.create(BOp::new(
+                    vec_typ,
+                    vec![],
+                    MOpData::VRedSumVS {
+                        vd: BOperand::Undef,
+                        vs2: *vs2,
+                        vs1: init_vec,
+                    }
+                    .into(),
+                ));
+                let red_vec = *self.cx.get_rd(red_op).unwrap();
+                self.cx.replace_op_rauw(lop_id, BOp::new(
+                        typ.clone(),
+                        attrs,
+                        extract_op(red_vec).into(),
+                    ),
+                );
+            }
+
             LOpData::Store {..}
             | LOpData::Load {..} => {/*do nothing. Store/Load will be lowered in Post-RA later. */}
 
@@ -450,12 +668,17 @@ impl ISel<'_> {
                 match rd {
                     // If the destination is a physical register, we must reuse it and never perform rauw on it.
                     BOperand::Reg(Reg::X(_))
-                    | BOperand::Reg(Reg::F(_)) => {
+                    | BOperand::Reg(Reg::F(_))
+                    | BOperand::Reg(Reg::V(_)) => {
                         // For register destination, we can directly use Mv/Fmv.
-                        let mop_data = match typ {
+                        let mop_data = match &typ {
                             BType::I32
                             | BType::U64
                             | BType::Array { .. } => MOpData::Mv { rd: *rd, rs: *src },
+                            BType::V4I32 | BType::V4F32 => {
+                                self.mark_vector();
+                                MOpData::VMvVV { rd: *rd, rs: *src }
+                            },
                             BType::F32 => MOpData::FmvS { rd: *rd, rs: *src },
                             BType::Void | BType::F64 => unreachable!("Move with void type doesn't make sense"),
                         };
@@ -470,10 +693,14 @@ impl ISel<'_> {
                     // Else if the destination is a virtual register, we
                     BOperand::Reg(Reg::Virt(_)) => {
                         let rd = if attrs.contains(&BAttr::PhiMove) { *rd } else { BOperand::Undef };
-                        let mop_data = match typ {
+                        let mop_data = match &typ {
                             BType::I32
                             | BType::U64
                             | BType::Array { .. } => MOpData::Mv { rd, rs: *src },
+                            BType::V4I32 | BType::V4F32 => {
+                                self.mark_vector();
+                                MOpData::VMvVV { rd, rs: *src }
+                            },
                             BType::F32 => MOpData::FmvS { rd, rs: *src },
                             BType::Void | BType::F64 => unreachable!("Move with void type doesn't make sense"),
                         };
@@ -564,6 +791,10 @@ impl<'a> BPass<'a> for ISel<'a> {
         for op_id in cur {
           self.select(op_id);
         }
+      }
+
+      if self.has_vector {
+        self.emit_entry_vsetvli4();
       }
     }
   }
